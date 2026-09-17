@@ -351,7 +351,10 @@ mod tests {
         let session = FileSession::open(file.path().to_path_buf(), 2, 1).unwrap();
         let info = session.info();
 
-        assert_eq!(info.name, file.file_name().to_string_lossy());
+        assert_eq!(
+            info.name,
+            file.path().file_name().unwrap().to_string_lossy()
+        );
         assert_eq!(
             info.path,
             std::fs::canonicalize(file.path())
