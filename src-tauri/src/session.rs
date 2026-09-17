@@ -130,10 +130,14 @@ impl FileSession {
         }
 
         let len = (self.info.size - offset).min(buffer.len() as u64) as usize;
-        let end = offset + len as u64;
-        let mut bytes = self.read_source_range(offset, end)?;
-        self.edits.overlay(offset, &mut bytes);
-        buffer[..len].copy_from_slice(&bytes);
+        let path = Path::new(&self.info.path);
+        self.file
+            .seek(SeekFrom::Start(offset))
+            .map_err(|error| AppError::from_io(error, Some(path)))?;
+        self.file
+            .read_exact(&mut buffer[..len])
+            .map_err(|error| AppError::from_io(error, Some(path)))?;
+        self.edits.overlay(offset, &mut buffer[..len]);
         Ok(len)
     }
 

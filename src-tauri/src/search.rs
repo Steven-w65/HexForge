@@ -310,4 +310,16 @@ mod tests {
 
         assert_eq!(result.matches, vec![0]);
     }
+
+    #[test]
+    fn streaming_search_does_not_populate_the_page_cache() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), vec![0u8; 128]).unwrap();
+        let mut session = FileSession::open(file.path().to_path_buf(), 4, 64).unwrap();
+
+        let result = search_session(&mut session, &[0xff], 5, 10).unwrap();
+
+        assert!(result.matches.is_empty());
+        assert_eq!(session.cache_len(), 0);
+    }
 }

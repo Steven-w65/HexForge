@@ -65,4 +65,35 @@ C:\Users\steve\.cargo\bin\cargo.exe fmt --manifest-path D:\steve\Documents\GitHu
 
 ## Concerns
 
-The Rust test suite could not compile because the environment could not reach `static.crates.io` and the local cache lacks `aho-corasick v1.1.5` (and the online attempt also reported `tao v0.35.3`). `cargo fmt --check` passes. `src-tauri/Cargo.lock` was generated/untracked by the blocked Cargo resolution attempt and is intentionally not part of this task commit.
+The Rust test suite could not compile because the environment could not reach `static.crates.io` and the local cache lacks `aho-corasick v1.1.5` (and the online attempt also reported `tao v0.35.3`). `cargo fmt --check` passes. The generated application lockfile is included in the review-fix commit.
+
+## Review fix: cache-independent streaming reads
+
+### Root cause
+
+`search_session` already streamed by chunk, but `FileSession::read_effective_chunk` delegated to `read_source_range`. That helper calls `source_page`, which inserts each touched page into `PageCache`; with a large cache this retained pages from the entire search and violated the intended O(chunk + pattern + result-cap) memory bound.
+
+### RED test
+
+Added `streaming_search_does_not_populate_the_page_cache` in `src-tauri/src/search.rs`. It searches a 128-byte multi-page file with a 64-page cache and asserts `session.cache_len()` remains zero. The focused test was attempted before the fix with:
+
+```text
+C:\Users\steve\.cargo\bin\cargo.exe test --offline --manifest-path D:\steve\Documents\GitHub\HexForge\src-tauri\Cargo.toml search::tests::streaming_search_does_not_populate_the_page_cache
+error: failed to download `brotli v8.0.4`
+Caused by: attempting to make an HTTP request, but --offline was specified
+```
+
+The registry dependency failure prevented observing the test's runtime RED result.
+
+### Fix and verification
+
+`read_effective_chunk` now seeks and reads directly into the caller-provided bounded buffer, overlays sparse edits in place, and never calls `read_source_range`, `source_page`, or `PageCache`. EOF clamping and existing offset/length validation are unchanged.
+
+Commands run after the fix:
+
+```text
+C:\Users\steve\.cargo\bin\cargo.exe fmt --manifest-path D:\steve\Documents\GitHub\HexForge\src-tauri\Cargo.toml -- --check
+<no output; exit code 0>
+```
+
+Focused/full Rust tests remain blocked by the same unavailable registry dependencies; no retry loop was performed. `src-tauri/Cargo.lock` is included in the fix commit for reproducible application dependency resolution.
