@@ -113,6 +113,30 @@ impl FileSession {
         Ok(self.page_data(start, bytes))
     }
 
+    /// Reads at most `buffer.len()` effective bytes without loading data beyond the buffer.
+    pub fn read_effective_chunk(
+        &mut self,
+        offset: u64,
+        buffer: &mut [u8],
+    ) -> Result<usize, AppError> {
+        if buffer.len() as u64 > MAX_READ_RANGE {
+            return Err(invalid_length("The requested chunk is too large."));
+        }
+        if offset > self.info.size {
+            return Err(invalid_offset("The requested offset is outside the file."));
+        }
+        if buffer.is_empty() || offset == self.info.size {
+            return Ok(0);
+        }
+
+        let len = (self.info.size - offset).min(buffer.len() as u64) as usize;
+        let end = offset + len as u64;
+        let mut bytes = self.read_source_range(offset, end)?;
+        self.edits.overlay(offset, &mut bytes);
+        buffer[..len].copy_from_slice(&bytes);
+        Ok(len)
+    }
+
     pub fn edit_byte(&mut self, offset: u64, value: u8) -> Result<(), AppError> {
         if offset >= self.info.size {
             return Err(invalid_offset("The edit offset is outside the file."));
@@ -258,6 +282,19 @@ mod tests {
         let page = session.read_range(8, 4).unwrap();
         assert_eq!(page.bytes, vec![8, 0xfe, 10, 11]);
         assert_eq!(page.modified_offsets, vec![9]);
+    }
+
+    #[test]
+    fn read_effective_chunk_is_bounded_and_overlays_edits() {
+        let file = fixture((0u8..32).collect());
+        let mut session = FileSession::open(file.path().to_path_buf(), 8, 2).unwrap();
+        session.edit_byte(9, 0xfe).unwrap();
+        let mut buffer = [0u8; 4];
+
+        let read = session.read_effective_chunk(8, &mut buffer).unwrap();
+
+        assert_eq!(read, 4);
+        assert_eq!(buffer, [8, 0xfe, 10, 11]);
     }
 
     #[test]

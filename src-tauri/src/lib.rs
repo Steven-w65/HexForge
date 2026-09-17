@@ -3,6 +3,7 @@ pub const APP_NAME: &str = "HexForge";
 pub mod edit_buffer;
 pub mod error;
 pub mod page_cache;
+pub mod search;
 pub mod session;
 
 pub fn run() {
