@@ -1,0 +1,24 @@
+[package]
+name = "hexforge"
+version = "0.1.0"
+description = "A local-first hex viewer and binary analysis tool"
+authors = ["HexForge contributors"]
+edition = "2021"
+
+[lib]
+name = "hexforge_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = "2"
+
+[dependencies]
+tauri = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+csv = "1"
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
