@@ -5,6 +5,7 @@ pub mod error;
 pub mod page_cache;
 pub mod search;
 pub mod session;
+pub mod template;
 
 pub fn run() {
     tauri::Builder::default()

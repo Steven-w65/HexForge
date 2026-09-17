@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "name": "Firmware Header",
+  "defaultEndianness": "little",
+  "fields": [
+    {
+      "name": "magic",
+      "offset": "0",
+      "type": "bytes",
+      "length": 4,
+      "comment": "Four-byte firmware signature."
+    },
+    {
+      "name": "version",
+      "offset": "4",
+      "type": "u16",
+      "comment": "Format version."
+    },
+    {
+      "name": "flags",
+      "offset": "6",
+      "type": "u16",
+      "comment": "Feature flags."
+    },
+    {
+      "name": "payloadSize",
+      "offset": "8",
+      "type": "u32",
+      "comment": "Payload size in bytes."
+    }
+  ]
+}
