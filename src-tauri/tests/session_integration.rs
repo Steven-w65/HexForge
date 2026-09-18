@@ -13,7 +13,7 @@ fn save_as_applies_edits_without_changing_source() {
     let summary = save_session_as(&mut session, &output, 2).unwrap();
 
     assert_eq!(summary.bytes_written, 4);
-    assert_eq!(summary.destination, output);
+    assert_eq!(summary.destination, std::fs::canonicalize(&output).unwrap());
     assert_eq!(std::fs::read(&source).unwrap(), [1, 2, 3, 4]);
     assert_eq!(std::fs::read(&output).unwrap(), [1, 9, 3, 4]);
     assert!(!session.is_dirty());

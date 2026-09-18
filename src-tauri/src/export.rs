@@ -2,9 +2,9 @@ use crate::edit_buffer::EditBuffer;
 use crate::error::{AppError, ErrorCode};
 use crate::session::{FileSession, MAX_READ_RANGE};
 use crate::template::{Endian, FieldType, ParsedField};
-use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use tempfile::NamedTempFile;
 
 pub const MAX_EXPORT_CHUNK_SIZE: usize = MAX_READ_RANGE as usize;
 
@@ -19,6 +19,19 @@ pub fn save_session_as(
     destination: &Path,
     chunk_size: usize,
 ) -> Result<SaveSummary, AppError> {
+    save_session_as_with_stage(session, destination, chunk_size, create_staged_file)
+}
+
+fn save_session_as_with_stage<S, F>(
+    session: &mut FileSession,
+    destination: &Path,
+    chunk_size: usize,
+    create_stage: F,
+) -> Result<SaveSummary, AppError>
+where
+    S: OwnedStagedOutput,
+    F: FnOnce(&Path) -> Result<S, AppError>,
+{
     let chunk_size = validated_chunk_size(chunk_size)?;
     let source = std::fs::canonicalize(session.source_path())
         .map_err(|error| AppError::from_io(error, Some(session.source_path())))?;
@@ -35,12 +48,12 @@ pub fn save_session_as(
             Some(destination.to_string_lossy().into_owned()),
         ));
     }
+    refuse_existing_destination(&destination)?;
 
-    let mut output = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&destination)
-        .map_err(|error| AppError::from_io(error, Some(&destination)))?;
+    let parent = destination
+        .parent()
+        .expect("normalized destination has a parent");
+    let mut output = create_stage(parent)?;
     let mut progress = |_| {};
     let result = session
         .copy_effective_into(&mut output, chunk_size, &mut progress)
@@ -50,9 +63,16 @@ pub fn save_session_as(
                 .map_err(|error| AppError::from_io(error, Some(&destination)))?;
             Ok(bytes_written)
         });
-    drop(output);
-
-    let bytes_written = cleanup_created_output(&destination, result)?;
+    let bytes_written = match result {
+        Ok(bytes_written) => bytes_written,
+        Err(error) => return Err(cleanup_owned_stage(output, error)),
+    };
+    if let Err((output, error)) = output.persist_noclobber(&destination) {
+        return Err(cleanup_owned_stage(
+            output,
+            AppError::from_io(error, Some(&destination)),
+        ));
+    }
     session.clear_edits();
     Ok(SaveSummary {
         bytes_written,
@@ -61,14 +81,39 @@ pub fn save_session_as(
 }
 
 pub fn export_csv_create_new(path: &Path, fields: &[ParsedField]) -> Result<(), AppError> {
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(path)
-        .map_err(|error| AppError::from_io(error, Some(path)))?;
-    let result = write_csv(&mut file, fields, path);
-    drop(file);
-    cleanup_created_output(path, result)
+    export_csv_create_new_with_stage(path, fields, create_staged_file)
+}
+
+fn export_csv_create_new_with_stage<S, F>(
+    path: &Path,
+    fields: &[ParsedField],
+    create_stage: F,
+) -> Result<(), AppError>
+where
+    S: OwnedStagedOutput,
+    F: FnOnce(&Path) -> Result<S, AppError>,
+{
+    let destination = normalized_destination(path)?;
+    refuse_existing_destination(&destination)?;
+    let parent = destination
+        .parent()
+        .expect("normalized destination has a parent");
+    let mut output = create_stage(parent)?;
+    let result = write_csv(&mut output, fields, &destination).and_then(|_| {
+        output
+            .sync_all()
+            .map_err(|error| AppError::from_io(error, Some(&destination)))
+    });
+    if let Err(error) = result {
+        return Err(cleanup_owned_stage(output, error));
+    }
+    if let Err((output, error)) = output.persist_noclobber(&destination) {
+        return Err(cleanup_owned_stage(
+            output,
+            AppError::from_io(error, Some(&destination)),
+        ));
+    }
+    Ok(())
 }
 
 fn normalized_destination(destination: &Path) -> Result<PathBuf, AppError> {
@@ -82,10 +127,24 @@ fn normalized_destination(destination: &Path) -> Result<PathBuf, AppError> {
                 Some(destination.to_string_lossy().into_owned()),
             )
         })?;
-    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
+    let parent = destination
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
     let canonical_parent =
         std::fs::canonicalize(parent).map_err(|error| AppError::from_io(error, Some(parent)))?;
     Ok(canonical_parent.join(name))
+}
+
+fn refuse_existing_destination(destination: &Path) -> Result<(), AppError> {
+    if destination.exists() {
+        return Err(AppError::new(
+            ErrorCode::DestinationExists,
+            "The destination already exists.",
+            Some(destination.to_string_lossy().into_owned()),
+        ));
+    }
+    Ok(())
 }
 
 fn validated_chunk_size(chunk_size: usize) -> Result<usize, AppError> {
@@ -161,7 +220,9 @@ fn write_csv<W: Write>(
             ])
             .map_err(|error| csv_error(error, path))?;
     }
-    writer.flush().map_err(|error| csv_error(error, path))
+    writer
+        .flush()
+        .map_err(|error| AppError::from_io(error, Some(path)))
 }
 
 fn field_type_name(field_type: &FieldType) -> &'static str {
@@ -197,22 +258,85 @@ fn csv_error(error: csv::Error, path: &Path) -> AppError {
     }
 }
 
-/// Removes a destination only after this operation successfully created it.
-fn cleanup_created_output<T>(path: &Path, result: Result<T, AppError>) -> Result<T, AppError> {
-    if result.is_err() {
-        let _ = std::fs::remove_file(path);
+trait OwnedStagedOutput: Write + Sized {
+    fn path(&self) -> &Path;
+    fn sync_all(&mut self) -> std::io::Result<()>;
+    fn persist_noclobber(self, destination: &Path) -> Result<(), (Self, std::io::Error)>;
+    fn cleanup(self) -> std::io::Result<()>;
+}
+
+struct StagedFile {
+    file: NamedTempFile,
+}
+
+impl Write for StagedFile {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.file.write(bytes)
     }
-    result
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.file.flush()
+    }
+}
+
+impl OwnedStagedOutput for StagedFile {
+    fn path(&self) -> &Path {
+        self.file.path()
+    }
+
+    fn sync_all(&mut self) -> std::io::Result<()> {
+        self.file.as_file_mut().sync_all()
+    }
+
+    fn persist_noclobber(self, destination: &Path) -> Result<(), (Self, std::io::Error)> {
+        match self.file.persist_noclobber(destination) {
+            Ok(_) => Ok(()),
+            Err(error) => Err((Self { file: error.file }, error.error)),
+        }
+    }
+
+    fn cleanup(self) -> std::io::Result<()> {
+        self.file.close()
+    }
+}
+
+fn create_staged_file(parent: &Path) -> Result<StagedFile, AppError> {
+    NamedTempFile::new_in(parent)
+        .map(|file| StagedFile { file })
+        .map_err(|error| AppError::from_io(error, Some(parent)))
+}
+
+fn cleanup_owned_stage<S: OwnedStagedOutput>(stage: S, error: AppError) -> AppError {
+    let temporary_path = stage.path().to_path_buf();
+    match stage.cleanup() {
+        Ok(()) => error,
+        Err(cleanup_error) => AppError::new(
+            error.code,
+            error.message,
+            Some(
+                serde_json::json!({
+                    "temporaryOutput": temporary_path,
+                    "cleanupError": cleanup_error.to_string(),
+                    "originalDetail": error.detail,
+                })
+                .to_string(),
+            ),
+        ),
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{cleanup_created_output, copy_effective, export_csv_create_new};
+    use super::{
+        copy_effective, export_csv_create_new, export_csv_create_new_with_stage,
+        normalized_destination, save_session_as_with_stage, OwnedStagedOutput,
+    };
     use crate::edit_buffer::EditBuffer;
     use crate::error::ErrorCode;
     use crate::session::FileSession;
     use crate::template::{Endian, FieldType, ParsedField};
     use std::io::{self, Cursor, Write};
+    use std::path::Path;
 
     struct FailingWriter {
         remaining: usize,
@@ -244,6 +368,88 @@ mod tests {
 
         fn flush(&mut self) -> io::Result<()> {
             Err(io::Error::other("flush failed"))
+        }
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum StageFault {
+        Write,
+        Flush,
+        Sync,
+        PersistReplacement,
+        Cleanup,
+    }
+
+    struct TestStage {
+        file: tempfile::NamedTempFile,
+        fault: StageFault,
+    }
+
+    impl TestStage {
+        fn new(parent: &Path, fault: StageFault) -> Self {
+            Self {
+                file: tempfile::NamedTempFile::new_in(parent).unwrap(),
+                fault,
+            }
+        }
+    }
+
+    impl Write for TestStage {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if matches!(self.fault, StageFault::Write) {
+                return Err(io::Error::from_raw_os_error(if cfg!(windows) {
+                    112
+                } else {
+                    28
+                }));
+            }
+            self.file.write(bytes)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            if matches!(self.fault, StageFault::Flush) {
+                return Err(io::Error::other("flush failed"));
+            }
+            self.file.flush()
+        }
+    }
+
+    impl OwnedStagedOutput for TestStage {
+        fn path(&self) -> &Path {
+            self.file.path()
+        }
+
+        fn sync_all(&mut self) -> io::Result<()> {
+            if matches!(self.fault, StageFault::Sync | StageFault::Cleanup) {
+                return Err(io::Error::other("sync failed"));
+            }
+            self.file.as_file_mut().sync_all()
+        }
+
+        fn persist_noclobber(self, destination: &Path) -> Result<(), (Self, io::Error)> {
+            if matches!(self.fault, StageFault::PersistReplacement) {
+                std::fs::write(destination, b"replacement").unwrap();
+                return Err((self, io::Error::from(io::ErrorKind::AlreadyExists)));
+            }
+            let fault = self.fault;
+            match self.file.persist_noclobber(destination) {
+                Ok(_) => Ok(()),
+                Err(error) => Err((
+                    Self {
+                        file: error.file,
+                        fault,
+                    },
+                    error.error,
+                )),
+            }
+        }
+
+        fn cleanup(self) -> io::Result<()> {
+            if matches!(self.fault, StageFault::Cleanup) {
+                self.file.close()?;
+                return Err(io::Error::other("cleanup failed"));
+            }
+            self.file.close()
         }
     }
 
@@ -337,16 +543,90 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_created_output_removes_only_the_known_partial_destination() {
+    fn normalized_destination_uses_current_directory_for_a_bare_filename() {
+        let destination = normalized_destination(Path::new("copy.bin")).unwrap();
+
+        assert_eq!(
+            destination,
+            std::fs::canonicalize(".").unwrap().join("copy.bin")
+        );
+    }
+
+    #[test]
+    fn save_as_owned_stage_failures_preserve_source_edits_and_final_destination() {
         let dir = tempfile::tempdir().unwrap();
-        let partial = dir.path().join("partial.bin");
-        std::fs::write(&partial, [1]).unwrap();
-        let expected = crate::error::AppError::new(ErrorCode::IoError, "write failed", None);
+        let source = dir.path().join("source.bin");
+        std::fs::write(&source, [1, 2]).unwrap();
 
-        let error = cleanup_created_output(&partial, Err::<(), _>(expected.clone())).unwrap_err();
+        for fault in [StageFault::Write, StageFault::Flush, StageFault::Sync] {
+            let output = dir.path().join(format!("save-{fault:?}.bin"));
+            let mut session = FileSession::open(source.clone(), 2, 2).unwrap();
+            session.edit_byte(0, 9).unwrap();
 
-        assert_eq!(error, expected);
-        assert!(!partial.exists());
+            let error = save_session_as_with_stage(&mut session, &output, 2, |parent| {
+                Ok(TestStage::new(parent, fault))
+            })
+            .unwrap_err();
+
+            assert!(!output.exists());
+            assert_eq!(std::fs::read(&source).unwrap(), [1, 2]);
+            assert!(session.is_dirty());
+            assert!(matches!(error.code(), "disk_full" | "io_error"));
+        }
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+
+        let output = dir.path().join("persist.bin");
+        let mut session = FileSession::open(source.clone(), 2, 2).unwrap();
+        session.edit_byte(0, 9).unwrap();
+        let error = save_session_as_with_stage(&mut session, &output, 2, |parent| {
+            Ok(TestStage::new(parent, StageFault::PersistReplacement))
+        })
+        .unwrap_err();
+
+        assert_eq!(error.code(), "destination_exists");
+        assert_eq!(std::fs::read(&output).unwrap(), b"replacement");
+        assert_eq!(std::fs::read(&source).unwrap(), [1, 2]);
+        assert!(session.is_dirty());
+    }
+
+    #[test]
+    fn csv_owned_stage_failures_leave_no_partial_final_or_remove_replacement() {
+        let dir = tempfile::tempdir().unwrap();
+
+        for fault in [StageFault::Write, StageFault::Flush, StageFault::Sync] {
+            let output = dir.path().join(format!("csv-{fault:?}.csv"));
+            let error = export_csv_create_new_with_stage(&output, &[parsed_field()], |parent| {
+                Ok(TestStage::new(parent, fault))
+            })
+            .unwrap_err();
+
+            assert!(!output.exists());
+            assert!(matches!(error.code(), "disk_full" | "io_error"));
+        }
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+
+        let output = dir.path().join("persist.csv");
+        let error = export_csv_create_new_with_stage(&output, &[parsed_field()], |parent| {
+            Ok(TestStage::new(parent, StageFault::PersistReplacement))
+        })
+        .unwrap_err();
+
+        assert_eq!(error.code(), "destination_exists");
+        assert_eq!(std::fs::read(output).unwrap(), b"replacement");
+    }
+
+    #[test]
+    fn cleanup_failure_keeps_the_original_error_code_and_records_the_owned_temp_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("cleanup.csv");
+        let error = export_csv_create_new_with_stage(&output, &[parsed_field()], |parent| {
+            Ok(TestStage::new(parent, StageFault::Cleanup))
+        })
+        .unwrap_err();
+
+        assert_eq!(error.code(), "io_error");
+        assert!(!output.exists());
+        assert!(error.detail.unwrap().contains("temporaryOutput"));
     }
 
     #[test]
