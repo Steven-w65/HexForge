@@ -5,13 +5,14 @@ import { HexRenderer, type CanvasLayerSet } from './renderer'
 interface Recording {
   text: Array<{ text: string; color: string }>
   fills: string[]
+  fillAlphas: number[]
   strokes: string[]
   clears: number
   composites: string[]
 }
 
 function recordingContext(name: string, recording: Recording): CanvasRenderingContext2D {
-  const canvas = { width: 0, height: 0, style: {} } as HTMLCanvasElement
+  const canvas = { width: 0, height: 0, style: {}, dataset: { layer: name } } as unknown as HTMLCanvasElement
   return {
     canvas,
     fillStyle: '#000000',
@@ -19,19 +20,23 @@ function recordingContext(name: string, recording: Recording): CanvasRenderingCo
     font: '',
     textBaseline: 'alphabetic',
     lineWidth: 1,
+    globalAlpha: 1,
     setTransform: () => {},
     clearRect: () => { recording.clears += 1 },
-    fillRect(this: CanvasRenderingContext2D) { recording.fills.push(String(this.fillStyle)) },
+    fillRect(this: CanvasRenderingContext2D) {
+      recording.fills.push(String(this.fillStyle))
+      recording.fillAlphas.push(this.globalAlpha)
+    },
     strokeRect(this: CanvasRenderingContext2D) { recording.strokes.push(String(this.strokeStyle)) },
     fillText(this: CanvasRenderingContext2D, text: string) { recording.text.push({ text, color: String(this.fillStyle) }) },
-    drawImage: () => { recording.composites.push(name) },
+    drawImage: (source: CanvasImageSource) => { recording.composites.push((source as HTMLCanvasElement).dataset.layer ?? '?') },
     save: () => {},
     restore: () => {},
   } as unknown as CanvasRenderingContext2D
 }
 
 function fixture() {
-  const recording: Recording = { text: [], fills: [], strokes: [], clears: 0, composites: [] }
+  const recording: Recording = { text: [], fills: [], fillAlphas: [], strokes: [], clears: 0, composites: [] }
   const layers: CanvasLayerSet = {
     visible: recordingContext('visible', recording),
     static: recordingContext('static', recording),
@@ -70,6 +75,10 @@ describe('HexRenderer', () => {
     expect(recording.fills).toContain('#1f6feb')
     expect(recording.fills).toContain('#8b6f2a')
     expect(recording.strokes).toContain('#39c5cf')
+    const selectionFill = recording.fills.indexOf('#1f6feb')
+    const matchFill = recording.fills.indexOf('#8b6f2a')
+    expect(recording.fillAlphas[selectionFill]).toBeLessThan(1)
+    expect(recording.fillAlphas[matchFill]).toBeLessThan(1)
   })
 
   it('scales all backing stores and composites cached layers in order', () => {
@@ -81,6 +90,6 @@ describe('HexRenderer', () => {
     expect(layers.visible.canvas.width).toBe(800)
     expect(layers.content.canvas.height).toBe(440)
     renderer.composite()
-    expect(recording.composites).toEqual(['visible', 'visible', 'visible'])
+    expect(recording.composites).toEqual(['static', 'content', 'overlay'])
   })
 })

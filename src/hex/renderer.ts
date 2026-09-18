@@ -117,10 +117,11 @@ export class HexRenderer {
     context.fillRect(0, layout.headerHeight - 1, width, 1)
   }
 
-  drawContent(page: PageResponse, viewportRow = this.viewportRow): void {
+  drawContent(page: PageResponse | null, viewportRow = this.viewportRow): void {
     const { content: context } = this.layers
     const { width, height, layout, fileSize } = this.metrics
     context.clearRect(0, 0, width, height)
+    if (!page) return
     context.font = `${layout.charWidth * 1.5}px "JetBrains Mono", monospace`
     context.textBaseline = 'middle'
     const pageOffset = BigInt(page.offset)
@@ -168,12 +169,14 @@ export class HexRenderer {
     const { width, height, layout } = this.metrics
     this.viewportRow = state.viewportRow
     context.clearRect(0, 0, width, height)
-    const drawFill = (offset: bigint, color: string) => {
+    const drawFill = (offset: bigint, color: string, alpha = 1) => {
       const cell = this.cell(offset, state.viewportRow)
       if (!cell) return
       context.fillStyle = color
+      context.globalAlpha = alpha
       context.fillRect(cell.hexX, cell.y, layout.byteCellWidth, layout.rowHeight)
       context.fillRect(cell.asciiX, cell.y, layout.charWidth, layout.rowHeight)
+      context.globalAlpha = 1
     }
     const drawRange = (range: ByteSelection | null, color: string, stroke = false) => {
       if (!range) return
@@ -190,16 +193,17 @@ export class HexRenderer {
           context.strokeStyle = color
           context.strokeRect(cell.hexX, cell.y, layout.byteCellWidth, layout.rowHeight)
           context.strokeRect(cell.asciiX, cell.y, layout.charWidth, layout.rowHeight)
-        } else drawFill(offset, color)
+        } else drawFill(offset, color, 0.48)
       }
     }
-    state.matches.forEach((offset) => drawFill(offset, MATCH))
+    state.matches.forEach((offset) => drawFill(offset, MATCH, 0.42))
     drawRange(state.selection, SELECTION)
     drawRange(state.templateRange, TEMPLATE, true)
     for (const offsetValue of state.modifiedOffsets) {
       const cell = this.cell(BigInt(offsetValue), state.viewportRow)
       if (!cell) continue
       context.fillStyle = MODIFIED
+      context.globalAlpha = 1
       context.fillRect(cell.hexX, cell.y + layout.rowHeight - 2, layout.byteCellWidth, 2)
       context.fillRect(cell.asciiX, cell.y + layout.rowHeight - 2, layout.charWidth, 2)
     }

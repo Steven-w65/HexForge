@@ -5,6 +5,7 @@ import { createLayout } from '../hex/layout'
 import HexCanvas from './HexCanvas.vue'
 
 let resizeCallback: ResizeObserverCallback
+let drawnColors: string[]
 
 class TestResizeObserver {
   constructor(callback: ResizeObserverCallback) { resizeCallback = callback }
@@ -17,7 +18,10 @@ function context(): CanvasRenderingContext2D {
   return {
     canvas: null,
     fillStyle: '', strokeStyle: '', font: '', textBaseline: 'alphabetic', lineWidth: 1,
-    clearRect: vi.fn(), fillRect: vi.fn(), strokeRect: vi.fn(), fillText: vi.fn(), drawImage: vi.fn(),
+    globalAlpha: 1,
+    clearRect: vi.fn(), fillRect: vi.fn(), strokeRect: vi.fn(),
+    fillText(this: CanvasRenderingContext2D) { drawnColors.push(String(this.fillStyle)) },
+    drawImage: vi.fn(),
     setTransform: vi.fn(), save: vi.fn(), restore: vi.fn(),
   } as unknown as CanvasRenderingContext2D
 }
@@ -30,6 +34,7 @@ const readyProps = {
   matches: [] as bigint[],
   templateRange: null,
   editMode: false,
+  theme: 'dark' as const,
 }
 
 async function resize(width = 900, height = 500) {
@@ -47,6 +52,7 @@ function point(index: number, bytesPerRow: 16 | 32 = 16) {
 describe('HexCanvas', () => {
   beforeEach(() => {
     resizeCallback = undefined as unknown as ResizeObserverCallback
+    drawnColors = []
     vi.stubGlobal('ResizeObserver', TestResizeObserver)
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1 })
     vi.stubGlobal('cancelAnimationFrame', () => {})
@@ -105,6 +111,23 @@ describe('HexCanvas', () => {
     expect(wrapper.emitted('viewport-offset')?.at(-1)).toEqual([16n])
     const request = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint }
     expect(request.offset).toBe(0n)
+    expect(wrapper.get('.virtual-scrollbar__thumb').attributes('style')).toContain('translateY(')
+    const movedStyle = wrapper.get('.virtual-scrollbar__thumb').attributes('style')
+    expect(movedStyle).not.toContain('translateY(0px)')
+  })
+
+  it('preserves the visible byte offset when changing between 16 and 32 columns', async () => {
+    const wrapper = mount(HexCanvas, { props: readyProps })
+    await resize()
+    await wrapper.get('canvas').trigger('wheel', { deltaY: 100 })
+    await wrapper.get('canvas').trigger('wheel', { deltaY: 100 })
+    expect(wrapper.emitted('viewport-offset')?.at(-1)).toEqual([32n])
+    await wrapper.setProps({ bytesPerRow: 32 })
+    await wrapper.get('canvas').trigger('pointerdown', point(0, 32))
+    expect(wrapper.emitted('select')?.at(-1)).toEqual([{ start: 32n, end: 32n, count: 1n }])
+    await wrapper.setProps({ bytesPerRow: 16 })
+    await wrapper.get('canvas').trigger('pointerdown', point(0, 16))
+    expect(wrapper.emitted('select')?.at(-1)).toEqual([{ start: 32n, end: 32n, count: 1n }])
   })
 
   it('does not draw a page tagged for an earlier request generation', async () => {
@@ -115,6 +138,30 @@ describe('HexCanvas', () => {
     expect(wrapper.get('canvas').attributes('data-page-revision')).toBe('1')
     await resize(920, 500)
     await wrapper.setProps({ page: { offset: first.offset.toString(), bytes: [0x42], modifiedOffsets: [], revision: '2', generation: first.generation } })
+    expect(wrapper.get('canvas').attributes('data-page-revision')).toBeUndefined()
+  })
+
+  it('clears accepted bytes when a new request starts or the page becomes null', async () => {
+    const wrapper = mount(HexCanvas, { props: readyProps })
+    await resize()
+    let request = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint; generation: number }
+    await wrapper.setProps({ page: { offset: request.offset.toString(), bytes: [0x41], modifiedOffsets: [], revision: '1', generation: request.generation } })
     expect(wrapper.get('canvas').attributes('data-page-revision')).toBe('1')
+    await wrapper.get('canvas').trigger('wheel', { deltaY: 100 })
+    expect(wrapper.get('canvas').attributes('data-page-revision')).toBeUndefined()
+    request = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint; generation: number }
+    await wrapper.setProps({ page: { offset: request.offset.toString(), bytes: [0x42], modifiedOffsets: [], revision: '2', generation: request.generation } })
+    expect(wrapper.get('canvas').attributes('data-page-revision')).toBe('2')
+    await wrapper.setProps({ page: null })
+    expect(wrapper.get('canvas').attributes('data-page-revision')).toBeUndefined()
+  })
+
+  it('applies theme changes to the renderer and redraws cached text layers', async () => {
+    const wrapper = mount(HexCanvas, { props: readyProps })
+    await resize()
+    drawnColors = []
+    await wrapper.setProps({ theme: 'light' })
+    expect(wrapper.get('[data-testid="hex-canvas"]').attributes('data-theme')).toBe('light')
+    expect(drawnColors).toContain('#57606a')
   })
 })

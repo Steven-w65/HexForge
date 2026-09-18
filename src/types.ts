@@ -1,5 +1,6 @@
 export type OffsetString = string
 export type Endian = 'little' | 'big'
+export type ColorTheme = 'dark' | 'light'
 export type FieldType = 'u8' | 'u16' | 'u32' | 'i8' | 'i16' | 'i32' | 'f32' | 'f64' | 'string' | 'bytes'
 
 export interface FileInfo {

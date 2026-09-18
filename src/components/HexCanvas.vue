@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { PageRequest, ViewportPage } from '../types'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import type { ColorTheme, PageRequest, ViewportPage } from '../types'
 import { createLayout, hitTestByte, visibleRange, type BytesPerRow, type HexLayout } from '../hex/layout'
 import { normalizeSelection, type ByteSelection } from '../hex/selection'
 import { rowToThumb, thumbToRow } from '../hex/virtualScroll'
@@ -14,6 +14,7 @@ const props = defineProps<{
   matches: bigint[]
   templateRange: ByteSelection | null
   editMode: boolean
+  theme: ColorTheme
 }>()
 
 const emit = defineEmits<{
@@ -26,12 +27,12 @@ const emit = defineEmits<{
 const root = ref<HTMLElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
 const renderedRevision = ref<string>()
-const size = { width: 1, height: 1 }
+const size = reactive({ width: 1, height: 1 })
 let layout: HexLayout = createLayout(size.width, props.bytesPerRow)
 let renderer: HexRenderer | null = null
 let resizeObserver: ResizeObserver | null = null
 let frame = 0
-let scrollRow = 0n
+const scrollRow = ref(0n)
 let generation = 0
 let activeRequest: PageRequest | null = null
 let acceptedPage: ViewportPage | null = null
@@ -42,10 +43,23 @@ let contentDirty = true
 let overlayDirty = true
 
 const totalRows = computed(() => props.fileSize === 0n ? 0n : (props.fileSize + BigInt(props.bytesPerRow) - 1n) / BigInt(props.bytesPerRow))
-const thumbTop = computed(() => `${rowToThumb(scrollRow, totalRows.value, Math.max(0, size.height - 24))}px`)
+const thumbTop = computed(() => `${rowToThumb(scrollRow.value, totalRows.value, Math.max(0, size.height - 24))}px`)
+
+const THEMES = {
+  dark: { background: '#111418', text: '#c9d1d9', address: '#8b949e', divider: '#30363d' },
+  light: { background: '#ffffff', text: '#1f2328', address: '#57606a', divider: '#d0d7de' },
+} as const
+
+function invalidateAcceptedPage(): void {
+  acceptedPage = null
+  renderedRevision.value = undefined
+  contentDirty = true
+  overlayDirty = true
+}
 
 function requestPage(): void {
-  const range = visibleRange(layout, scrollRow, size.height, props.fileSize)
+  invalidateAcceptedPage()
+  const range = visibleRange(layout, scrollRow.value, size.height, props.fileSize)
   const request = { offset: range.byteStart, length: range.byteLength, generation: ++generation }
   activeRequest = request
   emit('request-page', request)
@@ -53,16 +67,18 @@ function requestPage(): void {
 
 function schedule(): void {
   if (frame) return
-  frame = requestAnimationFrame(() => {
+  let completedSynchronously = false
+  const requestedFrame = requestAnimationFrame(() => {
+    completedSynchronously = true
     frame = 0
     if (!renderer) return
-    renderer.setViewport(layout, props.fileSize, scrollRow)
+    renderer.setViewport(layout, props.fileSize, scrollRow.value)
     if (staticDirty) {
       renderer.drawStatic()
       staticDirty = false
     }
     if (contentDirty) {
-      if (acceptedPage) renderer.drawContent(acceptedPage, scrollRow)
+      renderer.drawContent(acceptedPage, scrollRow.value)
       contentDirty = false
     }
     if (overlayDirty) {
@@ -71,12 +87,13 @@ function schedule(): void {
         selection: props.selection,
         matches: props.matches,
         templateRange: props.templateRange,
-        viewportRow: scrollRow,
+        viewportRow: scrollRow.value,
       })
       overlayDirty = false
     }
     renderer.composite()
   })
+  frame = completedSynchronously ? 0 : requestedFrame
 }
 
 function revisionIsOlder(next: string, current: string | undefined): boolean {
@@ -85,7 +102,12 @@ function revisionIsOlder(next: string, current: string | undefined): boolean {
 }
 
 function acceptPage(page: ViewportPage | null): void {
-  if (!page || !activeRequest || page.generation !== activeRequest.generation) return
+  if (!page) {
+    invalidateAcceptedPage()
+    schedule()
+    return
+  }
+  if (!activeRequest || page.generation !== activeRequest.generation) return
   if (BigInt(page.offset) !== activeRequest.offset || page.bytes.length > activeRequest.length) return
   if (revisionIsOlder(page.revision, renderedRevision.value)) return
   acceptedPage = page
@@ -109,7 +131,7 @@ function resize(width: number, height: number): void {
 function eventOffset(event: MouseEvent | PointerEvent): bigint | null {
   if (!canvas.value) return null
   const rect = canvas.value.getBoundingClientRect()
-  return hitTestByte(layout, event.clientX - rect.left, event.clientY - rect.top, scrollRow * BigInt(props.bytesPerRow), props.fileSize)
+  return hitTestByte(layout, event.clientX - rect.left, event.clientY - rect.top, scrollRow.value * BigInt(props.bytesPerRow), props.fileSize)
 }
 
 function onPointerDown(event: PointerEvent): void {
@@ -143,9 +165,9 @@ function onDoubleClick(event: MouseEvent): void {
 
 function setScrollRow(row: bigint): void {
   const lastRow = totalRows.value > 0n ? totalRows.value - 1n : 0n
-  scrollRow = row < 0n ? 0n : row > lastRow ? lastRow : row
+  scrollRow.value = row < 0n ? 0n : row > lastRow ? lastRow : row
   contentDirty = overlayDirty = true
-  emit('viewport-offset', scrollRow * BigInt(props.bytesPerRow))
+  emit('viewport-offset', scrollRow.value * BigInt(props.bytesPerRow))
   requestPage()
   schedule()
 }
@@ -153,7 +175,7 @@ function setScrollRow(row: bigint): void {
 function onWheel(event: WheelEvent): void {
   event.preventDefault()
   if (event.deltaY === 0) return
-  setScrollRow(scrollRow + (event.deltaY > 0 ? 1n : -1n))
+  setScrollRow(scrollRow.value + (event.deltaY > 0 ? 1n : -1n))
 }
 
 function onScrollbarPointer(event: PointerEvent): void {
@@ -163,16 +185,17 @@ function onScrollbarPointer(event: PointerEvent): void {
 }
 
 watch(() => props.page, acceptPage)
-watch(() => props.bytesPerRow, () => {
-  layout = createLayout(size.width, props.bytesPerRow)
-  const offset = scrollRow * BigInt(props.bytesPerRow)
-  scrollRow = offset / BigInt(props.bytesPerRow)
+watch(() => props.bytesPerRow, (nextWidth, previousWidth) => {
+  const offset = scrollRow.value * BigInt(previousWidth)
+  layout = createLayout(size.width, nextWidth)
+  scrollRow.value = offset / BigInt(nextWidth)
   staticDirty = contentDirty = overlayDirty = true
+  emit('viewport-offset', scrollRow.value * BigInt(nextWidth))
   requestPage()
   schedule()
 })
 watch(() => props.fileSize, () => {
-  if (scrollRow >= totalRows.value) scrollRow = totalRows.value > 0n ? totalRows.value - 1n : 0n
+  if (scrollRow.value >= totalRows.value) scrollRow.value = totalRows.value > 0n ? totalRows.value - 1n : 0n
   staticDirty = contentDirty = overlayDirty = true
   requestPage()
   schedule()
@@ -181,12 +204,19 @@ watch([() => props.selection, () => props.matches, () => props.templateRange], (
   overlayDirty = true
   schedule()
 }, { deep: true })
+watch(() => props.theme, (theme) => {
+  renderer?.setTheme(THEMES[theme])
+  staticDirty = true
+  contentDirty = true
+  schedule()
+})
 
 onMounted(async () => {
   await nextTick()
   if (!canvas.value || !root.value) return
   const layers = createCanvasLayers(canvas.value)
   renderer = new HexRenderer(layers, { width: size.width, height: size.height, dpr: globalThis.devicePixelRatio || 1, layout, fileSize: props.fileSize })
+  renderer.setTheme(THEMES[props.theme])
   resizeObserver = new ResizeObserver((entries) => {
     const box = entries[0]?.contentRect
     if (box) resize(box.width, box.height)
@@ -203,7 +233,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="root" class="hex-canvas" data-testid="hex-canvas">
+  <div ref="root" class="hex-canvas" data-testid="hex-canvas" :data-theme="theme">
     <canvas
       ref="canvas"
       :data-page-revision="renderedRevision"
