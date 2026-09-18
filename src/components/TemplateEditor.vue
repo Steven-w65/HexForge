@@ -9,6 +9,7 @@ const emit = defineEmits<{
 }>()
 
 const types: FieldType[] = ['u8', 'u16', 'u32', 'i8', 'i16', 'i32', 'f32', 'f64', 'string', 'bytes']
+const offsetLiteral = /^(?:0[xX][0-9a-fA-F]+|[0-9]+)$/
 let nextId = 1
 const rowIds = ref(props.modelValue.fields.map(() => nextId++))
 watch(() => props.modelValue.fields.length, (length) => {
@@ -27,8 +28,17 @@ function updateTemplate(patch: Partial<TemplateDefinition>): void {
 function updateField(index: number, patch: Partial<TemplateField>): void {
   const fields = props.modelValue.fields.map((field, current) => current === index ? { ...field, ...patch } : field)
   const updated = fields[index]!
-  if (updated.type !== 'string' && updated.type !== 'bytes') delete updated.length
+  if (isVariableWidth(updated.type)) {
+    if (parseLength(updated.length) === null) updated.length = 1
+  } else {
+    delete updated.length
+  }
   updateTemplate({ fields })
+}
+
+function updateLength(index: number, text: string): void {
+  const length = parseLength(Number(text))
+  if (length !== null) updateField(index, { length })
 }
 
 function addField(): void {
@@ -41,17 +51,37 @@ function removeField(index: number): void {
   updateTemplate({ fields: props.modelValue.fields.filter((_, current) => current !== index) })
 }
 
-function fieldLength(field: TemplateField): number {
-  if (field.type === 'string' || field.type === 'bytes') return Math.max(1, field.length ?? 1)
+function isVariableWidth(type: FieldType): boolean {
+  return type === 'string' || type === 'bytes'
+}
+
+function parseLength(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null
+}
+
+function fieldLength(field: TemplateField): number | null {
+  if (isVariableWidth(field.type)) return parseLength(field.length)
   if (field.type.endsWith('8')) return 1
   if (field.type.endsWith('16')) return 2
   if (field.type.endsWith('32') || field.type === 'f32') return 4
   return 8
 }
 
+function fieldRange(field: TemplateField): { start: bigint; end: bigint } | null {
+  const offset = field.offset.trim()
+  const length = fieldLength(field)
+  if (!offsetLiteral.test(offset) || length === null) return null
+  try {
+    const start = BigInt(offset)
+    return { start, end: start + BigInt(length) - 1n }
+  } catch {
+    return null
+  }
+}
+
 function navigate(field: TemplateField): void {
-  const start = BigInt(field.offset || '0')
-  emit('navigate', { start, end: start + BigInt(fieldLength(field)) - 1n })
+  const range = fieldRange(field)
+  if (range) emit('navigate', range)
 }
 </script>
 
@@ -65,13 +95,13 @@ function navigate(field: TemplateField): void {
       <article v-for="(field, index) in modelValue.fields" :key="rowIds[index]" class="field-card">
         <div class="field-row">
           <input data-field="name" aria-label="Field name" :value="field.name" @input="updateField(index, { name: ($event.target as HTMLInputElement).value })">
-          <button type="button" data-action="navigate-field" title="Show bytes" @click="navigate(field)">↗</button>
+          <button type="button" data-action="navigate-field" title="Show bytes" :disabled="fieldRange(field) === null" @click="navigate(field)">↗</button>
           <button type="button" title="Remove field" @click="removeField(index)">×</button>
         </div>
         <div class="field-grid">
           <label>Offset<input data-field="offset" :value="field.offset" @input="updateField(index, { offset: ($event.target as HTMLInputElement).value })"></label>
           <label>Type<select data-field="type" :value="field.type" @change="updateField(index, { type: ($event.target as HTMLSelectElement).value as FieldType })"><option v-for="type in types" :key="type" :value="type">{{ type }}</option></select></label>
-          <label v-if="field.type === 'string' || field.type === 'bytes'">Length<input data-field="length" type="number" min="1" :value="field.length ?? 1" @input="updateField(index, { length: Math.max(1, Number(($event.target as HTMLInputElement).value)) })"></label>
+          <label v-if="field.type === 'string' || field.type === 'bytes'">Length<input data-field="length" type="number" min="1" step="1" :value="field.length ?? 1" @input="updateLength(index, ($event.target as HTMLInputElement).value)"></label>
           <label>Endian<select data-field="endianness" :value="field.endianness ?? modelValue.defaultEndianness" @change="updateField(index, { endianness: ($event.target as HTMLSelectElement).value as 'little' | 'big' })"><option value="little">LE</option><option value="big">BE</option></select></label>
         </div>
         <input data-field="comment" aria-label="Comment" placeholder="Comment" :value="field.comment" @input="updateField(index, { comment: ($event.target as HTMLInputElement).value })">

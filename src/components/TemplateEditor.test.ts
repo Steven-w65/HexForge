@@ -16,6 +16,15 @@ describe('TemplateEditor', () => {
     expect(wrapper.find('input[data-field="length"]').exists()).toBe(true)
   })
 
+  it('initializes a positive serialized length when the type changes to string or bytes', async () => {
+    const original = { ...emptyTemplate(), fields: [{ name: 'data', offset: '0', type: 'u16' as const, endianness: 'little' as const, comment: '' }] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: original } })
+    await wrapper.get('select[data-field="type"]').setValue('string')
+    const updated = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as TemplateDefinition
+    expect(updated.fields[0]).toEqual({ ...original.fields[0], type: 'string', length: 1 })
+    expect(original.fields[0]).not.toHaveProperty('length')
+  })
+
   it('emits immutable field updates without serializing UI row ids', async () => {
     const original = { ...emptyTemplate(), fields: [{ name: 'a', offset: '4', type: 'u16' as const, endianness: 'little' as const, comment: '' }] }
     const wrapper = mount(TemplateEditor, { props: { modelValue: original } })
@@ -38,5 +47,24 @@ describe('TemplateEditor', () => {
     expect(wrapper.emitted('save')).toHaveLength(1)
     expect(wrapper.emitted('load')).toHaveLength(1)
     expect(wrapper.emitted('navigate')).toEqual([[{ start: 16n, end: 19n }]])
+  })
+
+  it.each([
+    ['an in-progress offset', { offset: 'x', length: 4 }],
+    ['a fractional length', { offset: '16', length: 1.5 }],
+    ['a non-finite length', { offset: '16', length: Number.NaN }],
+    ['a non-positive length', { offset: '16', length: 0 }],
+  ])('does not throw or navigate for %s', async (_label, invalid) => {
+    const value = { ...emptyTemplate(), fields: [{ name: 'data', type: 'bytes' as const, endianness: 'little' as const, comment: '', ...invalid }] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: value } })
+    await expect(wrapper.get('[data-action="navigate-field"]').trigger('click')).resolves.toBeUndefined()
+    expect(wrapper.emitted('navigate')).toBeUndefined()
+  })
+
+  it('does not emit backend-incompatible lengths entered in the editor', async () => {
+    const value = { ...emptyTemplate(), fields: [{ name: 'data', offset: '16', type: 'bytes' as const, length: 4, endianness: 'little' as const, comment: '' }] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: value } })
+    await wrapper.get('input[data-field="length"]').setValue('1.5')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   })
 })
