@@ -3,7 +3,7 @@ use crate::error::{AppError, ErrorCode};
 use crate::page_cache::PageCache;
 use serde::Serialize;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 pub const MAX_READ_RANGE: u64 = 1_048_576;
@@ -91,6 +91,33 @@ impl FileSession {
         let mut info = self.info.clone();
         info.dirty = self.is_dirty();
         info
+    }
+
+    /// Returns the canonical, read-only source path for operations that create a separate output.
+    pub fn source_path(&self) -> &Path {
+        Path::new(&self.info.path)
+    }
+
+    /// Returns the source size captured when the read-only session was opened.
+    pub fn source_size(&self) -> u64 {
+        self.info.size
+    }
+
+    /// Streams the effective source through a caller-owned output without exposing source writes.
+    pub(crate) fn copy_effective_into<W: Write>(
+        &mut self,
+        output: &mut W,
+        chunk_size: usize,
+        progress: &mut dyn FnMut(u64),
+    ) -> Result<u64, AppError> {
+        crate::export::copy_effective(
+            &mut self.file,
+            output,
+            self.info.size,
+            chunk_size,
+            &self.edits,
+            progress,
+        )
     }
 
     pub fn read_range(&mut self, start: u64, len: u64) -> Result<PageData, AppError> {
