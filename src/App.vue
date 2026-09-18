@@ -1,2 +1,6 @@
-<template><main data-testid="hexforge-app" role="application"><h1>HexForge</h1></main></template>
+<script setup lang="ts">
+import AppShell from './components/AppShell.vue'
+</script>
+
+<template><AppShell data-testid="hexforge-app" /></template>
 <style src="./styles/theme.css"></style>

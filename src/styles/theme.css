@@ -1,8 +1,52 @@
-:root {
-  color-scheme: dark;
-  font-family: system-ui, sans-serif;
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('../assets/fonts/JetBrainsMono.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
 }
 
-body {
-  margin: 0;
+:root, [data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #111418;
+  --text: #c9d1d9;
+  --address: #8b949e;
+  --selection: #1f6feb;
+  --selection-text: #ffffff;
+  --modified: #f0883e;
+  --muted: #8b949e;
+  --surface: #171b21;
+  --panel: #15191e;
+  --card: #191e24;
+  --input: #111418;
+  --button: #222831;
+  --hover: #252c35;
+  --border: #2a313a;
+  --border-strong: #3b4551;
 }
+
+[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f6f8fa;
+  --text: #24292f;
+  --address: #57606a;
+  --selection: #0969da;
+  --selection-text: #ffffff;
+  --modified: #bc4c00;
+  --muted: #57606a;
+  --surface: #ffffff;
+  --panel: #f3f4f6;
+  --card: #ffffff;
+  --input: #ffffff;
+  --button: #eaeef2;
+  --hover: #dfe5eb;
+  --border: #d0d7de;
+  --border-strong: #afb8c1;
+}
+
+html, body, #app { width: 100%; height: 100%; }
+body { margin: 0; overflow: hidden; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+button, input, select { font-family: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+* { scrollbar-color: var(--border-strong) transparent; scrollbar-width: thin; }
