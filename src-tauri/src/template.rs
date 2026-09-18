@@ -215,6 +215,7 @@ mod tests {
         std::fs::write(file.path(), [0x34, 0x12, 0, 0]).unwrap();
         let mut session = FileSession::open(file.path().to_path_buf(), 2, 2).unwrap();
         session.edit_byte(1, 0x56).unwrap();
+        let cache_len_before_parse = session.cache_len();
 
         let mut template = valid_template();
         template
@@ -224,12 +225,12 @@ mod tests {
             parse_template(&mut session, &template).unwrap_err().code(),
             "template_out_of_bounds"
         );
-        assert_eq!(session.cache_len(), 0);
+        assert_eq!(session.cache_len(), cache_len_before_parse);
 
         template.fields.truncate(1);
         let parsed = parse_template(&mut session, &template).unwrap();
         assert_eq!(parsed[0].value, "22068");
-        assert_eq!(session.cache_len(), 0);
+        assert_eq!(session.cache_len(), cache_len_before_parse);
     }
 
     #[test]
@@ -299,6 +300,34 @@ mod tests {
     }
 
     #[test]
+    fn json_loading_rejects_unknown_root_field_and_nested_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let cases = [
+            (
+                "unknown-root.json",
+                r#"{"version":1,"name":"Header","defaultEndianness":"little","fields":[],"metadata":"ignored"}"#,
+            ),
+            (
+                "field-condition.json",
+                r#"{"version":1,"name":"Header","defaultEndianness":"little","fields":[{"name":"x","offset":"0","type":"u8","comment":"","condition":"never"}]}"#,
+            ),
+            (
+                "nested-fields.json",
+                r#"{"version":1,"name":"Header","defaultEndianness":"little","fields":[{"name":"x","offset":"0","type":"u8","comment":"","fields":[]}]}"#,
+            ),
+        ];
+
+        for (name, json) in cases {
+            let path = dir.path().join(name);
+            std::fs::write(&path, json).unwrap();
+            assert_eq!(
+                load_template_file(&path).unwrap_err().code(),
+                "invalid_template"
+            );
+        }
+    }
+
+    #[test]
     fn loading_rejects_template_json_larger_than_the_bounded_input_limit() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("too-large.json");
@@ -357,7 +386,7 @@ pub enum Endian {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TemplateDefinition {
     pub version: u32,
     pub name: String,
@@ -366,7 +395,7 @@ pub struct TemplateDefinition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TemplateField {
     pub name: String,
     pub offset: String,
