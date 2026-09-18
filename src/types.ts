@@ -17,6 +17,17 @@ export interface PageResponse {
   revision: string
 }
 
+/** UI-owned request identity paired with a backend page response. */
+export interface ViewportPage extends PageResponse {
+  generation: number
+}
+
+export interface PageRequest {
+  offset: bigint
+  length: number
+  generation: number
+}
+
 export interface TemplateField {
   name: string
   offset: OffsetString
