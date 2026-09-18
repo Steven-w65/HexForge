@@ -41,21 +41,33 @@ pub fn search_session(
     chunk_size: usize,
     max_results: usize,
 ) -> Result<SearchResult, AppError> {
+    search_session_with_progress(session, pattern, chunk_size, max_results, &mut |_| {})
+}
+
+pub fn search_session_with_progress(
+    session: &mut FileSession,
+    pattern: &[u8],
+    chunk_size: usize,
+    max_results: usize,
+    progress: &mut dyn FnMut(u64),
+) -> Result<SearchResult, AppError> {
     let size = session.info().size;
     let mut reader = SessionReader {
         session,
         position: 0,
     };
-    search_reader(
+    search_reader_with_progress(
         &mut reader,
         size,
         pattern,
         chunk_size,
         max_results,
         &EditBuffer::default(),
+        progress,
     )
 }
 
+#[cfg(test)]
 fn search_reader<R: Read + Seek>(
     reader: &mut R,
     size: u64,
@@ -63,6 +75,26 @@ fn search_reader<R: Read + Seek>(
     chunk_size: usize,
     max_results: usize,
     edits: &EditBuffer,
+) -> Result<SearchResult, AppError> {
+    search_reader_with_progress(
+        reader,
+        size,
+        pattern,
+        chunk_size,
+        max_results,
+        edits,
+        &mut |_| {},
+    )
+}
+
+fn search_reader_with_progress<R: Read + Seek>(
+    reader: &mut R,
+    size: u64,
+    pattern: &[u8],
+    chunk_size: usize,
+    max_results: usize,
+    edits: &EditBuffer,
+    progress: &mut dyn FnMut(u64),
 ) -> Result<SearchResult, AppError> {
     validate_search(pattern, chunk_size, max_results)?;
 
@@ -84,6 +116,7 @@ fn search_reader<R: Read + Seek>(
         }
         current.truncate(read);
         edits.overlay(position, &mut current);
+        progress(position + read as u64);
 
         let combined_start = position - tail.len() as u64;
         let mut combined = Vec::with_capacity(tail.len() + current.len());

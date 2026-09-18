@@ -19,14 +19,44 @@ pub fn save_session_as(
     destination: &Path,
     chunk_size: usize,
 ) -> Result<SaveSummary, AppError> {
-    save_session_as_with_stage(session, destination, chunk_size, create_staged_file)
+    save_session_as_with_progress(session, destination, chunk_size, &mut |_| {})
 }
 
+pub fn save_session_as_with_progress(
+    session: &mut FileSession,
+    destination: &Path,
+    chunk_size: usize,
+    progress: &mut dyn FnMut(u64),
+) -> Result<SaveSummary, AppError> {
+    save_session_as_with_stage_progress(
+        session,
+        destination,
+        chunk_size,
+        create_staged_file,
+        progress,
+    )
+}
+
+#[cfg(test)]
 fn save_session_as_with_stage<S, F>(
     session: &mut FileSession,
     destination: &Path,
     chunk_size: usize,
     create_stage: F,
+) -> Result<SaveSummary, AppError>
+where
+    S: OwnedStagedOutput,
+    F: FnOnce(&Path) -> Result<S, AppError>,
+{
+    save_session_as_with_stage_progress(session, destination, chunk_size, create_stage, &mut |_| {})
+}
+
+fn save_session_as_with_stage_progress<S, F>(
+    session: &mut FileSession,
+    destination: &Path,
+    chunk_size: usize,
+    create_stage: F,
+    progress: &mut dyn FnMut(u64),
 ) -> Result<SaveSummary, AppError>
 where
     S: OwnedStagedOutput,
@@ -54,9 +84,8 @@ where
         .parent()
         .expect("normalized destination has a parent");
     let mut output = create_stage(parent)?;
-    let mut progress = |_| {};
     let result = session
-        .copy_effective_into(&mut output, chunk_size, &mut progress)
+        .copy_effective_into(&mut output, chunk_size, progress)
         .and_then(|bytes_written| {
             output
                 .sync_all()
@@ -81,13 +110,35 @@ where
 }
 
 pub fn export_csv_create_new(path: &Path, fields: &[ParsedField]) -> Result<(), AppError> {
-    export_csv_create_new_with_stage(path, fields, create_staged_file)
+    export_csv_create_new_with_progress(path, fields, &mut |_| {})
 }
 
+pub fn export_csv_create_new_with_progress(
+    path: &Path,
+    fields: &[ParsedField],
+    progress: &mut dyn FnMut(u64),
+) -> Result<(), AppError> {
+    export_csv_create_new_with_stage_progress(path, fields, create_staged_file, progress)
+}
+
+#[cfg(test)]
 fn export_csv_create_new_with_stage<S, F>(
     path: &Path,
     fields: &[ParsedField],
     create_stage: F,
+) -> Result<(), AppError>
+where
+    S: OwnedStagedOutput,
+    F: FnOnce(&Path) -> Result<S, AppError>,
+{
+    export_csv_create_new_with_stage_progress(path, fields, create_stage, &mut |_| {})
+}
+
+fn export_csv_create_new_with_stage_progress<S, F>(
+    path: &Path,
+    fields: &[ParsedField],
+    create_stage: F,
+    progress: &mut dyn FnMut(u64),
 ) -> Result<(), AppError>
 where
     S: OwnedStagedOutput,
@@ -99,7 +150,7 @@ where
         .parent()
         .expect("normalized destination has a parent");
     let mut output = create_stage(parent)?;
-    let result = write_csv(&mut output, fields, &destination).and_then(|_| {
+    let result = write_csv(&mut output, fields, &destination, progress).and_then(|_| {
         output
             .sync_all()
             .map_err(|error| AppError::from_io(error, Some(&destination)))
@@ -193,6 +244,7 @@ fn write_csv<W: Write>(
     output: &mut W,
     fields: &[ParsedField],
     path: &Path,
+    progress: &mut dyn FnMut(u64),
 ) -> Result<(), AppError> {
     let mut writer = csv::WriterBuilder::new().from_writer(output);
     writer
@@ -206,7 +258,7 @@ fn write_csv<W: Write>(
             "comment",
         ])
         .map_err(|error| csv_error(error, path))?;
-    for field in fields {
+    for (index, field) in fields.iter().enumerate() {
         let length = field.length.to_string();
         writer
             .write_record([
@@ -219,6 +271,7 @@ fn write_csv<W: Write>(
                 field.comment.as_str(),
             ])
             .map_err(|error| csv_error(error, path))?;
+        progress(index as u64 + 1);
     }
     writer
         .flush()

@@ -22,7 +22,7 @@ export interface TemplateField {
   offset: OffsetString
   type: FieldType
   length?: number
-  endianness: Endian
+  endianness?: Endian
   comment: string
 }
 
@@ -35,11 +35,38 @@ export interface TemplateDefinition {
 
 export interface ParsedField extends TemplateField {
   length: number
+  endianness: Endian
   value: string
 }
 
 export interface AppError {
   code: string
   message: string
-  detail?: string
+  detail?: string | null
+}
+
+export interface DirtyState {
+  dirty: boolean
+  revision: string
+}
+
+export interface UndoResponse extends DirtyState {
+  undone: boolean
+}
+
+export interface SaveResponse extends DirtyState {
+  bytesWritten: OffsetString
+  destination: string
+}
+
+export interface SearchResponse {
+  matches: OffsetString[]
+  truncated: boolean
+}
+
+export interface OperationProgress {
+  operationId: string
+  phase: 'search' | 'parse' | 'save' | 'csv' | 'complete'
+  processed: OffsetString
+  total: OffsetString
 }

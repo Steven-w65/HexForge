@@ -516,6 +516,14 @@ pub fn parse_template(
     session: &mut FileSession,
     template: &TemplateDefinition,
 ) -> Result<Vec<ParsedField>, AppError> {
+    parse_template_with_progress(session, template, &mut |_| {})
+}
+
+pub fn parse_template_with_progress(
+    session: &mut FileSession,
+    template: &TemplateDefinition,
+    progress: &mut dyn FnMut(u64),
+) -> Result<Vec<ParsedField>, AppError> {
     let fields = validate_template(template, session.info().size)?;
     let mut parsed = Vec::with_capacity(fields.len());
 
@@ -537,6 +545,7 @@ pub fn parse_template(
             value,
             comment: field.comment,
         });
+        progress(parsed.len() as u64);
     }
 
     Ok(parsed)
