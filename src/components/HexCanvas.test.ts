@@ -116,6 +116,16 @@ describe('HexCanvas', () => {
     expect(movedStyle).not.toContain('translateY(0px)')
   })
 
+  it('navigates the virtual viewport when orchestration targets an offset', async () => {
+    const wrapper = mount(HexCanvas, { props: readyProps })
+    await resize()
+    await wrapper.setProps({ navigateOffset: 160n })
+    expect(wrapper.emitted('viewport-offset')?.at(-1)).toEqual([160n])
+    const request = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint }
+    expect(request.offset).toBeLessThanOrEqual(160n)
+    expect(request.offset + 1024n).toBeGreaterThan(160n)
+  })
+
   it('preserves the visible byte offset when changing between 16 and 32 columns', async () => {
     const wrapper = mount(HexCanvas, { props: readyProps })
     await resize()

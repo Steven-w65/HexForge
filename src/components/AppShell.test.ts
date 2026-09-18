@@ -29,4 +29,12 @@ describe('AppShell', () => {
       expect(wrapper.emitted(action)).toHaveLength(1)
     }
   })
+
+  it('passes orchestration navigation targets into the Canvas viewport', () => {
+    const wrapper = mount(AppShell, {
+      props: { file: { name: 'firmware.bin', path: 'C:/firmware.bin', size: '4096', revision: '1', dirty: false }, navigationOffset: 160n },
+      global: { stubs: { HexCanvas: true } },
+    })
+    expect(wrapper.findComponent({ name: 'HexCanvas' }).props('navigateOffset')).toBe(160n)
+  })
 })

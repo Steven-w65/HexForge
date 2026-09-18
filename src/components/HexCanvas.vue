@@ -15,6 +15,7 @@ const props = defineProps<{
   templateRange: ByteSelection | null
   editMode: boolean
   theme: ColorTheme
+  navigateOffset?: bigint
 }>()
 
 const emit = defineEmits<{
@@ -209,6 +210,11 @@ watch(() => props.theme, (theme) => {
   staticDirty = true
   contentDirty = true
   schedule()
+})
+watch(() => props.navigateOffset, (offset) => {
+  if (offset === undefined || offset < 0n || offset >= props.fileSize) return
+  const row = offset / BigInt(props.bytesPerRow)
+  if (row !== scrollRow.value) setScrollRow(row)
 })
 
 onMounted(async () => {

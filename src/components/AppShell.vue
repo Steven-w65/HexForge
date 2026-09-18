@@ -15,6 +15,7 @@ const props = withDefaults(defineProps<{
   file?: FileInfo | null; page?: ViewportPage | null; bytesPerRow?: BytesPerRow; selection?: ByteSelection | null
   matches?: bigint[]; templateRange?: ByteSelection | null; editMode?: boolean; endianness?: Endian
   template?: TemplateDefinition; results?: ParsedField[]; dialogOpen?: boolean; dialogTitle?: string; dialogMessage?: string
+  navigationOffset?: bigint
 }>(), {
   file: null, page: null, bytesPerRow: 16, selection: null, matches: () => [], templateRange: null,
   editMode: false, endianness: 'little', template: () => ({ version: 1, name: 'Untitled', defaultEndianness: 'little', fields: [] }), results: () => [], dialogOpen: false,
@@ -71,7 +72,7 @@ function toolbarAction(action: 'open' | 'goto' | 'search' | 'template' | 'export
         @update:template="emit('update:template', $event)" @save-template="emit('save-template')" @load-template="emit('load-template')" @navigate="emit('navigate', $event)" />
       <section class="hex-stage">
         <HexCanvas v-if="file" :file-size="fileSize" :page="page" :bytes-per-row="bytesPerRow" :selection="selection" :matches="matches"
-          :template-range="templateRange" :edit-mode="editMode" :theme="theme.value.value" @request-page="emit('request-page', $event)"
+          :template-range="templateRange" :edit-mode="editMode" :theme="theme.value.value" :navigate-offset="navigationOffset" @request-page="emit('request-page', $event)"
           @select="emit('select', $event)" @edit-request="emit('edit-request', $event)" @viewport-offset="emit('viewport-offset', $event)" />
         <div v-else data-testid="drop-prompt" class="drop-prompt"><span>＋</span><strong>Drop a binary file here</strong><small>or use Open File</small></div>
       </section>
