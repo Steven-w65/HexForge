@@ -42,6 +42,13 @@ describe('useHotkeys', () => {
     input.remove()
   })
 
+  it('requires exact Ctrl shortcuts and ignores shifted variants', () => {
+    const target = actions(); cleanups.push(useHotkeys(target))
+    for (const key of ['o', 'f', 'g', 's', 'z']) keydown(key, { ctrlKey: true, shiftKey: true })
+    expect(target.open).not.toHaveBeenCalled(); expect(target.search).not.toHaveBeenCalled(); expect(target.goTo).not.toHaveBeenCalled()
+    expect(target.saveTemplate).not.toHaveBeenCalled(); expect(target.undo).not.toHaveBeenCalled()
+  })
+
   it('clears selection with Escape when no popup is open', () => {
     const target = actions(); cleanups.push(useHotkeys(target)); keydown('Escape')
     expect(target.clearSelection).toHaveBeenCalledOnce()
@@ -57,4 +64,20 @@ describe('useHotkeys', () => {
     await handleCloseRequest(retry, true, vi.fn(), close, guard)
     expect(retry.preventDefault).not.toHaveBeenCalled(); expect(guard.value).toBe(false)
   })
+
+  it('serializes close confirmations and rolls back allowClose when close fails', async () => {
+    const decision = deferredBoolean(); const confirm = vi.fn(() => decision.promise); const close = vi.fn().mockRejectedValue(new Error('close failed'))
+    const guard = { value: false }; const first = { preventDefault: vi.fn() }; const second = { preventDefault: vi.fn() }
+    const a = handleCloseRequest(first, true, confirm, close, guard).catch(() => undefined)
+    const b = handleCloseRequest(second, true, confirm, close, guard).catch(() => undefined)
+    expect(confirm).toHaveBeenCalledOnce(); expect(second.preventDefault).toHaveBeenCalledOnce()
+    decision.resolve(true); await Promise.all([a, b])
+    expect(close).toHaveBeenCalledOnce(); expect(guard.value).toBe(false)
+  })
 })
+
+function deferredBoolean() {
+  let resolve!: (value: boolean) => void
+  const promise = new Promise<boolean>((done) => { resolve = done })
+  return { promise, resolve }
+}

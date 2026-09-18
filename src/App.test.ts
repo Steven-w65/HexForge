@@ -64,6 +64,23 @@ describe('App desktop orchestration', () => {
     wrapper.unmount()
   })
 
+  it('presents rejected native open dialogs without an unhandled action failure', async () => {
+    mocks.open.mockRejectedValue(new Error('Native open failed.'))
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    await wrapper.get('[data-action="open"]').trigger('click'); await flushPromises()
+    expect(wrapper.get('[role="dialog"]').text()).toContain('Native open failed.')
+    wrapper.unmount()
+  })
+
+  it('presents rejected native save dialogs without an unhandled action failure', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin'); mocks.save.mockRejectedValue(new Error('Native save failed.'))
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    await wrapper.get('[data-action="open"]').trigger('click'); await flushPromises()
+    await wrapper.get('[data-action="save-as"]').trigger('click'); await flushPromises()
+    expect(wrapper.get('[role="dialog"]').text()).toContain('Native save failed.')
+    expect(mocks.backend.saveAs).not.toHaveBeenCalled(); wrapper.unmount()
+  })
+
   it('installs a close interceptor which leaves a clean session closable', async () => {
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     const event = { preventDefault: vi.fn() }
@@ -84,6 +101,20 @@ describe('App desktop orchestration', () => {
     mocks.confirm.mockResolvedValue(true)
     if (mocks.closeHandler) await mocks.closeHandler(event)
     expect(mocks.close).toHaveBeenCalledOnce()
+    wrapper.unmount()
+  })
+
+  it('presents confirm and message failures from void native listener paths', async () => {
+    mocks.open.mockResolvedValue('C:/dirty.bin'); mocks.backend.openFile.mockResolvedValue({ ...file, dirty: true })
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    await wrapper.get('[data-action="open"]').trigger('click'); await flushPromises()
+    mocks.confirm.mockRejectedValueOnce(new Error('Confirm failed.'))
+    if (mocks.closeHandler) await mocks.closeHandler({ preventDefault: vi.fn() }); await flushPromises()
+    expect(wrapper.get('[role="dialog"]').text()).toContain('Confirm failed.')
+    await wrapper.get('[aria-label="Close dialog"]').trigger('click')
+    mocks.message.mockRejectedValueOnce(new Error('Message failed.'))
+    mocks.dropHandler?.({ payload: { type: 'drop', paths: ['a.bin', 'b.bin'] } }); await flushPromises()
+    expect(wrapper.get('[role="dialog"]').text()).toContain('Message failed.')
     wrapper.unmount()
   })
 })

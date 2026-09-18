@@ -22,8 +22,13 @@ async function reportFailure(operation: () => Promise<void>): Promise<void> {
   catch { /* useHexSession exposes the normalized failure through AppDialog */ }
 }
 
+async function nativeCall<T>(operation: () => Promise<T>): Promise<T | undefined> {
+  try { return await operation() }
+  catch (error) { session.presentError(error); return undefined }
+}
+
 async function confirmDiscard(): Promise<boolean> {
-  return confirm('This file has unsaved in-memory edits. Discard them?', { title: 'HexForge', kind: 'warning' })
+  return await nativeCall(() => confirm('This file has unsaved in-memory edits. Discard them?', { title: 'HexForge', kind: 'warning' })) === true
 }
 
 async function openPath(path: string): Promise<void> {
@@ -36,27 +41,27 @@ async function openPath(path: string): Promise<void> {
 }
 
 async function chooseFile(): Promise<void> {
-  const selected = await open({ multiple: false, directory: false, title: 'Open binary file' })
+  const selected = await nativeCall(() => open({ multiple: false, directory: false, title: 'Open binary file' }))
   if (typeof selected === 'string') await openPath(selected)
 }
 
 async function chooseSaveAs(): Promise<void> {
-  const path = await save({ title: 'Save binary as', defaultPath: session.file.value ? `${session.file.value.name}.copy` : undefined })
+  const path = await nativeCall(() => save({ title: 'Save binary as', defaultPath: session.file.value ? `${session.file.value.name}.copy` : undefined }))
   if (path) await reportFailure(() => session.saveAs(path))
 }
 
 async function chooseTemplateLoad(): Promise<void> {
-  const path = await open({ multiple: false, directory: false, title: 'Load parsing template', filters: [{ name: 'JSON template', extensions: ['json'] }] })
+  const path = await nativeCall(() => open({ multiple: false, directory: false, title: 'Load parsing template', filters: [{ name: 'JSON template', extensions: ['json'] }] }))
   if (typeof path === 'string') await reportFailure(() => session.loadTemplate(path))
 }
 
 async function chooseTemplateSave(): Promise<void> {
-  const path = await save({ title: 'Save parsing template', defaultPath: `${session.template.value.name || 'template'}.json`, filters: [{ name: 'JSON template', extensions: ['json'] }] })
+  const path = await nativeCall(() => save({ title: 'Save parsing template', defaultPath: `${session.template.value.name || 'template'}.json`, filters: [{ name: 'JSON template', extensions: ['json'] }] }))
   if (path) await reportFailure(() => session.saveTemplate(path))
 }
 
 async function chooseCsvExport(): Promise<void> {
-  const path = await save({ title: 'Export parsed results', defaultPath: `${session.template.value.name || 'results'}.csv`, filters: [{ name: 'CSV', extensions: ['csv'] }] })
+  const path = await nativeCall(() => save({ title: 'Export parsed results', defaultPath: `${session.template.value.name || 'results'}.csv`, filters: [{ name: 'CSV', extensions: ['csv'] }] }))
   if (path) await reportFailure(() => session.exportCsv(path))
 }
 
@@ -89,14 +94,19 @@ onMounted(async () => {
     closePopup, clearSelection: session.clearSelection,
   }))
   try {
-    const closeUnlisten = await getCurrentWindow().onCloseRequested((event) => handleCloseRequest(event, session.file.value?.dirty ?? false, confirmDiscard, () => getCurrentWindow().close(), allowClose))
+    const closeUnlisten = await getCurrentWindow().onCloseRequested(async (event) => {
+      try { await handleCloseRequest(event, session.file.value?.dirty ?? false, confirmDiscard, () => getCurrentWindow().close(), allowClose) }
+      catch (error) { session.presentError(error) }
+    })
     if (disposed) closeUnlisten(); else disposers.push(closeUnlisten)
     const dropUnlisten = await getCurrentWebview().onDragDropEvent((event) => {
       if (event.payload.type === 'drop' && event.payload.paths.length === 1) void openPath(event.payload.paths[0]!)
+      else if (event.payload.type === 'drop') void nativeCall(() => message('Drop exactly one file at a time.', { title: 'HexForge', kind: 'warning' }))
     })
     if (disposed) dropUnlisten(); else disposers.push(dropUnlisten)
   } catch (error) {
-    await message(error instanceof Error ? error.message : 'Desktop listeners could not be registered.', { title: 'HexForge', kind: 'error' })
+    session.presentError(error)
+    await nativeCall(() => message(error instanceof Error ? error.message : 'Desktop listeners could not be registered.', { title: 'HexForge', kind: 'error' }))
   }
 })
 

@@ -22,7 +22,7 @@ export function useHotkeys(actions: HotkeyActions, target: Window = window): () 
       else actions.clearSelection()
       return
     }
-    if (!event.ctrlKey || event.altKey || event.metaKey || isEditable(event.target)) return
+    if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey || isEditable(event.target)) return
     const shortcuts: Record<string, () => void> = { o: actions.open, f: actions.search, g: actions.goTo, s: actions.saveTemplate, z: actions.undo }
     const action = shortcuts[event.key.toLowerCase()]
     if (!action) return
@@ -34,7 +34,7 @@ export function useHotkeys(actions: HotkeyActions, target: Window = window): () 
 }
 
 export interface CloseRequestEventLike { preventDefault(): void }
-export interface AllowCloseGuard { value: boolean }
+export interface AllowCloseGuard { value: boolean; confirming?: boolean }
 
 export async function handleCloseRequest(
   event: CloseRequestEventLike,
@@ -46,7 +46,14 @@ export async function handleCloseRequest(
   if (allowClose.value) { allowClose.value = false; return }
   if (!dirty) return
   event.preventDefault()
-  if (!await confirmDiscard()) return
-  allowClose.value = true
-  await close()
+  if (allowClose.confirming) return
+  allowClose.confirming = true
+  try {
+    if (!await confirmDiscard()) return
+    allowClose.value = true
+    try { await close() }
+    catch (error) { allowClose.value = false; throw error }
+  } finally {
+    allowClose.confirming = false
+  }
 }
