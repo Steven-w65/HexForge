@@ -256,6 +256,44 @@ describe('useHexSession', () => {
     expect(session.file.value).toMatchObject({ name: 'b.bin', revision: 'b1', dirty: true })
   })
 
+  it('applies an edit result to file A when a replacement open fails', async () => {
+    const backend = fakeBackend(); const editedA = deferred<{ dirty: boolean; revision: string }>(); const openedB = deferred<never>()
+    vi.mocked(backend.editByte).mockReturnValue(editedA.promise); vi.mocked(backend.openFile).mockReturnValue(openedB.promise)
+    const session = useHexSession(backend)
+    session.file.value = { name: 'a.bin', path: 'a.bin', size: '2', revision: 'a1', dirty: false }
+    session.page.value = { ...pageAt(0n, 'a1'), generation: 1 }; session.selection.value = { start: 0n, end: 0n, count: 1n }
+    session.matches.value = [0n]; session.results.value = [{ name: 'a-field' } as ParsedField]
+    const edit = session.editSelectedByte('42'); const open = session.openFile('b.bin').catch(() => undefined)
+    openedB.reject({ code: 'permission_denied', message: 'B failed.' }); await open
+    editedA.resolve({ dirty: true, revision: 'a2' }); await edit
+    expect(session.file.value).toMatchObject({ name: 'a.bin', revision: 'a2', dirty: true })
+    expect(session.matches.value).toEqual([]); expect(session.results.value).toEqual([])
+  })
+
+  it('applies an undo result to file A when a replacement open fails', async () => {
+    const backend = fakeBackend(); const undoneA = deferred<{ dirty: boolean; revision: string; undone: boolean }>(); const openedB = deferred<never>()
+    vi.mocked(backend.undoEdit).mockReturnValue(undoneA.promise); vi.mocked(backend.openFile).mockReturnValue(openedB.promise)
+    const session = useHexSession(backend)
+    session.file.value = { name: 'a.bin', path: 'a.bin', size: '2', revision: 'a1', dirty: true }
+    session.page.value = { ...pageAt(0n, 'a1'), generation: 1 }; session.matches.value = [0n]
+    const undo = session.undo(); const open = session.openFile('b.bin').catch(() => undefined)
+    openedB.reject({ code: 'permission_denied', message: 'B failed.' }); await open
+    undoneA.resolve({ dirty: false, revision: 'a2', undone: true }); await undo
+    expect(session.file.value).toMatchObject({ name: 'a.bin', revision: 'a2', dirty: false })
+    expect(session.matches.value).toEqual([])
+  })
+
+  it('applies a Save As result to file A when a replacement open fails', async () => {
+    const backend = fakeBackend(); const savedA = deferred<{ dirty: boolean; revision: string; bytesWritten: string; destination: string }>(); const openedB = deferred<never>()
+    vi.mocked(backend.saveAs).mockReturnValue(savedA.promise); vi.mocked(backend.openFile).mockReturnValue(openedB.promise)
+    const session = useHexSession(backend)
+    session.file.value = { name: 'a.bin', path: 'a.bin', size: '2', revision: 'a1', dirty: true }
+    const save = session.saveAs('a-copy.bin'); const open = session.openFile('b.bin').catch(() => undefined)
+    openedB.reject({ code: 'permission_denied', message: 'B failed.' }); await open
+    savedA.resolve({ dirty: false, revision: 'a2', bytesWritten: '2', destination: 'a-copy.bin' }); await save
+    expect(session.file.value).toMatchObject({ name: 'a.bin', revision: 'a2', dirty: false })
+  })
+
   it('validates edit text before invoking Rust and refreshes the current page', async () => {
     const backend = fakeBackend(); const session = useHexSession(backend)
     session.file.value = { name: 'input.bin', path: 'input.bin', size: '8192', revision: '1', dirty: false }

@@ -78,8 +78,12 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   let openIntentVersion = 0
   let openQueue: Promise<void> | null = null
 
+  function isEpochCurrent(ticket: OperationTicket): boolean {
+    return ticket.epoch === sessionEpoch
+  }
+
   function isCurrent(ticket: OperationTicket): boolean {
-    return ticket.epoch === sessionEpoch && ticket.token === tokens[ticket.name] && ticket.relevant()
+    return (ticket.name === 'open' || isEpochCurrent(ticket)) && ticket.token === tokens[ticket.name] && ticket.relevant()
   }
 
   async function run<T>(
@@ -95,7 +99,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     if (tracksProgress) progress.value = null
     try {
       const value = await operation(ticket)
-      return { value, current: isCurrent(ticket), epochCurrent: ticket.epoch === sessionEpoch }
+      return { value, current: isCurrent(ticket), epochCurrent: isEpochCurrent(ticket) }
     } catch (cause) {
       const normalized = friendlyError(cause)
       if (isCurrent(ticket) && ticket.issue >= latestRelevantIssue) { latestRelevantIssue = ticket.issue; error.value = normalized }
@@ -148,7 +152,6 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   }
 
   async function openFile(path: string, discardUnsaved = false): Promise<void> {
-    sessionEpoch += 1
     contentVersion += 1
     const openIntent = ++openIntentVersion
     const predecessor = openQueue
@@ -160,6 +163,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     void queueEnd.then(() => { if (openQueue === queueEnd) openQueue = null })
     try {
       const result = await run('open', () => queuedOpen)
+      sessionEpoch += 1
       installOpenedFile(result.value)
       if (openIntent === openIntentVersion) await requestPage(0n, FIRST_PAGE_LENGTH)
     } catch (error) {
