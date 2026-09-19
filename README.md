@@ -6,15 +6,17 @@ HexForge is fully offline. File paths, file bytes, templates, and parsed results
 
 ## Prerequisites
 
-- Node.js 20 or newer and npm.
+- Node.js `^20.19.0` or `>=22.12.0` and npm 11.6.3 (the version pinned in `package.json`).
 - A current stable Rust toolchain installed with `rustup`.
 - The [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/) for the target OS. On Windows this includes Microsoft C++ Build Tools and WebView2; Linux and macOS require their platform-specific webview and build packages.
 
-Install the JavaScript dependencies from the npm lockfile:
+Install the exact JavaScript dependency graph from `package-lock.json` on a fresh checkout:
 
 ```sh
-npm install
+npm ci
 ```
+
+Use `npm install` only when intentionally updating dependency declarations and the lockfile.
 
 ## Development and verification
 

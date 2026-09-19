@@ -63,6 +63,10 @@ impl PageCache {
         self.entries.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     pub fn cached_bytes(&self) -> usize {
         self.entries.values().map(|entry| entry.bytes.len()).sum()
     }
@@ -87,7 +91,9 @@ mod tests {
     #[test]
     fn cache_evicts_least_recent_page() {
         let mut cache = PageCache::new(4, 2);
+        assert!(cache.is_empty());
         cache.insert(0, vec![0; 4]);
+        assert!(!cache.is_empty());
         cache.insert(4, vec![1; 4]);
         assert!(cache.get(0).is_some());
         cache.insert(8, vec![2; 4]);

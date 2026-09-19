@@ -189,7 +189,7 @@ impl Read for SessionReader<'_> {
         let read = self
             .session
             .read_effective_chunk(self.position, buffer)
-            .map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()))?;
+            .map_err(|error| io::Error::other(error.to_string()))?;
         self.position += read as u64;
         Ok(read)
     }
@@ -241,12 +241,10 @@ mod tests {
 
     #[test]
     fn caps_patterns_at_4096_bytes() {
-        let valid = std::iter::repeat("AA")
-            .take(4096)
+        let valid = std::iter::repeat_n("AA", 4096)
             .collect::<Vec<_>>()
             .join(" ");
-        let too_large = std::iter::repeat("AA")
-            .take(4097)
+        let too_large = std::iter::repeat_n("AA", 4097)
             .collect::<Vec<_>>()
             .join(" ");
 
