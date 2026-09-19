@@ -87,7 +87,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     operation: (ticket: OperationTicket) => Promise<T>,
     tracksProgress = false,
     relevant: () => boolean = () => true,
-  ): Promise<{ value: T; current: boolean }> {
+  ): Promise<{ value: T; current: boolean; epochCurrent: boolean }> {
     const ticket: OperationTicket = { name, token: ++tokens[name], epoch: sessionEpoch, issue: ++latestIssue, progressIssue: tracksProgress ? ++latestProgressIssue : 0, relevant }
     pending[name] += 1
     busy[name] = pending[name] > 0
@@ -95,7 +95,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     if (tracksProgress) progress.value = null
     try {
       const value = await operation(ticket)
-      return { value, current: isCurrent(ticket) }
+      return { value, current: isCurrent(ticket), epochCurrent: ticket.epoch === sessionEpoch }
     } catch (cause) {
       const normalized = friendlyError(cause)
       if (isCurrent(ticket) && ticket.issue >= latestRelevantIssue) { latestRelevantIssue = ticket.issue; error.value = normalized }
@@ -212,6 +212,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     if (!selected || selected.count !== 1n) { const normalized = friendlyError(new Error('Select exactly one byte to edit.')); presentError(normalized); throw normalized }
     const viewportIntent = viewportIntentVersion
     const result = await run('edit', () => api.editByte(selected.start, value))
+    if (!result.epochCurrent) return
     invalidateDerivedContent()
     updateFileState(result.value)
     await refreshPage(viewportIntent)
@@ -220,6 +221,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   async function undo(): Promise<void> {
     const viewportIntent = viewportIntentVersion
     const result = await run('undo', () => api.undoEdit())
+    if (!result.epochCurrent) return
     if (result.value.undone) invalidateDerivedContent()
     updateFileState(result.value)
     await refreshPage(viewportIntent)
@@ -227,6 +229,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
 
   async function saveAs(path: string): Promise<void> {
     const result = await run('save', (ticket) => api.saveAs(path, (value) => reportProgress(ticket, value)), true)
+    if (!result.epochCurrent) return
     updateFileState(result.value)
   }
 

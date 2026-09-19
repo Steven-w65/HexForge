@@ -212,6 +212,50 @@ describe('useHexSession', () => {
     expect(session.results.value).toEqual([])
   })
 
+  it('ignores an edit result from file A after file B replaces the session', async () => {
+    const backend = fakeBackend(); const editedA = deferred<{ dirty: boolean; revision: string }>()
+    vi.mocked(backend.editByte).mockReturnValue(editedA.promise)
+    vi.mocked(backend.openFile).mockResolvedValue({ name: 'b.bin', path: 'b.bin', size: '2', revision: 'b1', dirty: false })
+    vi.mocked(backend.readPage).mockResolvedValue({ ...pageAt(0n, 'b1'), bytes: [0x42] })
+    const session = useHexSession(backend)
+    session.file.value = { name: 'a.bin', path: 'a.bin', size: '2', revision: 'a1', dirty: false }
+    session.page.value = { ...pageAt(0n, 'a1'), generation: 1 }; session.selection.value = { start: 0n, end: 0n, count: 1n }
+    const edit = session.editSelectedByte('42')
+    await session.openFile('b.bin')
+    session.matches.value = [1n]; session.results.value = [{ name: 'b-field' } as ParsedField]
+    editedA.resolve({ dirty: true, revision: 'a2' }); await edit
+    expect(session.file.value).toMatchObject({ name: 'b.bin', revision: 'b1', dirty: false })
+    expect(session.matches.value).toEqual([1n]); expect(session.results.value).toEqual([{ name: 'b-field' }])
+    expect(session.page.value?.bytes).toEqual([0x42]); expect(backend.readPage).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores an undo result from file A after file B replaces the session', async () => {
+    const backend = fakeBackend(); const undoneA = deferred<{ dirty: boolean; revision: string; undone: boolean }>()
+    vi.mocked(backend.undoEdit).mockReturnValue(undoneA.promise)
+    vi.mocked(backend.openFile).mockResolvedValue({ name: 'b.bin', path: 'b.bin', size: '2', revision: 'b1', dirty: true })
+    const session = useHexSession(backend)
+    session.file.value = { name: 'a.bin', path: 'a.bin', size: '2', revision: 'a1', dirty: true }
+    session.page.value = { ...pageAt(0n, 'a1'), generation: 1 }
+    const undo = session.undo()
+    await session.openFile('b.bin')
+    session.matches.value = [1n]
+    undoneA.resolve({ dirty: false, revision: 'a2', undone: true }); await undo
+    expect(session.file.value).toMatchObject({ name: 'b.bin', revision: 'b1', dirty: true })
+    expect(session.matches.value).toEqual([1n]); expect(backend.readPage).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores a Save As result from file A after file B replaces the session', async () => {
+    const backend = fakeBackend(); const savedA = deferred<{ dirty: boolean; revision: string; bytesWritten: string; destination: string }>()
+    vi.mocked(backend.saveAs).mockReturnValue(savedA.promise)
+    vi.mocked(backend.openFile).mockResolvedValue({ name: 'b.bin', path: 'b.bin', size: '2', revision: 'b1', dirty: true })
+    const session = useHexSession(backend)
+    session.file.value = { name: 'a.bin', path: 'a.bin', size: '2', revision: 'a1', dirty: true }
+    const save = session.saveAs('a-copy.bin')
+    await session.openFile('b.bin')
+    savedA.resolve({ dirty: false, revision: 'a2', bytesWritten: '2', destination: 'a-copy.bin' }); await save
+    expect(session.file.value).toMatchObject({ name: 'b.bin', revision: 'b1', dirty: true })
+  })
+
   it('validates edit text before invoking Rust and refreshes the current page', async () => {
     const backend = fakeBackend(); const session = useHexSession(backend)
     session.file.value = { name: 'input.bin', path: 'input.bin', size: '8192', revision: '1', dirty: false }
