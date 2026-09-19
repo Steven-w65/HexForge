@@ -47,10 +47,11 @@ export interface HexSession {
   search(text: string): Promise<void>; applyTemplate(): Promise<void>; editSelectedByte(text: string): Promise<void>
   undo(): Promise<void>; saveAs(path: string): Promise<void>; loadTemplate(path: string): Promise<void>
   saveTemplate(path: string): Promise<void>; exportCsv(path: string): Promise<void>
-  navigate(range: { start: bigint; end: bigint }): void; clearSelection(): void; clearError(): void; presentError(error: unknown): void
+  updateTemplate(template: TemplateDefinition): void; navigate(range: { start: bigint; end: bigint }): void
+  clearSelection(): void; clearError(): void; presentError(error: unknown): void
 }
 
-interface OperationTicket { name: BusyOperation; token: number; epoch: number; issue: number; progressIssue: number }
+interface OperationTicket { name: BusyOperation; token: number; epoch: number; issue: number; progressIssue: number; relevant: () => boolean }
 
 export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   const file = ref<FileInfo | null>(null)
@@ -72,13 +73,22 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   let latestRelevantIssue = 0
   let latestProgressIssue = 0
   let mutationVersion = 0
+  let contentVersion = 0
+  let templateVersion = 0
+  let viewportIntentVersion = 0
+  let openQueue: Promise<void> | null = null
 
   function isCurrent(ticket: OperationTicket): boolean {
-    return ticket.epoch === sessionEpoch && ticket.token === tokens[ticket.name]
+    return ticket.epoch === sessionEpoch && ticket.token === tokens[ticket.name] && ticket.relevant()
   }
 
-  async function run<T>(name: BusyOperation, operation: (ticket: OperationTicket) => Promise<T>, tracksProgress = false): Promise<{ value: T; current: boolean }> {
-    const ticket: OperationTicket = { name, token: ++tokens[name], epoch: sessionEpoch, issue: ++latestIssue, progressIssue: tracksProgress ? ++latestProgressIssue : 0 }
+  async function run<T>(
+    name: BusyOperation,
+    operation: (ticket: OperationTicket) => Promise<T>,
+    tracksProgress = false,
+    relevant: () => boolean = () => true,
+  ): Promise<{ value: T; current: boolean }> {
+    const ticket: OperationTicket = { name, token: ++tokens[name], epoch: sessionEpoch, issue: ++latestIssue, progressIssue: tracksProgress ? ++latestProgressIssue : 0, relevant }
     pending[name] += 1
     busy[name] = pending[name] > 0
     if (name !== 'page') { latestRelevantIssue = ticket.issue; error.value = null }
@@ -104,25 +114,39 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     if (file.value) file.value = { ...file.value, dirty: state.dirty, revision: state.revision }
   }
 
-  async function requestPage(offset: bigint, length: number, generation = ++nextGeneration): Promise<void> {
+  async function loadPage(offset: bigint, length: number, generation: number): Promise<void> {
     nextGeneration = Math.max(nextGeneration, generation)
     const result = await run('page', () => api.readPage(offset, length))
     if (result.current) page.value = { ...result.value, generation }
   }
 
-  async function refreshPage(): Promise<void> {
+  async function requestPage(offset: bigint, length: number, generation = ++nextGeneration): Promise<void> {
+    viewportIntentVersion += 1
+    await loadPage(offset, length, generation)
+  }
+
+  async function refreshPage(expectedViewportIntent: number): Promise<void> {
+    if (expectedViewportIntent !== viewportIntentVersion) return
     if (!page.value) return
     const current = page.value
-    await requestPage(BigInt(current.offset), current.bytes.length || FIRST_PAGE_LENGTH, current.generation)
+    await loadPage(BigInt(current.offset), current.bytes.length || FIRST_PAGE_LENGTH, current.generation)
   }
 
   async function openFile(path: string, discardUnsaved = false): Promise<void> {
     sessionEpoch += 1
     mutationVersion += 1
-    const result = await run('open', () => api.openFile(path, discardUnsaved))
+    contentVersion += 1
+    const predecessor = openQueue
+    const queuedOpen = predecessor
+      ? (async () => { await predecessor; return api.openFile(path, discardUnsaved) })()
+      : api.openFile(path, discardUnsaved)
+    const queueEnd = queuedOpen.then(() => undefined, () => undefined)
+    openQueue = queueEnd
+    void queueEnd.then(() => { if (openQueue === queueEnd) openQueue = null })
+    const result = await run('open', () => queuedOpen)
     if (!result.current) return
     file.value = result.value
-    selection.value = null; matches.value = []; results.value = []; viewportOffset.value = 0n; page.value = null
+    selection.value = null; matches.value = []; results.value = []; progress.value = null; viewportOffset.value = 0n; page.value = null
     await requestPage(0n, FIRST_PAGE_LENGTH)
   }
 
@@ -143,10 +167,11 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   }
 
   async function search(text: string): Promise<void> {
+    const searchedContent = contentVersion
     const result = await run('search', (ticket) => {
       parseHexBytes(text)
       return api.searchBytes(text, (value) => reportProgress(ticket, value))
-    }, true)
+    }, true, () => searchedContent === contentVersion)
     if (!result.current) return
     matches.value = result.value.matches.map(BigInt)
     const first = matches.value[0]
@@ -154,7 +179,10 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   }
 
   async function applyTemplate(): Promise<void> {
-    const result = await run('parse', (ticket) => api.applyTemplate(template.value, (value) => reportProgress(ticket, value)), true)
+    const parsedTemplate = templateVersion
+    const parsedContent = contentVersion
+    const relevant = () => parsedTemplate === templateVersion && parsedContent === contentVersion
+    const result = await run('parse', (ticket) => api.applyTemplate(template.value, (value) => reportProgress(ticket, value)), true, relevant)
     if (result.current) results.value = result.value
   }
 
@@ -165,18 +193,30 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     const selected = selection.value
     if (!selected || selected.count !== 1n) { const normalized = friendlyError(new Error('Select exactly one byte to edit.')); presentError(normalized); throw normalized }
     const mutation = ++mutationVersion
+    const viewportIntent = viewportIntentVersion
     const result = await run('edit', () => api.editByte(selected.start, value))
     if (!result.current || mutation !== mutationVersion) return
+    contentVersion += 1
+    matches.value = []
+    results.value = []
+    progress.value = null
     updateFileState(result.value)
-    await refreshPage()
+    await refreshPage(viewportIntent)
   }
 
   async function undo(): Promise<void> {
     const mutation = ++mutationVersion
+    const viewportIntent = viewportIntentVersion
     const result = await run('undo', () => api.undoEdit())
     if (!result.current || mutation !== mutationVersion) return
+    if (result.value.undone) {
+      contentVersion += 1
+      matches.value = []
+      results.value = []
+      progress.value = null
+    }
     updateFileState(result.value)
-    await refreshPage()
+    await refreshPage(viewportIntent)
   }
 
   async function saveAs(path: string): Promise<void> {
@@ -186,7 +226,9 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   }
 
   async function loadTemplate(path: string): Promise<void> {
-    const result = await run('template', () => api.loadTemplate(path))
+    const loadedTemplate = ++templateVersion
+    progress.value = null
+    const result = await run('template', () => api.loadTemplate(path), false, () => loadedTemplate === templateVersion)
     if (result.current) { template.value = result.value; results.value = [] }
   }
   async function saveTemplate(path: string): Promise<void> { await run('template', () => api.saveTemplate(path, template.value)) }
@@ -197,9 +239,16 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     error.value = friendlyError(cause)
   }
 
+  function updateTemplate(value: TemplateDefinition): void {
+    templateVersion += 1
+    template.value = value
+    results.value = []
+    progress.value = null
+  }
+
   return {
     file, page, selection, template, results, matches, busy, progress, error, viewportOffset, editMode,
     requestPage, openFile, goTo, search, applyTemplate, editSelectedByte, undo, saveAs, loadTemplate,
-    saveTemplate, exportCsv, navigate, clearSelection: () => { selection.value = null }, clearError: () => { error.value = null }, presentError,
+    saveTemplate, exportCsv, updateTemplate, navigate, clearSelection: () => { selection.value = null }, clearError: () => { error.value = null }, presentError,
   }
 }

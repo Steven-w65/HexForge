@@ -84,7 +84,7 @@ function beginEdit(offset: bigint): void {
   showPrompt('edit', 'Edit byte', '')
 }
 
-function updateTemplate(value: TemplateDefinition): void { session.template.value = value }
+function updateTemplate(value: TemplateDefinition): void { session.updateTemplate(value) }
 
 onMounted(async () => {
   disposers.push(useHotkeys({

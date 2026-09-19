@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { PageResponse, TemplateDefinition } from '../types'
+import type { OperationProgress, PageResponse, ParsedField, TemplateDefinition } from '../types'
 import { useHexSession, type HexBackend } from './useHexSession'
 
 function deferred<T>() {
@@ -64,6 +64,21 @@ describe('useHexSession', () => {
     expect(session.page.value?.offset).toBe('4096')
   })
 
+  it('does not start an edit refresh after a newer viewport intent already exists', async () => {
+    const backend = fakeBackend(); const edited = deferred<{ dirty: boolean; revision: string }>(); const viewport = deferred<PageResponse>()
+    vi.mocked(backend.editByte).mockReturnValue(edited.promise)
+    vi.mocked(backend.readPage).mockReturnValueOnce(viewport.promise).mockResolvedValue(pageAt(0n, '2'))
+    const session = useHexSession(backend)
+    session.file.value = { name: 'input.bin', path: 'input.bin', size: '8192', revision: '1', dirty: false }
+    session.page.value = { ...pageAt(0n), generation: 1 }; session.selection.value = { start: 0n, end: 0n, count: 1n }
+    const edit = session.editSelectedByte('FF')
+    const move = session.requestPage(4096n, 256, 2)
+    edited.resolve({ dirty: true, revision: '2' }); await edit
+    viewport.resolve(pageAt(4096n, '3')); await move
+    expect(session.page.value?.offset).toBe('4096')
+    expect(backend.readPage).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps overlapping search busy and ignores stale results, progress and failures', async () => {
     const backend = fakeBackend(); const first = deferred<{ matches: string[]; truncated: boolean }>(); const second = deferred<{ matches: string[]; truncated: boolean }>()
     let oldProgress!: (value: never) => void; let newProgress!: (value: never) => void
@@ -91,15 +106,62 @@ describe('useHexSession', () => {
     expect(session.template.value.name).toBe('New'); expect(session.busy.template).toBe(false)
   })
 
-  it('keeps the newest overlapping open and ignores an older failure', async () => {
-    const backend = fakeBackend(); const first = deferred<Awaited<ReturnType<HexBackend['openFile']>>>(); const second = deferred<Awaited<ReturnType<HexBackend['openFile']>>>()
-    vi.mocked(backend.openFile).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+  it('does not publish parse results or progress after the template changes', async () => {
+    const backend = fakeBackend(); const parsed = deferred<ParsedField[]>(); let parseProgress!: (value: OperationProgress) => void
+    vi.mocked(backend.applyTemplate).mockImplementation((_template, progress) => { parseProgress = progress; return parsed.promise })
+    vi.mocked(backend.loadTemplate).mockResolvedValue({ version: 1, name: 'B', defaultEndianness: 'big', fields: [] })
     const session = useHexSession(backend)
-    const a = session.openFile('old.bin').catch(() => undefined); const b = session.openFile('new.bin')
-    second.resolve({ name: 'new.bin', path: 'new.bin', size: '1', revision: '1', dirty: false }); await b
-    expect(session.busy.open).toBe(true)
-    first.reject({ code: 'old_failure', message: 'Old open failed.' }); await a
-    expect(session.file.value?.name).toBe('new.bin'); expect(session.error.value).toBeNull(); expect(session.busy.open).toBe(false)
+    session.template.value = { version: 1, name: 'A', defaultEndianness: 'little', fields: [] }
+    const apply = session.applyTemplate()
+    await session.loadTemplate('b.json')
+    parseProgress({ operationId: 'old-parse', phase: 'parse', processed: '1', total: '1' })
+    parsed.resolve([{ name: 'old', offset: '0', type: 'u8', length: 1, endianness: 'little', value: '41', comment: '' }]); await apply
+    expect(session.template.value.name).toBe('B'); expect(session.results.value).toEqual([]); expect(session.progress.value).toBeNull()
+  })
+
+  it('does not publish search matches, progress or errors after bytes mutate', async () => {
+    const backend = fakeBackend(); const found = deferred<{ matches: string[]; truncated: boolean }>(); let searchProgress!: (value: OperationProgress) => void
+    vi.mocked(backend.searchBytes).mockImplementation((_pattern, progress) => { searchProgress = progress; return found.promise })
+    const session = useHexSession(backend)
+    session.file.value = { name: 'input.bin', path: 'input.bin', size: '8192', revision: '1', dirty: false }
+    session.page.value = { ...pageAt(0n), generation: 1 }; session.selection.value = { start: 0n, end: 0n, count: 1n }
+    const search = session.search('41')
+    await session.editSelectedByte('42')
+    searchProgress({ operationId: 'old-search', phase: 'search', processed: '1', total: '1' })
+    found.resolve({ matches: ['0'], truncated: false }); await search
+    expect(session.matches.value).toEqual([]); expect(session.progress.value).toBeNull(); expect(session.error.value).toBeNull()
+  })
+
+  it('suppresses a search failure racing the completion of a byte mutation', async () => {
+    const backend = fakeBackend(); const found = deferred<{ matches: string[]; truncated: boolean }>(); const edited = deferred<{ dirty: boolean; revision: string }>()
+    vi.mocked(backend.searchBytes).mockReturnValue(found.promise); vi.mocked(backend.editByte).mockReturnValue(edited.promise)
+    const session = useHexSession(backend)
+    session.file.value = { name: 'input.bin', path: 'input.bin', size: '8192', revision: '1', dirty: false }
+    session.page.value = { ...pageAt(0n), generation: 1 }; session.selection.value = { start: 0n, end: 0n, count: 1n }
+    const search = session.search('41').catch(() => undefined); const edit = session.editSelectedByte('42')
+    edited.resolve({ dirty: true, revision: '2' }); found.reject({ code: 'old_search', message: 'Old search failed.' })
+    await Promise.all([search, edit])
+    expect(session.error.value).toBeNull()
+  })
+
+  it('serializes overlapping opens so backend and UI end on the latest requested file', async () => {
+    const backend = fakeBackend(); const first = deferred<void>(); const second = deferred<void>()
+    const started: string[] = []; let active = 0; let peakActive = 0; let backendFile = ''
+    vi.mocked(backend.openFile).mockImplementation(async (path) => {
+      started.push(path); active += 1; peakActive = Math.max(peakActive, active)
+      await (path === 'old.bin' ? first.promise : second.promise)
+      backendFile = path; active -= 1
+      return { name: path, path, size: '1', revision: path === 'old.bin' ? '1' : '2', dirty: false }
+    })
+    const session = useHexSession(backend)
+    const a = session.openFile('old.bin'); const b = session.openFile('new.bin')
+    expect(started).toEqual(['old.bin'])
+    first.resolve(); await a
+    while (started.length < 2) await Promise.resolve()
+    expect(started).toEqual(['old.bin', 'new.bin'])
+    second.resolve(); await b
+    expect(peakActive).toBe(1); expect(backendFile).toBe('new.bin'); expect(session.file.value?.name).toBe('new.bin')
+    expect(session.error.value).toBeNull(); expect(session.busy.open).toBe(false)
   })
 
   it('validates edit text before invoking Rust and refreshes the current page', async () => {
