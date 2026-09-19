@@ -206,6 +206,11 @@ impl FileSession {
         self.cache.len()
     }
 
+    /// Returns the exact number of source bytes currently retained by the page cache.
+    pub fn cached_bytes(&self) -> usize {
+        self.cache.cached_bytes()
+    }
+
     fn page_data(&self, offset: u64, bytes: Vec<u8>) -> PageData {
         let modified_offsets = self.edits.modified_offsets(offset, bytes.len() as u64);
         PageData {

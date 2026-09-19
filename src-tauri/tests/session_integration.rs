@@ -2,6 +2,46 @@ use hexforge_lib::export::save_session_as;
 use hexforge_lib::session::FileSession;
 
 #[test]
+fn multi_gigabyte_sparse_file_opens_and_reads_a_small_page() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    file.as_file().set_len(5 * 1024 * 1024 * 1024).unwrap();
+    let mut session = FileSession::open(file.path().to_path_buf(), 64 * 1024, 4).unwrap();
+
+    let page = session.read_range(4_000_000_000, 4096).unwrap();
+
+    assert_eq!(page.bytes.len(), 4096);
+    assert_eq!(page.bytes, vec![0; 4096]);
+    assert!(session.cache_len() <= 4);
+    assert!(session.cached_bytes() <= 4 * 64 * 1024);
+}
+
+#[test]
+fn source_and_existing_destinations_remain_immutable() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("source.bin");
+    let output = dir.path().join("output.bin");
+    let existing = dir.path().join("existing.bin");
+    let original = vec![0x10, 0x20, 0x30];
+    std::fs::write(&source, &original).unwrap();
+    std::fs::write(&existing, [0xaa]).unwrap();
+    let mut session = FileSession::open(source.clone(), 2, 2).unwrap();
+
+    session.edit_byte(1, 0xff).unwrap();
+    assert_eq!(std::fs::read(&source).unwrap(), original);
+    assert!(session.undo().unwrap());
+    assert_eq!(std::fs::read(&source).unwrap(), original);
+
+    session.edit_byte(1, 0xff).unwrap();
+    save_session_as(&mut session, &output, 2).unwrap();
+    assert_eq!(std::fs::read(&source).unwrap(), original);
+    assert_eq!(std::fs::read(&output).unwrap(), [0x10, 0xff, 0x30]);
+
+    let error = save_session_as(&mut session, &existing, 2).unwrap_err();
+    assert_eq!(error.code(), "destination_exists");
+    assert_eq!(std::fs::read(existing).unwrap(), [0xaa]);
+}
+
+#[test]
 fn save_as_applies_edits_without_changing_source() {
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("source.bin");

@@ -63,6 +63,10 @@ impl PageCache {
         self.entries.len()
     }
 
+    pub fn cached_bytes(&self) -> usize {
+        self.entries.values().map(|entry| entry.bytes.len()).sum()
+    }
+
     pub fn page_size(&self) -> usize {
         self.page_size
     }
