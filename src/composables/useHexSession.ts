@@ -72,10 +72,10 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   let latestIssue = 0
   let latestRelevantIssue = 0
   let latestProgressIssue = 0
-  let mutationVersion = 0
   let contentVersion = 0
   let templateVersion = 0
   let viewportIntentVersion = 0
+  let openIntentVersion = 0
   let openQueue: Promise<void> | null = null
 
   function isCurrent(ticket: OperationTicket): boolean {
@@ -114,6 +114,21 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     if (file.value) file.value = { ...file.value, dirty: state.dirty, revision: state.revision }
   }
 
+  function invalidateDerivedContent(): void {
+    contentVersion += 1
+    matches.value = []
+    results.value = []
+    progress.value = null
+  }
+
+  function installOpenedFile(opened: FileInfo): void {
+    file.value = opened
+    selection.value = null
+    invalidateDerivedContent()
+    viewportOffset.value = 0n
+    page.value = null
+  }
+
   async function loadPage(offset: bigint, length: number, generation: number): Promise<void> {
     nextGeneration = Math.max(nextGeneration, generation)
     const result = await run('page', () => api.readPage(offset, length))
@@ -134,8 +149,8 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
 
   async function openFile(path: string, discardUnsaved = false): Promise<void> {
     sessionEpoch += 1
-    mutationVersion += 1
     contentVersion += 1
+    const openIntent = ++openIntentVersion
     const predecessor = openQueue
     const queuedOpen = predecessor
       ? (async () => { await predecessor; return api.openFile(path, discardUnsaved) })()
@@ -143,11 +158,14 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     const queueEnd = queuedOpen.then(() => undefined, () => undefined)
     openQueue = queueEnd
     void queueEnd.then(() => { if (openQueue === queueEnd) openQueue = null })
-    const result = await run('open', () => queuedOpen)
-    if (!result.current) return
-    file.value = result.value
-    selection.value = null; matches.value = []; results.value = []; progress.value = null; viewportOffset.value = 0n; page.value = null
-    await requestPage(0n, FIRST_PAGE_LENGTH)
+    try {
+      const result = await run('open', () => queuedOpen)
+      installOpenedFile(result.value)
+      if (openIntent === openIntentVersion) await requestPage(0n, FIRST_PAGE_LENGTH)
+    } catch (error) {
+      if (openIntent === openIntentVersion && file.value) await requestPage(0n, FIRST_PAGE_LENGTH)
+      throw error
+    }
   }
 
   function navigate(range: { start: bigint; end: bigint }): void {
@@ -192,37 +210,24 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     catch (cause) { const normalized = friendlyError(cause); presentError(normalized); throw normalized }
     const selected = selection.value
     if (!selected || selected.count !== 1n) { const normalized = friendlyError(new Error('Select exactly one byte to edit.')); presentError(normalized); throw normalized }
-    const mutation = ++mutationVersion
     const viewportIntent = viewportIntentVersion
     const result = await run('edit', () => api.editByte(selected.start, value))
-    if (!result.current || mutation !== mutationVersion) return
-    contentVersion += 1
-    matches.value = []
-    results.value = []
-    progress.value = null
+    invalidateDerivedContent()
     updateFileState(result.value)
     await refreshPage(viewportIntent)
   }
 
   async function undo(): Promise<void> {
-    const mutation = ++mutationVersion
     const viewportIntent = viewportIntentVersion
     const result = await run('undo', () => api.undoEdit())
-    if (!result.current || mutation !== mutationVersion) return
-    if (result.value.undone) {
-      contentVersion += 1
-      matches.value = []
-      results.value = []
-      progress.value = null
-    }
+    if (result.value.undone) invalidateDerivedContent()
     updateFileState(result.value)
     await refreshPage(viewportIntent)
   }
 
   async function saveAs(path: string): Promise<void> {
-    const mutation = ++mutationVersion
     const result = await run('save', (ticket) => api.saveAs(path, (value) => reportProgress(ticket, value)), true)
-    if (result.current && mutation === mutationVersion) updateFileState(result.value)
+    updateFileState(result.value)
   }
 
   async function loadTemplate(path: string): Promise<void> {

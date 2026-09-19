@@ -164,6 +164,54 @@ describe('useHexSession', () => {
     expect(session.error.value).toBeNull(); expect(session.busy.open).toBe(false)
   })
 
+  it('reflects the last successful backend open when the newest queued open fails', async () => {
+    const backend = fakeBackend(); const openedB = deferred<void>(); const openedC = deferred<void>(); let backendFile = 'a.bin'
+    vi.mocked(backend.openFile).mockImplementation(async (path) => {
+      if (path === 'b.bin') await openedB.promise
+      else await openedC.promise
+      if (path === 'c.bin') throw { code: 'permission_denied', message: 'C failed.' }
+      backendFile = path
+      return { name: path, path, size: '1', revision: '2', dirty: false }
+    })
+    vi.mocked(backend.readPage).mockImplementation(async () => ({ ...pageAt(0n), bytes: [backendFile === 'b.bin' ? 0x42 : 0x41] }))
+    const session = useHexSession(backend)
+    session.file.value = { name: 'a.bin', path: 'a.bin', size: '1', revision: '1', dirty: false }
+    session.page.value = { ...pageAt(0n), generation: 1 }
+    const b = session.openFile('b.bin'); const c = session.openFile('c.bin').catch(() => undefined)
+    openedB.resolve(); await b
+    expect(backendFile).toBe('b.bin'); expect(session.file.value?.name).toBe('b.bin'); expect(session.busy.open).toBe(true)
+    openedC.resolve(); await c
+    expect(backendFile).toBe('b.bin'); expect(session.file.value?.name).toBe('b.bin')
+    expect(session.page.value?.bytes).toEqual([0x42]); expect(session.error.value?.message).toBe('C failed.')
+  })
+
+  it('invalidates a pending search when an older edit succeeds and a newer edit fails', async () => {
+    const backend = fakeBackend(); const found = deferred<{ matches: string[]; truncated: boolean }>(); const firstEdit = deferred<{ dirty: boolean; revision: string }>(); const secondEdit = deferred<{ dirty: boolean; revision: string }>()
+    vi.mocked(backend.searchBytes).mockReturnValue(found.promise)
+    vi.mocked(backend.editByte).mockReturnValueOnce(firstEdit.promise).mockReturnValueOnce(secondEdit.promise)
+    const session = useHexSession(backend)
+    session.file.value = { name: 'input.bin', path: 'input.bin', size: '2', revision: '1', dirty: false }
+    session.page.value = { ...pageAt(0n), generation: 1 }; session.selection.value = { start: 0n, end: 0n, count: 1n }
+    const search = session.search('41'); const older = session.editSelectedByte('42'); const newer = session.editSelectedByte('43').catch(() => undefined)
+    firstEdit.resolve({ dirty: true, revision: '2' }); await older
+    secondEdit.reject({ code: 'edit_failed', message: 'Newer edit failed.' }); await newer
+    found.resolve({ matches: ['0'], truncated: false }); await search
+    expect(session.matches.value).toEqual([]); expect(session.error.value?.message).toBe('Newer edit failed.')
+  })
+
+  it('invalidates pending parse results when an older edit succeeds and newer undo is a no-op', async () => {
+    const backend = fakeBackend(); const parsed = deferred<ParsedField[]>(); const firstEdit = deferred<{ dirty: boolean; revision: string }>(); const undo = deferred<{ dirty: boolean; revision: string; undone: boolean }>()
+    vi.mocked(backend.applyTemplate).mockReturnValue(parsed.promise); vi.mocked(backend.editByte).mockReturnValue(firstEdit.promise); vi.mocked(backend.undoEdit).mockReturnValue(undo.promise)
+    const session = useHexSession(backend)
+    session.file.value = { name: 'input.bin', path: 'input.bin', size: '2', revision: '1', dirty: false }
+    session.page.value = { ...pageAt(0n), generation: 1 }; session.selection.value = { start: 0n, end: 0n, count: 1n }
+    const parse = session.applyTemplate(); const older = session.editSelectedByte('42'); const newer = session.undo()
+    firstEdit.resolve({ dirty: true, revision: '2' }); await older
+    undo.resolve({ dirty: true, revision: '2', undone: false }); await newer
+    parsed.resolve([{ name: 'old', offset: '0', type: 'u8', length: 1, endianness: 'little', value: '41', comment: '' }]); await parse
+    expect(session.results.value).toEqual([])
+  })
+
   it('validates edit text before invoking Rust and refreshes the current page', async () => {
     const backend = fakeBackend(); const session = useHexSession(backend)
     session.file.value = { name: 'input.bin', path: 'input.bin', size: '8192', revision: '1', dirty: false }
