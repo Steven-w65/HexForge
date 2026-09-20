@@ -67,4 +67,15 @@ describe('TemplateEditor', () => {
     await wrapper.get('input[data-field="length"]').setValue('1.5')
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   })
+
+  it('normalizes a hexadecimal offset and inherits the template default endianness', async () => {
+    const wrapper = mount(TemplateEditor, { props: { modelValue: { ...emptyTemplate(), defaultEndianness: 'big' } } })
+    await wrapper.get('[data-action="add-field"]').trigger('click')
+    let template = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as TemplateDefinition
+    expect(template.fields[0]?.endianness).toBe('big')
+    await wrapper.setProps({ modelValue: template })
+    await wrapper.get('input[data-field="offset"]').setValue('0x2A')
+    template = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as TemplateDefinition
+    expect(template.fields[0]?.offset).toBe('42')
+  })
 })

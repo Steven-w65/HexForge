@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import type { ColorTheme, PageRequest, ViewportPage } from '../types'
-import { createLayout, hitTestByte, visibleRange, type BytesPerRow, type HexLayout } from '../hex/layout'
+import { contentWidth, createLayout, hitTestByte, visibleRange, type BytesPerRow, type HexLayout } from '../hex/layout'
 import { normalizeSelection, type ByteSelection } from '../hex/selection'
 import { rowToThumb, thumbToRow } from '../hex/virtualScroll'
 import { createCanvasLayers, HexRenderer } from '../hex/renderer'
@@ -12,6 +12,7 @@ const props = defineProps<{
   bytesPerRow: BytesPerRow
   selection: ByteSelection | null
   matches: bigint[]
+  matchLength?: number
   templateRange: ByteSelection | null
   editMode: boolean
   theme: ColorTheme
@@ -29,6 +30,7 @@ const root = ref<HTMLElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
 const renderedRevision = ref<string>()
 const size = reactive({ width: 1, height: 1 })
+const canvasWidth = ref(1)
 let layout: HexLayout = createLayout(size.width, props.bytesPerRow)
 let renderer: HexRenderer | null = null
 let resizeObserver: ResizeObserver | null = null
@@ -87,6 +89,7 @@ function schedule(): void {
         modifiedOffsets: new Set(acceptedPage?.modifiedOffsets ?? []),
         selection: props.selection,
         matches: props.matches,
+        matchLength: props.matchLength ?? 1,
         templateRange: props.templateRange,
         viewportRow: scrollRow.value,
       })
@@ -100,6 +103,13 @@ function schedule(): void {
 function revisionIsOlder(next: string, current: string | undefined): boolean {
   if (current === undefined) return false
   try { return BigInt(next) < BigInt(current) } catch { return next < current }
+}
+
+function rebuildLayout(width: number): void {
+  const base = createLayout(Math.max(0, width - 8), props.bytesPerRow)
+  layout = createLayout(Math.max(base.width, contentWidth(base)), props.bytesPerRow)
+  canvasWidth.value = layout.width
+  renderer?.resize(layout.width, size.height, globalThis.devicePixelRatio || 1)
 }
 
 function acceptPage(page: ViewportPage | null): void {
@@ -122,8 +132,7 @@ function resize(width: number, height: number): void {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return
   size.width = width
   size.height = height
-  layout = createLayout(width, props.bytesPerRow)
-  renderer?.resize(width, height, globalThis.devicePixelRatio || 1)
+  rebuildLayout(width)
   staticDirty = contentDirty = overlayDirty = true
   requestPage()
   schedule()
@@ -188,7 +197,7 @@ function onScrollbarPointer(event: PointerEvent): void {
 watch(() => props.page, acceptPage)
 watch(() => props.bytesPerRow, (nextWidth, previousWidth) => {
   const offset = scrollRow.value * BigInt(previousWidth)
-  layout = createLayout(size.width, nextWidth)
+  rebuildLayout(size.width)
   scrollRow.value = offset / BigInt(nextWidth)
   staticDirty = contentDirty = overlayDirty = true
   emit('viewport-offset', scrollRow.value * BigInt(nextWidth))
@@ -201,7 +210,7 @@ watch(() => props.fileSize, () => {
   requestPage()
   schedule()
 })
-watch([() => props.selection, () => props.matches, () => props.templateRange], () => {
+watch([() => props.selection, () => props.matches, () => props.matchLength, () => props.templateRange], () => {
   overlayDirty = true
   schedule()
 }, { deep: true })
@@ -239,7 +248,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="root" class="hex-canvas" data-testid="hex-canvas" :data-theme="theme">
+  <div ref="root" class="hex-canvas" data-testid="hex-canvas" :data-theme="theme" :style="{ '--canvas-width': `${canvasWidth}px` }">
     <canvas
       ref="canvas"
       :data-page-revision="renderedRevision"
@@ -257,8 +266,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.hex-canvas { display: grid; grid-template-columns: minmax(0, 1fr) 8px; min-width: 0; min-height: 0; overflow: hidden; }
+.hex-canvas { display: grid; grid-template-columns: var(--canvas-width) 8px; min-width: 0; min-height: 0; overflow-x: auto; overflow-y: hidden; }
 canvas { display: block; width: 100%; height: 100%; cursor: default; }
-.virtual-scrollbar { position: relative; background: color-mix(in srgb, currentColor 8%, transparent); touch-action: none; }
+.virtual-scrollbar { position: sticky; right: 0; background: color-mix(in srgb, currentColor 8%, transparent); touch-action: none; }
 .virtual-scrollbar__thumb { position: absolute; inset: 0 1px auto; height: 24px; border-radius: 4px; background: color-mix(in srgb, currentColor 35%, transparent); }
 </style>

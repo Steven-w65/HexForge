@@ -342,6 +342,39 @@ describe('useHexSession', () => {
     expect(session.file.value!.path).toBe('input.bin')
   })
 
+  it('refreshes the active source and invalidates derived state after Save As clears edits', async () => {
+    const backend = fakeBackend(); const session = useHexSession(backend)
+    session.file.value = { name: 'input.bin', path: 'input.bin', size: '8192', revision: '3', dirty: true }
+    session.page.value = { offset: '16', bytes: [0x99], modifiedOffsets: ['16'], revision: '3', generation: 7 }
+    session.matches.value = [16n]; session.results.value = [{ name: 'stale' } as ParsedField]
+    vi.mocked(backend.readPage).mockResolvedValue({ offset: '16', bytes: [0x41], modifiedOffsets: [], revision: '4' })
+    await session.saveAs('copy.bin')
+    expect(session.file.value).toMatchObject({ path: 'input.bin', dirty: false, revision: '4' })
+    expect(session.page.value).toMatchObject({ offset: '16', bytes: [0x41], modifiedOffsets: [], revision: '4', generation: 7 })
+    expect(session.matches.value).toEqual([]); expect(session.results.value).toEqual([])
+    expect(backend.readPage).toHaveBeenCalledWith(16n, 1)
+  })
+
+  it('normalizes hexadecimal template offsets before backend calls', async () => {
+    const backend = fakeBackend(); const session = useHexSession(backend)
+    session.updateTemplate({ version: 1, name: 'Header', defaultEndianness: 'big', fields: [
+      { name: 'magic', offset: '0x20', type: 'u16', endianness: 'big', comment: '' },
+    ] })
+    await session.applyTemplate(); await session.saveTemplate('header.json'); await session.exportCsv('header.csv')
+    const expected = expect.objectContaining({ fields: [expect.objectContaining({ offset: '32' })] })
+    expect(backend.applyTemplate).toHaveBeenCalledWith(expected, expect.any(Function))
+    expect(backend.saveTemplate).toHaveBeenCalledWith('header.json', expected)
+    expect(backend.exportResultsCsv).toHaveBeenCalledWith('header.csv', expected, expect.any(Function))
+  })
+
+  it('records the byte width and truncation status of the current search', async () => {
+    const backend = fakeBackend(); const session = useHexSession(backend)
+    vi.mocked(backend.searchBytes).mockResolvedValue({ matches: ['16'], truncated: true })
+    await session.search('41 42 43')
+    expect(session.searchMatchLength.value).toBe(3)
+    expect(session.searchTruncated.value).toBe(true)
+  })
+
   it('loads, saves, applies and exports the active flat template', async () => {
     const backend = fakeBackend(); const session = useHexSession(backend)
     const template: TemplateDefinition = { version: 1, name: 'Header', defaultEndianness: 'big', fields: [] }

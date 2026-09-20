@@ -22,10 +22,11 @@ export function useHotkeys(actions: HotkeyActions, target: Window = window): () 
       else actions.clearSelection()
       return
     }
-    if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey || isEditable(event.target)) return
+    if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return
     const shortcuts: Record<string, () => void> = { o: actions.open, f: actions.search, g: actions.goTo, s: actions.saveTemplate, z: actions.undo }
     const action = shortcuts[event.key.toLowerCase()]
     if (!action) return
+    if (event.key.toLowerCase() === 'z' && isEditable(event.target)) return
     event.preventDefault()
     action()
   }

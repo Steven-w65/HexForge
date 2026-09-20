@@ -75,6 +75,10 @@ export function createLayout(width: number, bytesPerRow: BytesPerRow, measuredCh
   }
 }
 
+export function contentWidth(layout: HexLayout): number {
+  return Math.ceil(layout.asciiX + layout.asciiWidth + layout.charWidth * 2)
+}
+
 function cellIndexAt(layout: HexLayout, x: number, origin: number, cellWidth: number, stride: number): number | null {
   for (let index = 0; index < layout.bytesPerRow; index += 1) {
     const cellStart = origin + index * stride + groupsBefore(index) * layout.groupGap

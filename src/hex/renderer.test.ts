@@ -68,6 +68,7 @@ describe('HexRenderer', () => {
       modifiedOffsets: new Set(['1']),
       selection: { start: 2n, end: 3n, count: 2n },
       matches: [4n],
+      matchLength: 1,
       templateRange: { start: 5n, end: 6n, count: 2n },
       viewportRow: 0n,
     })
@@ -79,6 +80,15 @@ describe('HexRenderer', () => {
     const matchFill = recording.fills.indexOf('#8b6f2a')
     expect(recording.fillAlphas[selectionFill]).toBeLessThan(1)
     expect(recording.fillAlphas[matchFill]).toBeLessThan(1)
+  })
+
+  it('highlights every byte in a multi-byte search match', () => {
+    const { recording, layers } = fixture()
+    const renderer = new HexRenderer(layers, {
+      width: 900, height: 200, dpr: 1, layout: createLayout(900, 16), fileSize: 64n,
+    })
+    renderer.drawOverlay({ modifiedOffsets: new Set(), selection: null, matches: [4n], matchLength: 3, templateRange: null, viewportRow: 0n })
+    expect(recording.fills.filter((color) => color === '#8b6f2a')).toHaveLength(6)
   })
 
   it('scales all backing stores and composites cached layers in order', () => {

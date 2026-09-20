@@ -94,6 +94,16 @@ describe('HexCanvas', () => {
     expect(request.offset % 32n).toBe(0n)
   })
 
+  it('expands the horizontally scrollable Canvas extent for 32-byte rows', async () => {
+    const wrapper = mount(HexCanvas, { props: readyProps })
+    await resize(500, 400)
+    const sixteenWidth = Number.parseFloat((wrapper.get('[data-testid="hex-canvas"]').attributes('style') ?? '').match(/--canvas-width:\s*([\d.]+)px/)?.[1] ?? '0')
+    await wrapper.setProps({ bytesPerRow: 32 })
+    const thirtyTwoWidth = Number.parseFloat((wrapper.get('[data-testid="hex-canvas"]').attributes('style') ?? '').match(/--canvas-width:\s*([\d.]+)px/)?.[1] ?? '0')
+    expect(sixteenWidth).toBeGreaterThan(500)
+    expect(thirtyTwoWidth).toBeGreaterThan(sixteenWidth)
+  })
+
   it('emits edit requests only while edit mode is enabled', async () => {
     const wrapper = mount(HexCanvas, { props: readyProps })
     await resize()

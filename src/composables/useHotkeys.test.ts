@@ -42,6 +42,17 @@ describe('useHotkeys', () => {
     input.remove()
   })
 
+  it.each([
+    ['o', 'open'], ['f', 'search'], ['g', 'goTo'], ['s', 'saveTemplate'],
+  ] as const)('dispatches Ctrl+%s from an input to %s', (key, action) => {
+    const target = actions(); cleanups.push(useHotkeys(target))
+    const input = document.createElement('input'); document.body.append(input)
+    const event = new KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true, cancelable: true })
+    input.dispatchEvent(event)
+    expect(target[action]).toHaveBeenCalledOnce(); expect(event.defaultPrevented).toBe(true)
+    input.remove()
+  })
+
   it('requires exact Ctrl shortcuts and ignores shifted variants', () => {
     const target = actions(); cleanups.push(useHotkeys(target))
     for (const key of ['o', 'f', 'g', 's', 'z']) keydown(key, { ctrlKey: true, shiftKey: true })

@@ -49,7 +49,7 @@ npm run tauri build
 ## MVP behavior
 
 - Open any local binary file, including `.bin`, `.rom`, and `.raw`, with the toolbar, `Ctrl+O`, or drag-and-drop.
-- View 16 or 32 bytes per row in Offset, Hex Bytes, and ASCII columns. Non-printable ASCII bytes appear as `.`.
+- View 16 or 32 bytes per row in Offset, Hex Bytes, and ASCII columns. Non-printable ASCII bytes appear as `.`; a horizontal scrollbar keeps all three columns reachable in compact windows.
 - Select one byte or drag an inclusive range, jump to decimal or `0x`-prefixed offsets, and search hexadecimal byte sequences.
 - Toggle dark and light themes in one click. Dark is the default; the bundled JetBrains Mono font is local and never fetched from a remote service.
 - Enable edit mode to replace bytes with values from `00` through `FF`. Modified bytes are orange.
@@ -61,7 +61,7 @@ The source file is opened read-only and is never overwritten in place. HexForge 
 
 `Ctrl+Z` provides a basic Undo stack; Redo is intentionally not part of the MVP. **Save As always creates a brand-new file** containing the source plus current in-memory edits. It refuses the source path and any destination that already exists. A modified indicator and close confirmation protect unsaved edits.
 
-Search, parsing, Save As, and CSV export run through bounded backend operations so the UI remains responsive. Friendly dialogs report missing files, invalid templates, permission errors, corrupt input, and insufficient disk space.
+Search, parsing, Save As, and CSV export run through bounded backend operations so the UI remains responsive, with non-blocking activity/progress feedback. If the bounded search-result cap is reached, the interface reports that results were limited. Friendly dialogs report missing files, invalid templates, permission errors, corrupt input, and insufficient disk space.
 
 ## Parsing templates
 
@@ -73,7 +73,7 @@ Templates are independent local JSON files. The MVP supports flat fields only—
 - fixed-length `string`
 - fixed-length `bytes`
 
-Numeric fields may use little-endian or big-endian byte order. `string` and `bytes` fields require a positive `length`. Offsets are decimal strings so large-file addresses remain exact across the frontend/backend boundary.
+Numeric fields may use little-endian or big-endian byte order. New fields inherit the template's default byte order. `string` and `bytes` fields require a positive `length`. The editor accepts decimal or `0x`-prefixed hexadecimal offsets and serializes them as decimal strings so large-file addresses remain exact across the frontend/backend boundary.
 
 See [`templates/firmware-header.json`](templates/firmware-header.json) for a complete sample.
 

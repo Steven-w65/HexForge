@@ -28,6 +28,7 @@ export interface OverlayState {
   modifiedOffsets: ReadonlySet<string>
   selection: ByteSelection | null
   matches: readonly bigint[]
+  matchLength: number
   templateRange: ByteSelection | null
   viewportRow: bigint
 }
@@ -178,7 +179,7 @@ export class HexRenderer {
       context.fillRect(cell.asciiX, cell.y, layout.charWidth, layout.rowHeight)
       context.globalAlpha = 1
     }
-    const drawRange = (range: ByteSelection | null, color: string, stroke = false) => {
+    const drawRange = (range: ByteSelection | null, color: string, stroke = false, alpha = 0.48) => {
       if (!range) return
       const firstVisible = state.viewportRow * BigInt(layout.bytesPerRow)
       const visibleRows = BigInt(Math.ceil(Math.max(0, height - layout.headerHeight) / layout.rowHeight))
@@ -193,10 +194,14 @@ export class HexRenderer {
           context.strokeStyle = color
           context.strokeRect(cell.hexX, cell.y, layout.byteCellWidth, layout.rowHeight)
           context.strokeRect(cell.asciiX, cell.y, layout.charWidth, layout.rowHeight)
-        } else drawFill(offset, color, 0.48)
+        } else drawFill(offset, color, alpha)
       }
     }
-    state.matches.forEach((offset) => drawFill(offset, MATCH, 0.42))
+    const matchLength = Number.isSafeInteger(state.matchLength) && state.matchLength > 0 ? state.matchLength : 1
+    state.matches.forEach((start) => {
+      const count = BigInt(matchLength)
+      drawRange({ start, end: start + count - 1n, count }, MATCH, false, 0.42)
+    })
     drawRange(state.selection, SELECTION)
     drawRange(state.templateRange, TEMPLATE, true)
     for (const offsetValue of state.modifiedOffsets) {

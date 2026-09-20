@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createLayout, hitTestByte, visibleRange } from './layout'
+import { contentWidth, createLayout, hitTestByte, visibleRange } from './layout'
 
 describe('hex layout', () => {
   it('maps hex and ASCII cells to the same byte', () => {
@@ -60,5 +60,12 @@ describe('hex layout', () => {
     const layout = createLayout(900, 16)
     expect(hitTestByte(layout, layout.hexX + layout.byteStride * 3 + 2, layout.headerHeight + layout.rowHeight * 3 + 4, 9_007_199_254_740_993n)).toBe(9_007_199_254_741_044n)
     expect(hitTestByte(layout, layout.hexX + 2, layout.headerHeight + Number.MAX_SAFE_INTEGER * layout.rowHeight * 2, 0n)).toBeNull()
+  })
+
+  it('reports the full Offset/Hex/ASCII extent for horizontal reachability', () => {
+    const sixteen = createLayout(500, 16); const thirtyTwo = createLayout(500, 32)
+    expect(contentWidth(sixteen)).toBeGreaterThan(sixteen.asciiX + sixteen.asciiWidth)
+    expect(contentWidth(thirtyTwo)).toBeGreaterThan(contentWidth(sixteen))
+    expect(contentWidth(thirtyTwo)).toBeGreaterThan(500)
   })
 })

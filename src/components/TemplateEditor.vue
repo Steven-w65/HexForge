@@ -18,7 +18,13 @@ watch(() => props.modelValue.fields.length, (length) => {
 })
 
 function defaultField(): TemplateField {
-  return { name: `field${props.modelValue.fields.length + 1}`, offset: '0', type: 'u8', endianness: 'little', comment: '' }
+  return { name: `field${props.modelValue.fields.length + 1}`, offset: '0', type: 'u8', endianness: props.modelValue.defaultEndianness, comment: '' }
+}
+
+function updateOffset(index: number, text: string): void {
+  const value = text.trim()
+  if (!offsetLiteral.test(value)) return
+  try { updateField(index, { offset: BigInt(value).toString() }) } catch { /* keep the last valid value */ }
 }
 
 function updateTemplate(patch: Partial<TemplateDefinition>): void {
@@ -99,7 +105,7 @@ function navigate(field: TemplateField): void {
           <button type="button" title="Remove field" @click="removeField(index)">×</button>
         </div>
         <div class="field-grid">
-          <label>Offset<input data-field="offset" :value="field.offset" @input="updateField(index, { offset: ($event.target as HTMLInputElement).value })"></label>
+          <label>Offset<input data-field="offset" :value="field.offset" @input="updateOffset(index, ($event.target as HTMLInputElement).value)"></label>
           <label>Type<select data-field="type" :value="field.type" @change="updateField(index, { type: ($event.target as HTMLSelectElement).value as FieldType })"><option v-for="type in types" :key="type" :value="type">{{ type }}</option></select></label>
           <label v-if="field.type === 'string' || field.type === 'bytes'">Length<input data-field="length" type="number" min="1" step="1" :value="field.length ?? 1" @input="updateLength(index, ($event.target as HTMLInputElement).value)"></label>
           <label>Endian<select data-field="endianness" :value="field.endianness ?? modelValue.defaultEndianness" @change="updateField(index, { endianness: ($event.target as HTMLSelectElement).value as 'little' | 'big' })"><option value="little">LE</option><option value="big">BE</option></select></label>

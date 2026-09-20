@@ -40,6 +40,7 @@ function friendlyError(value: unknown): AppError {
 export interface HexSession {
   file: Ref<FileInfo | null>; page: Ref<ViewportPage | null>; selection: Ref<ByteSelection | null>
   template: Ref<TemplateDefinition>; results: Ref<ParsedField[]>; matches: Ref<bigint[]>
+  searchMatchLength: Ref<number>; searchTruncated: Ref<boolean>
   busy: Record<BusyOperation, boolean>; progress: Ref<OperationProgress | null>; error: Ref<AppError | null>
   viewportOffset: Ref<bigint>; editMode: Ref<boolean>
   requestPage(offset: bigint, length: number, generation?: number): Promise<void>
@@ -60,6 +61,8 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   const template = ref<TemplateDefinition>({ ...EMPTY_TEMPLATE, fields: [] })
   const results = ref<ParsedField[]>([])
   const matches = ref<bigint[]>([])
+  const searchMatchLength = ref(1)
+  const searchTruncated = ref(false)
   const progress = ref<OperationProgress | null>(null)
   const error = ref<AppError | null>(null)
   const viewportOffset = ref(0n)
@@ -121,6 +124,8 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   function invalidateDerivedContent(): void {
     contentVersion += 1
     matches.value = []
+    searchMatchLength.value = 1
+    searchTruncated.value = false
     results.value = []
     progress.value = null
   }
@@ -190,12 +195,14 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
 
   async function search(text: string): Promise<void> {
     const searchedContent = contentVersion
+    const pattern = parseHexBytes(text)
     const result = await run('search', (ticket) => {
-      parseHexBytes(text)
       return api.searchBytes(text, (value) => reportProgress(ticket, value))
     }, true, () => searchedContent === contentVersion)
     if (!result.current) return
     matches.value = result.value.matches.map(BigInt)
+    searchMatchLength.value = pattern.length
+    searchTruncated.value = result.value.truncated
     const first = matches.value[0]
     if (first !== undefined) navigate({ start: first, end: first })
   }
@@ -204,7 +211,8 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     const parsedTemplate = templateVersion
     const parsedContent = contentVersion
     const relevant = () => parsedTemplate === templateVersion && parsedContent === contentVersion
-    const result = await run('parse', (ticket) => api.applyTemplate(template.value, (value) => reportProgress(ticket, value)), true, relevant)
+    const definition = backendTemplate(template.value)
+    const result = await run('parse', (ticket) => api.applyTemplate(definition, (value) => reportProgress(ticket, value)), true, relevant)
     if (result.current) results.value = result.value
   }
 
@@ -232,9 +240,12 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   }
 
   async function saveAs(path: string): Promise<void> {
+    const viewportIntent = viewportIntentVersion
     const result = await run('save', (ticket) => api.saveAs(path, (value) => reportProgress(ticket, value)), true)
     if (!result.epochCurrent) return
+    invalidateDerivedContent()
     updateFileState(result.value)
+    await refreshPage(viewportIntent)
   }
 
   async function loadTemplate(path: string): Promise<void> {
@@ -243,8 +254,8 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     const result = await run('template', () => api.loadTemplate(path), false, () => loadedTemplate === templateVersion)
     if (result.current) { template.value = result.value; results.value = [] }
   }
-  async function saveTemplate(path: string): Promise<void> { await run('template', () => api.saveTemplate(path, template.value)) }
-  async function exportCsv(path: string): Promise<void> { await run('export', (ticket) => api.exportResultsCsv(path, template.value, (value) => reportProgress(ticket, value)), true) }
+  async function saveTemplate(path: string): Promise<void> { await run('template', () => api.saveTemplate(path, backendTemplate(template.value))) }
+  async function exportCsv(path: string): Promise<void> { await run('export', (ticket) => api.exportResultsCsv(path, backendTemplate(template.value), (value) => reportProgress(ticket, value)), true) }
 
   function presentError(cause: unknown): void {
     latestRelevantIssue = ++latestIssue
@@ -259,8 +270,16 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   }
 
   return {
-    file, page, selection, template, results, matches, busy, progress, error, viewportOffset, editMode,
+    file, page, selection, template, results, matches, searchMatchLength, searchTruncated, busy, progress, error, viewportOffset, editMode,
     requestPage, openFile, goTo, search, applyTemplate, editSelectedByte, undo, saveAs, loadTemplate,
     saveTemplate, exportCsv, updateTemplate, navigate, clearSelection: () => { selection.value = null }, clearError: () => { error.value = null }, presentError,
   }
+}
+
+function backendTemplate(value: TemplateDefinition): TemplateDefinition {
+  return { ...value, fields: value.fields.map((field) => {
+    const offset = field.offset.trim()
+    if (!/^(?:0[xX][0-9a-fA-F]+|[0-9]+)$/.test(offset)) return { ...field }
+    return { ...field, offset: BigInt(offset).toString() }
+  }) }
 }

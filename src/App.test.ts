@@ -25,6 +25,7 @@ vi.mock('@tauri-apps/api/webview', () => ({ getCurrentWebview: () => ({
 }) }))
 
 import App from './App.vue'
+import AppShell from './components/AppShell.vue'
 
 const file = { name: 'firmware.bin', path: 'C:/firmware.bin', size: '32', revision: '1', dirty: false }
 const page = { offset: '0', bytes: [0x41], modifiedOffsets: [], revision: '1' }
@@ -36,6 +37,8 @@ describe('App desktop orchestration', () => {
     mocks.unlistenClose.mockReset(); mocks.unlistenDrop.mockReset(); mocks.closeHandler = undefined; mocks.dropHandler = undefined
     mocks.backend.openFile.mockResolvedValue(file); mocks.backend.readPage.mockResolvedValue(page)
     mocks.backend.undoEdit.mockResolvedValue({ dirty: false, revision: '2', undone: true })
+    mocks.backend.applyTemplate.mockResolvedValue([])
+    mocks.backend.searchBytes.mockResolvedValue({ matches: [], truncated: false })
   })
 
   it('opens any selected binary path and renders the returned session', async () => {
@@ -115,6 +118,46 @@ describe('App desktop orchestration', () => {
     mocks.message.mockRejectedValueOnce(new Error('Message failed.'))
     mocks.dropHandler?.({ payload: { type: 'drop', paths: ['a.bin', 'b.bin'] } }); await flushPromises()
     expect(wrapper.get('[role="dialog"]').text()).toContain('Message failed.')
+    wrapper.unmount()
+  })
+
+  it('wires template navigation to both selection and the cyan Canvas range', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    await wrapper.get('[data-action="open"]').trigger('click'); await flushPromises()
+    wrapper.findComponent(AppShell).vm.$emit('navigate', { start: 4n, end: 7n }); await flushPromises()
+    const shell = wrapper.findComponent(AppShell)
+    expect(shell.props('selection')).toEqual({ start: 4n, end: 7n, count: 4n })
+    expect(shell.props('templateRange')).toEqual({ start: 4n, end: 7n, count: 4n })
+    wrapper.unmount()
+  })
+
+  it('normalizes a hex editor offset before applying the template through the backend boundary', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    await wrapper.get('[data-action="open"]').trigger('click'); await flushPromises()
+    await wrapper.get('[data-action="add-field"]').trigger('click'); await flushPromises()
+    await wrapper.get('input[data-field="offset"]').setValue('0x20'); await flushPromises()
+    await wrapper.get('[data-action="template"]').trigger('click'); await flushPromises()
+    expect(mocks.backend.applyTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({ fields: [expect.objectContaining({ offset: '32' })] }), expect.any(Function),
+    )
+    wrapper.unmount()
+  })
+
+  it('shows live search activity and reports a truncated backend result', async () => {
+    let resolveSearch!: (value: { matches: string[]; truncated: boolean }) => void
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    mocks.backend.searchBytes.mockImplementation(() => new Promise((resolve) => { resolveSearch = resolve }))
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    await wrapper.get('[data-action="open"]').trigger('click'); await flushPromises()
+    await wrapper.get('[data-action="search"]').trigger('click')
+    await wrapper.get('.prompt-form input').setValue('41 42')
+    await wrapper.get('.prompt-form').trigger('submit'); await flushPromises()
+    expect(wrapper.get('[data-testid="operation-status"]').text()).toContain('Searching bytes')
+    resolveSearch({ matches: ['0'], truncated: true }); await flushPromises()
+    expect(wrapper.find('[data-testid="operation-status"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="search-truncated"]').text()).toContain('limited')
     wrapper.unmount()
   })
 })

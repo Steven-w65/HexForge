@@ -16,10 +16,12 @@ const props = withDefaults(defineProps<{
   matches?: bigint[]; templateRange?: ByteSelection | null; editMode?: boolean; endianness?: Endian
   template?: TemplateDefinition; results?: ParsedField[]; dialogOpen?: boolean; dialogTitle?: string; dialogMessage?: string
   navigationOffset?: bigint
+  matchLength?: number; busyLabel?: string; progressText?: string; searchTruncated?: boolean
 }>(), {
   file: null, page: null, bytesPerRow: 16, selection: null, matches: () => [], templateRange: null,
   editMode: false, endianness: 'little', template: () => ({ version: 1, name: 'Untitled', defaultEndianness: 'little', fields: [] }), results: () => [], dialogOpen: false,
   dialogTitle: '', dialogMessage: '',
+  matchLength: 1, busyLabel: '', progressText: '', searchTruncated: false,
 })
 
 const emit = defineEmits<{
@@ -71,10 +73,12 @@ function toolbarAction(action: 'open' | 'goto' | 'search' | 'template' | 'export
       <SidebarPanel :file="file" :template="template" :collapsed="leftCollapsed" @toggle-collapse="leftCollapsed = !leftCollapsed"
         @update:template="emit('update:template', $event)" @save-template="emit('save-template')" @load-template="emit('load-template')" @navigate="emit('navigate', $event)" />
       <section class="hex-stage">
-        <HexCanvas v-if="file" :file-size="fileSize" :page="page" :bytes-per-row="bytesPerRow" :selection="selection" :matches="matches"
+        <HexCanvas v-if="file" :file-size="fileSize" :page="page" :bytes-per-row="bytesPerRow" :selection="selection" :matches="matches" :match-length="matchLength"
           :template-range="templateRange" :edit-mode="editMode" :theme="theme.value.value" :navigate-offset="navigationOffset" @request-page="emit('request-page', $event)"
           @select="emit('select', $event)" @edit-request="emit('edit-request', $event)" @viewport-offset="emit('viewport-offset', $event)" />
         <div v-else data-testid="drop-prompt" class="drop-prompt"><span>＋</span><strong>Drop a binary file here</strong><small>or use Open File</small></div>
+        <div v-if="busyLabel" data-testid="operation-status" class="operation-status" role="status">{{ busyLabel }}<span v-if="progressText"> · {{ progressText }}</span></div>
+        <div v-if="searchTruncated" data-testid="search-truncated" class="search-notice" role="status">Search results were limited; refine the byte pattern.</div>
       </section>
       <ParsedResultsPanel :results="results" :collapsed="rightCollapsed" @toggle-collapse="rightCollapsed = !rightCollapsed" @navigate="emit('navigate', $event)" />
     </div>
@@ -91,8 +95,12 @@ function toolbarAction(action: 'open' | 'goto' | 'search' | 'template' | 'export
 .app-shell.right-collapsed .workspace { grid-template-columns: minmax(210px, 260px) minmax(360px, 1fr) 28px; }
 .app-shell.left-collapsed.right-collapsed .workspace { grid-template-columns: 28px minmax(360px, 1fr) 28px; }
 .hex-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+.operation-status, .search-notice { position: absolute; z-index: 2; left: 12px; padding: 5px 8px; color: var(--text); background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--border); border-radius: 4px; font-size: 10px; pointer-events: none; }
+.operation-status { top: 10px; }
+.search-notice { top: 42px; color: var(--modified); }
 .drop-prompt { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 7px; color: var(--muted); }
 .drop-prompt span { display: grid; place-items: center; width: 42px; height: 42px; color: var(--address); border: 1px dashed var(--border-strong); border-radius: 8px; font-size: 22px; }
 .drop-prompt small { font-size: 10px; }
 @media (max-width: 760px) { .workspace, .app-shell.left-collapsed .workspace { grid-template-columns: 28px minmax(260px, 1fr) 28px; } }
+@media (max-width: 1280px) and (min-width: 761px) { .workspace { grid-template-columns: 200px minmax(0, 1fr) 260px; } }
 </style>

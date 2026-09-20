@@ -2,17 +2,19 @@
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { confirm, message, open, save } from '@tauri-apps/plugin-dialog'
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppShell from './components/AppShell.vue'
 import { useHexSession } from './composables/useHexSession'
 import { handleCloseRequest, useHotkeys } from './composables/useHotkeys'
 import type { BytesPerRow } from './hex/layout'
 import type { TemplateDefinition } from './types'
+import { normalizeSelection, type ByteSelection } from './hex/selection'
 
 type PromptKind = 'goto' | 'search' | 'edit'
 const session = useHexSession()
 const bytesPerRow = ref<BytesPerRow>(16)
 const popup = ref<{ kind: PromptKind; title: string; value: string } | null>(null)
+const templateRange = ref<ByteSelection | null>(null)
 const allowClose = { value: false }
 const disposers: Array<() => void> = []
 let disposed = false
@@ -85,6 +87,22 @@ function beginEdit(offset: bigint): void {
 }
 
 function updateTemplate(value: TemplateDefinition): void { session.updateTemplate(value) }
+function navigateTemplate(range: { start: bigint; end: bigint }): void {
+  templateRange.value = normalizeSelection(range.start, range.end)
+  session.navigate(range)
+}
+function selectBytes(value: ByteSelection): void { templateRange.value = null; session.selection.value = value }
+
+const activeBusy = computed(() => {
+  const labels: Array<[keyof typeof session.busy, string]> = [
+    ['open', 'Opening file'], ['search', 'Searching bytes'], ['parse', 'Parsing template'], ['save', 'Saving copy'],
+    ['export', 'Exporting CSV'], ['template', 'Working with template'], ['edit', 'Applying edit'], ['undo', 'Undoing edit'], ['page', 'Loading bytes'],
+  ]
+  return labels.find(([name]) => session.busy[name])?.[1] ?? ''
+})
+const progressText = computed(() => session.progress.value
+  ? `${session.progress.value.processed} / ${session.progress.value.total}`
+  : '')
 
 onMounted(async () => {
   disposers.push(useHotkeys({
@@ -117,14 +135,16 @@ onBeforeUnmount(() => { disposed = true; disposers.splice(0).forEach((dispose) =
   <AppShell
     data-testid="hexforge-app" :file="session.file.value" :page="session.page.value" :selection="session.selection.value"
     :template="session.template.value" :results="session.results.value" :matches="session.matches.value"
+    :match-length="session.searchMatchLength.value" :search-truncated="session.searchTruncated.value" :template-range="templateRange"
+    :busy-label="activeBusy" :progress-text="progressText"
     :bytes-per-row="bytesPerRow" :edit-mode="session.editMode.value" :endianness="session.template.value.defaultEndianness"
     :navigation-offset="session.viewportOffset.value" :dialog-open="popup !== null || session.error.value !== null"
     :dialog-title="popup?.title ?? (session.error.value ? 'Operation failed' : '')" :dialog-message="session.error.value?.message ?? ''"
     @open="chooseFile" @goto="showPrompt('goto', 'Go to offset')" @search="showPrompt('search', 'Search bytes')"
     @template="reportFailure(session.applyTemplate)" @export="chooseCsvExport" @edit="session.editMode.value = !session.editMode.value"
     @save-as="chooseSaveAs" @update:bytes-per-row="bytesPerRow = $event" @update:template="updateTemplate"
-    @save-template="chooseTemplateSave" @load-template="chooseTemplateLoad" @navigate="session.navigate"
-    @request-page="reportFailure(() => session.requestPage($event.offset, $event.length, $event.generation))" @select="session.selection.value = $event"
+    @save-template="chooseTemplateSave" @load-template="chooseTemplateLoad" @navigate="navigateTemplate"
+    @request-page="reportFailure(() => session.requestPage($event.offset, $event.length, $event.generation))" @select="selectBytes"
     @edit-request="beginEdit" @viewport-offset="session.viewportOffset.value = $event" @close-dialog="closePopup"
   >
     <template #dialog>

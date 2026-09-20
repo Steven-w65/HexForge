@@ -37,4 +37,13 @@ describe('AppShell', () => {
     })
     expect(wrapper.findComponent({ name: 'HexCanvas' }).props('navigateOffset')).toBe(160n)
   })
+
+  it('renders non-blocking operation progress and a truncated-search notice', () => {
+    const wrapper = mount(AppShell, { props: {
+      busyLabel: 'Searching bytes', progressText: '512 / 1024', searchTruncated: true,
+    } })
+    expect(wrapper.get('[data-testid="operation-status"]').text()).toContain('Searching bytes')
+    expect(wrapper.get('[data-testid="operation-status"]').text()).toContain('512 / 1024')
+    expect(wrapper.get('[data-testid="search-truncated"]').text()).toContain('limited')
+  })
 })
