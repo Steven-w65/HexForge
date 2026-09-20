@@ -4,6 +4,7 @@ import type { BytesPerRow } from '../hex/layout'
 import type { ByteSelection } from '../hex/selection'
 import type { Endian, FileInfo, PageRequest, ParsedField, TemplateDefinition, ViewportPage } from '../types'
 import { useTheme } from '../composables/useTheme'
+import { COMPACT_LEFT_WIDTH, COMPACT_RIGHT_WIDTH } from '../shell/layout'
 import AppDialog from './AppDialog.vue'
 import HexCanvas from './HexCanvas.vue'
 import ParsedResultsPanel from './ParsedResultsPanel.vue'
@@ -64,6 +65,7 @@ function toolbarAction(action: 'open' | 'goto' | 'search' | 'template' | 'export
     data-testid="app-shell"
     class="app-shell"
     :class="{ 'left-collapsed': leftCollapsed, 'right-collapsed': rightCollapsed }"
+    :style="{ '--compact-left-width': `${COMPACT_LEFT_WIDTH}px`, '--compact-right-width': `${COMPACT_RIGHT_WIDTH}px` }"
     role="application"
   >
     <TopToolbar :has-file="Boolean(file)" :dirty="file?.dirty ?? false" :edit-mode="editMode" :theme="theme.value.value"
@@ -102,5 +104,5 @@ function toolbarAction(action: 'open' | 'goto' | 'search' | 'template' | 'export
 .drop-prompt span { display: grid; place-items: center; width: 42px; height: 42px; color: var(--address); border: 1px dashed var(--border-strong); border-radius: 8px; font-size: 22px; }
 .drop-prompt small { font-size: 10px; }
 @media (max-width: 760px) { .workspace, .app-shell.left-collapsed .workspace { grid-template-columns: 28px minmax(260px, 1fr) 28px; } }
-@media (max-width: 1280px) and (min-width: 761px) { .workspace { grid-template-columns: 200px minmax(0, 1fr) 260px; } }
+@media (max-width: 1280px) and (min-width: 761px) { .workspace { grid-template-columns: var(--compact-left-width) minmax(0, 1fr) var(--compact-right-width); } }
 </style>

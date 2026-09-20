@@ -98,10 +98,11 @@ const activeBusy = computed(() => {
     ['open', 'Opening file'], ['search', 'Searching bytes'], ['parse', 'Parsing template'], ['save', 'Saving copy'],
     ['export', 'Exporting CSV'], ['template', 'Working with template'], ['edit', 'Applying edit'], ['undo', 'Undoing edit'], ['page', 'Loading bytes'],
   ]
-  return labels.find(([name]) => session.busy[name])?.[1] ?? ''
+  const operation = session.activity.value?.operation
+  return operation ? labels.find(([name]) => name === operation)?.[1] ?? '' : ''
 })
-const progressText = computed(() => session.progress.value
-  ? `${session.progress.value.processed} / ${session.progress.value.total}`
+const progressText = computed(() => session.activity.value?.progress
+  ? `${session.activity.value.progress.processed} / ${session.activity.value.progress.total}`
   : '')
 
 onMounted(async () => {

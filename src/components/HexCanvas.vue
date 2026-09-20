@@ -47,6 +47,7 @@ let overlayDirty = true
 
 const totalRows = computed(() => props.fileSize === 0n ? 0n : (props.fileSize + BigInt(props.bytesPerRow) - 1n) / BigInt(props.bytesPerRow))
 const thumbTop = computed(() => `${rowToThumb(scrollRow.value, totalRows.value, Math.max(0, size.height - 24))}px`)
+const horizontalOverflow = computed(() => canvasWidth.value + 8 > size.width)
 
 const THEMES = {
   dark: { background: '#111418', text: '#c9d1d9', address: '#8b949e', divider: '#30363d' },
@@ -248,7 +249,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="root" class="hex-canvas" data-testid="hex-canvas" :data-theme="theme" :style="{ '--canvas-width': `${canvasWidth}px` }">
+  <div ref="root" class="hex-canvas" data-testid="hex-canvas" :data-theme="theme" :style="{ '--canvas-width': `${canvasWidth}px`, overflowX: horizontalOverflow ? 'auto' : 'hidden' }">
     <canvas
       ref="canvas"
       :data-page-revision="renderedRevision"
@@ -266,7 +267,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.hex-canvas { display: grid; grid-template-columns: var(--canvas-width) 8px; min-width: 0; min-height: 0; overflow-x: auto; overflow-y: hidden; }
+.hex-canvas { display: grid; grid-template-columns: var(--canvas-width) 8px; min-width: 0; min-height: 0; overflow-y: hidden; }
 canvas { display: block; width: 100%; height: 100%; cursor: default; }
 .virtual-scrollbar { position: sticky; right: 0; background: color-mix(in srgb, currentColor 8%, transparent); touch-action: none; }
 .virtual-scrollbar__thumb { position: absolute; inset: 0 1px auto; height: 24px; border-radius: 4px; background: color-mix(in srgb, currentColor 35%, transparent); }

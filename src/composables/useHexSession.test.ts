@@ -352,7 +352,40 @@ describe('useHexSession', () => {
     expect(session.file.value).toMatchObject({ path: 'input.bin', dirty: false, revision: '4' })
     expect(session.page.value).toMatchObject({ offset: '16', bytes: [0x41], modifiedOffsets: [], revision: '4', generation: 7 })
     expect(session.matches.value).toEqual([]); expect(session.results.value).toEqual([])
+    expect(session.searchMatchLength.value).toBe(1); expect(session.searchTruncated.value).toBe(false)
     expect(backend.readPage).toHaveBeenCalledWith(16n, 1)
+  })
+
+  it('keeps the visible activity label and progress owned by the same newest operation', async () => {
+    const backend = fakeBackend(); const found = deferred<{ matches: string[]; truncated: boolean }>(); const saved = deferred<{ dirty: boolean; revision: string; bytesWritten: string; destination: string }>()
+    let searchProgress!: (value: OperationProgress) => void; let saveProgress!: (value: OperationProgress) => void
+    vi.mocked(backend.searchBytes).mockImplementation((_pattern, progress) => { searchProgress = progress; return found.promise })
+    vi.mocked(backend.saveAs).mockImplementation((_path, progress) => { saveProgress = progress; return saved.promise })
+    const session = useHexSession(backend)
+    const search = session.search('41'); searchProgress({ operationId: 'search', phase: 'search', processed: '4', total: '10' })
+    const save = session.saveAs('copy.bin');
+    expect(session.activity.value).toEqual({ operation: 'save', progress: null })
+    saveProgress({ operationId: 'save', phase: 'save', processed: '2', total: '8' })
+    searchProgress({ operationId: 'search', phase: 'search', processed: '9', total: '10' })
+    expect(session.activity.value).toEqual({ operation: 'save', progress: expect.objectContaining({ operationId: 'save', processed: '2' }) })
+    saved.resolve({ dirty: false, revision: '2', bytesWritten: '8', destination: 'copy.bin' }); await save
+    expect(session.activity.value).toEqual({ operation: 'search', progress: expect.objectContaining({ operationId: 'search', processed: '9' }) })
+    found.resolve({ matches: [], truncated: false }); await search
+    expect(session.activity.value).toBeNull()
+  })
+
+  it('restores an older activity after a newer concurrent operation fails', async () => {
+    const backend = fakeBackend(); const parsed = deferred<ParsedField[]>(); const exported = deferred<void>()
+    let parseProgress!: (value: OperationProgress) => void
+    vi.mocked(backend.applyTemplate).mockImplementation((_template, progress) => { parseProgress = progress; return parsed.promise })
+    vi.mocked(backend.exportResultsCsv).mockReturnValue(exported.promise)
+    const session = useHexSession(backend)
+    const parse = session.applyTemplate(); parseProgress({ operationId: 'parse', phase: 'parse', processed: '1', total: '3' })
+    const csv = session.exportCsv('out.csv').catch(() => undefined)
+    expect(session.activity.value).toEqual({ operation: 'export', progress: null })
+    exported.reject({ code: 'permission_denied', message: 'No output.' }); await csv
+    expect(session.activity.value).toEqual({ operation: 'parse', progress: expect.objectContaining({ operationId: 'parse' }) })
+    parsed.resolve([]); await parse
   })
 
   it('normalizes hexadecimal template offsets before backend calls', async () => {

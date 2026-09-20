@@ -26,6 +26,7 @@ export interface HexBackend {
 }
 
 export type BusyOperation = 'open' | 'page' | 'search' | 'parse' | 'edit' | 'undo' | 'save' | 'template' | 'export'
+export interface OperationActivity { operation: BusyOperation; progress: OperationProgress | null }
 
 const EMPTY_TEMPLATE: TemplateDefinition = { version: 1, name: 'Untitled', defaultEndianness: 'little', fields: [] }
 const FIRST_PAGE_LENGTH = 1024 * 1024
@@ -41,6 +42,7 @@ export interface HexSession {
   file: Ref<FileInfo | null>; page: Ref<ViewportPage | null>; selection: Ref<ByteSelection | null>
   template: Ref<TemplateDefinition>; results: Ref<ParsedField[]>; matches: Ref<bigint[]>
   searchMatchLength: Ref<number>; searchTruncated: Ref<boolean>
+  activity: Ref<OperationActivity | null>
   busy: Record<BusyOperation, boolean>; progress: Ref<OperationProgress | null>; error: Ref<AppError | null>
   viewportOffset: Ref<bigint>; editMode: Ref<boolean>
   requestPage(offset: bigint, length: number, generation?: number): Promise<void>
@@ -64,6 +66,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   const searchMatchLength = ref(1)
   const searchTruncated = ref(false)
   const progress = ref<OperationProgress | null>(null)
+  const activity = ref<OperationActivity | null>(null)
   const error = ref<AppError | null>(null)
   const viewportOffset = ref(0n)
   const editMode = ref(false)
@@ -80,6 +83,13 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   let viewportIntentVersion = 0
   let openIntentVersion = 0
   let openQueue: Promise<void> | null = null
+  const activities = new Map<number, OperationActivity>()
+
+  function syncActivity(): void {
+    let latest: [number, OperationActivity] | undefined
+    for (const entry of activities) if (!latest || entry[0] > latest[0]) latest = entry
+    activity.value = latest ? { operation: latest[1].operation, progress: latest[1].progress } : null
+  }
 
   function isEpochCurrent(ticket: OperationTicket): boolean {
     return ticket.epoch === sessionEpoch
@@ -98,6 +108,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     const ticket: OperationTicket = { name, token: ++tokens[name], epoch: sessionEpoch, issue: ++latestIssue, progressIssue: tracksProgress ? ++latestProgressIssue : 0, relevant }
     pending[name] += 1
     busy[name] = pending[name] > 0
+    if (name !== 'page') { activities.set(ticket.issue, { operation: name, progress: null }); syncActivity() }
     if (name !== 'page') { latestRelevantIssue = ticket.issue; error.value = null }
     if (tracksProgress) progress.value = null
     try {
@@ -110,11 +121,16 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     } finally {
       pending[name] -= 1
       busy[name] = pending[name] > 0
+      activities.delete(ticket.issue)
+      syncActivity()
     }
   }
 
   function reportProgress(ticket: OperationTicket, value: OperationProgress): void {
-    if (isCurrent(ticket) && ticket.progressIssue === latestProgressIssue) progress.value = value
+    if (!isCurrent(ticket)) return
+    const active = activities.get(ticket.issue)
+    if (active) { active.progress = value; syncActivity() }
+    if (ticket.progressIssue === latestProgressIssue) progress.value = value
   }
 
   function updateFileState(state: DirtyState): void {
@@ -270,7 +286,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   }
 
   return {
-    file, page, selection, template, results, matches, searchMatchLength, searchTruncated, busy, progress, error, viewportOffset, editMode,
+    file, page, selection, template, results, matches, searchMatchLength, searchTruncated, activity, busy, progress, error, viewportOffset, editMode,
     requestPage, openFile, goTo, search, applyTemplate, editSelectedByte, undo, saveAs, loadTemplate,
     saveTemplate, exportCsv, updateTemplate, navigate, clearSelection: () => { selection.value = null }, clearError: () => { error.value = null }, presentError,
   }
