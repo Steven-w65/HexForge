@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { BytesPerRow } from '../hex/layout'
 import type { ByteSelection } from '../hex/selection'
 import type { Endian, FileInfo, PageRequest, ParsedField, TemplateDefinition, ViewportPage } from '../types'
@@ -18,11 +18,13 @@ const props = withDefaults(defineProps<{
   template?: TemplateDefinition; results?: ParsedField[]; dialogOpen?: boolean; dialogTitle?: string; dialogMessage?: string
   navigationOffset?: bigint
   matchLength?: number; busyLabel?: string; progressText?: string; searchTruncated?: boolean
+  templateValid?: boolean
 }>(), {
   file: null, page: null, bytesPerRow: 16, selection: null, matches: () => [], templateRange: null,
   editMode: false, endianness: 'little', template: () => ({ version: 1, name: 'Untitled', defaultEndianness: 'little', fields: [] }), results: () => [], dialogOpen: false,
   dialogTitle: '', dialogMessage: '',
   matchLength: 1, busyLabel: '', progressText: '', searchTruncated: false,
+  templateValid: true,
 })
 
 const emit = defineEmits<{
@@ -31,11 +33,15 @@ const emit = defineEmits<{
   'save-template': []; 'load-template': []; navigate: [range: { start: bigint; end: bigint }]
   'request-page': [request: PageRequest]; select: [selection: ByteSelection]; 'edit-request': [offset: bigint]
   'viewport-offset': [offset: bigint]; 'close-dialog': []
+  'template-validity': [valid: boolean]
 }>()
 
 const leftCollapsed = ref(false)
 const rightCollapsed = ref(false)
 const theme = useTheme()
+const editorValid = ref(props.templateValid)
+watch(() => props.templateValid, (valid) => { editorValid.value = valid })
+function updateTemplateValidity(valid: boolean): void { editorValid.value = valid; emit('template-validity', valid) }
 const fileSize = computed(() => BigInt(props.file?.size ?? '0'))
 const selectedByte = computed(() => {
   if (!props.selection || !props.page) return null
@@ -68,12 +74,12 @@ function toolbarAction(action: 'open' | 'goto' | 'search' | 'template' | 'export
     :style="{ '--compact-left-width': `${COMPACT_LEFT_WIDTH}px`, '--compact-right-width': `${COMPACT_RIGHT_WIDTH}px` }"
     role="application"
   >
-    <TopToolbar :has-file="Boolean(file)" :dirty="file?.dirty ?? false" :edit-mode="editMode" :theme="theme.value.value"
+    <TopToolbar :has-file="Boolean(file)" :dirty="file?.dirty ?? false" :edit-mode="editMode" :theme="theme.value.value" :template-valid="editorValid"
       @open="toolbarAction('open')" @goto="toolbarAction('goto')" @search="toolbarAction('search')" @template="toolbarAction('template')"
       @export="toolbarAction('export')" @theme="toolbarAction('theme')" @edit="toolbarAction('edit')" @save-as="toolbarAction('save-as')" />
     <div class="workspace">
       <SidebarPanel :file="file" :template="template" :collapsed="leftCollapsed" @toggle-collapse="leftCollapsed = !leftCollapsed"
-        @update:template="emit('update:template', $event)" @save-template="emit('save-template')" @load-template="emit('load-template')" @navigate="emit('navigate', $event)" />
+        @update:template="emit('update:template', $event)" @template-validity="updateTemplateValidity" @save-template="emit('save-template')" @load-template="emit('load-template')" @navigate="emit('navigate', $event)" />
       <section class="hex-stage">
         <HexCanvas v-if="file" :file-size="fileSize" :page="page" :bytes-per-row="bytesPerRow" :selection="selection" :matches="matches" :match-length="matchLength"
           :template-range="templateRange" :edit-mode="editMode" :theme="theme.value.value" :navigate-offset="navigationOffset" @request-page="emit('request-page', $event)"

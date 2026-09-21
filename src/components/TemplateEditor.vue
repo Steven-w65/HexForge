@@ -5,7 +5,7 @@ import type { FieldType, TemplateDefinition, TemplateField } from '../types'
 const props = defineProps<{ modelValue: TemplateDefinition }>()
 const emit = defineEmits<{
   'update:modelValue': [value: TemplateDefinition]
-  save: []; load: []; navigate: [range: { start: bigint; end: bigint }]
+  save: []; load: []; navigate: [range: { start: bigint; end: bigint }]; validity: [valid: boolean]
 }>()
 
 const types: FieldType[] = ['u8', 'u16', 'u32', 'i8', 'i16', 'i32', 'f32', 'f64', 'string', 'bytes']
@@ -15,9 +15,15 @@ const MAX_FIELD_LENGTH = 1024 * 1024
 let nextId = 1
 const rowIds = ref(props.modelValue.fields.map(() => nextId++))
 const validationErrors = reactive<Record<number, { offset?: string; length?: string }>>({})
+let lastEmittedModel: TemplateDefinition | null = null
 watch(() => props.modelValue.fields.length, (length) => {
   while (rowIds.value.length < length) rowIds.value.push(nextId++)
   rowIds.value.length = length
+})
+watch(() => props.modelValue, (value) => {
+  if (value === lastEmittedModel) { lastEmittedModel = null; return }
+  for (const key of Object.keys(validationErrors)) delete validationErrors[Number(key)]
+  emit('validity', true)
 })
 
 function defaultField(): TemplateField {
@@ -33,6 +39,7 @@ function setValidationError(index: number, key: 'offset' | 'length', message?: s
     if (Object.keys(next).length) validationErrors[id] = next
     else delete validationErrors[id]
   }
+  emit('validity', Object.keys(validationErrors).length === 0)
 }
 
 function validationError(index: number, key: 'offset' | 'length'): string | undefined {
@@ -58,7 +65,9 @@ function updateOffset(index: number, text: string, input: HTMLInputElement): voi
 }
 
 function updateTemplate(patch: Partial<TemplateDefinition>): void {
-  emit('update:modelValue', { ...props.modelValue, ...patch })
+  const next = { ...props.modelValue, ...patch }
+  lastEmittedModel = next
+  emit('update:modelValue', next)
 }
 
 function updateField(index: number, patch: Partial<TemplateField>): void {

@@ -104,9 +104,18 @@ describe('useHotkeys', () => {
   })
 
   it('keeps the window prevented and surfaces authoritative query failures', async () => {
-    const event = { preventDefault: vi.fn() }; const failure = new Error('state unavailable')
-    await expect(handleCloseRequest(event, vi.fn().mockRejectedValue(failure), vi.fn(), vi.fn())).rejects.toBe(failure)
+    const event = { preventDefault: vi.fn() }; const failure = new Error('state unavailable'); const release = vi.fn()
+    await expect(handleCloseRequest(event, vi.fn().mockRejectedValue(failure), vi.fn(), vi.fn(), { value: false }, release)).rejects.toBe(failure)
     expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(release).toHaveBeenCalledOnce()
+  })
+
+  it('releases the mutation barrier when discard is declined or native close fails', async () => {
+    const release = vi.fn()
+    await handleCloseRequest({ preventDefault: vi.fn() }, vi.fn().mockResolvedValue({ dirty: true }), vi.fn().mockResolvedValue(false), vi.fn(), { value: false }, release)
+    expect(release).toHaveBeenCalledOnce()
+    await expect(handleCloseRequest({ preventDefault: vi.fn() }, vi.fn().mockResolvedValue({ dirty: false }), vi.fn(), vi.fn().mockRejectedValue(new Error('close failed')), { value: false }, release)).rejects.toThrow('close failed')
+    expect(release).toHaveBeenCalledTimes(2)
   })
 })
 

@@ -107,6 +107,17 @@ describe('TemplateEditor', () => {
     expect(wrapper.get('[data-action="save-template"]').attributes('disabled')).toBeUndefined()
   })
 
+  it('reports validity and clears rejected drafts when an external same-size template replaces the model', async () => {
+    const value = { ...emptyTemplate(), fields: [{ name: 'a', offset: '16', type: 'u8' as const, endianness: 'little' as const, comment: '' }] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: value } })
+    await wrapper.get('input[data-field="offset"]').setValue('0x')
+    expect(wrapper.emitted('validity')?.at(-1)).toEqual([false])
+    await wrapper.setProps({ modelValue: { ...value, name: 'Loaded', fields: [{ ...value.fields[0]!, offset: '32' }] } })
+    expect(wrapper.get<HTMLInputElement>('input[data-field="offset"]').element.value).toBe('32')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.emitted('validity')?.at(-1)).toEqual([true])
+  })
+
   it('normalizes a hexadecimal offset and inherits the template default endianness', async () => {
     const wrapper = mount(TemplateEditor, { props: { modelValue: { ...emptyTemplate(), defaultEndianness: 'big' } } })
     await wrapper.get('[data-action="add-field"]').trigger('click')

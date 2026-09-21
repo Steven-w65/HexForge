@@ -43,6 +43,7 @@ export async function handleCloseRequest(
   confirmDiscard: () => Promise<boolean>,
   close: () => void | Promise<void>,
   allowClose: AllowCloseGuard = { value: false },
+  releaseBarrier: () => void = () => {},
 ): Promise<void> {
   if (allowClose.value) { allowClose.value = false; return }
   event.preventDefault()
@@ -50,10 +51,13 @@ export async function handleCloseRequest(
   allowClose.confirming = true
   try {
     const { dirty } = await getDirtyState()
-    if (dirty && !await confirmDiscard()) return
+    if (dirty && !await confirmDiscard()) { releaseBarrier(); return }
     allowClose.value = true
     try { await close() }
     catch (error) { allowClose.value = false; throw error }
+  } catch (error) {
+    releaseBarrier()
+    throw error
   } finally {
     allowClose.confirming = false
   }

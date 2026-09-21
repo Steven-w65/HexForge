@@ -50,6 +50,7 @@ export interface HexSession {
   search(text: string): Promise<void>; applyTemplate(): Promise<void>; editSelectedByte(text: string): Promise<void>
   undo(): Promise<void>; saveAs(path: string): Promise<void>; loadTemplate(path: string): Promise<void>
   saveTemplate(path: string): Promise<void>; exportCsv(path: string): Promise<void>
+  prepareClose(): Promise<DirtyState>; releaseCloseBarrier(): void
   updateTemplate(template: TemplateDefinition): void; navigate(range: { start: bigint; end: bigint }): void
   clearSelection(): void; clearError(): void; presentError(error: unknown): void
 }
@@ -84,6 +85,29 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   let openIntentVersion = 0
   let openQueue: Promise<void> | null = null
   const activities = new Map<number, OperationActivity>()
+  const pendingMutations = new Set<Promise<unknown>>()
+  let closeBarrier = false
+
+  async function runMutation<T>(operation: () => Promise<T>): Promise<T> {
+    if (closeBarrier) {
+      const blocked = { code: 'operation_failed', message: 'Window close is in progress.' } satisfies AppError
+      presentError(blocked)
+      throw blocked
+    }
+    const promise = operation()
+    pendingMutations.add(promise)
+    try { return await promise }
+    finally { pendingMutations.delete(promise) }
+  }
+
+  async function prepareClose(): Promise<DirtyState> {
+    closeBarrier = true
+    await Promise.allSettled([...pendingMutations])
+    if (!file.value) return { dirty: false, revision: '0' }
+    return api.getDirtyState()
+  }
+
+  function releaseCloseBarrier(): void { closeBarrier = false }
 
   function syncActivity(): void {
     let latest: [number, OperationActivity] | undefined
@@ -172,7 +196,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     await loadPage(BigInt(current.offset), current.bytes.length || FIRST_PAGE_LENGTH, current.generation)
   }
 
-  async function openFile(path: string, discardUnsaved = false): Promise<void> {
+  async function openFileCore(path: string, discardUnsaved = false): Promise<void> {
     contentVersion += 1
     const openIntent = ++openIntentVersion
     const predecessor = openQueue
@@ -192,6 +216,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
       throw error
     }
   }
+  function openFile(path: string, discardUnsaved = false): Promise<void> { return runMutation(() => openFileCore(path, discardUnsaved)) }
 
   function navigate(range: { start: bigint; end: bigint }): void {
     selection.value = normalizeSelection(range.start, range.end)
@@ -232,7 +257,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     if (result.current) results.value = result.value
   }
 
-  async function editSelectedByte(text: string): Promise<void> {
+  async function editSelectedByteCore(text: string): Promise<void> {
     let value: number
     try { value = parseSingleByte(text) }
     catch (cause) { const normalized = friendlyError(cause); presentError(normalized); throw normalized }
@@ -245,8 +270,9 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     updateFileState(result.value)
     await refreshPage(viewportIntent)
   }
+  function editSelectedByte(text: string): Promise<void> { return runMutation(() => editSelectedByteCore(text)) }
 
-  async function undo(): Promise<void> {
+  async function undoCore(): Promise<void> {
     const viewportIntent = viewportIntentVersion
     const result = await run('undo', () => api.undoEdit())
     if (!result.epochCurrent) return
@@ -254,8 +280,9 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     updateFileState(result.value)
     await refreshPage(viewportIntent)
   }
+  function undo(): Promise<void> { return runMutation(undoCore) }
 
-  async function saveAs(path: string): Promise<void> {
+  async function saveAsCore(path: string): Promise<void> {
     const viewportIntent = viewportIntentVersion
     const result = await run('save', (ticket) => api.saveAs(path, (value) => reportProgress(ticket, value)), true)
     if (!result.epochCurrent) return
@@ -263,6 +290,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     updateFileState(result.value)
     await refreshPage(viewportIntent)
   }
+  function saveAs(path: string): Promise<void> { return runMutation(() => saveAsCore(path)) }
 
   async function loadTemplate(path: string): Promise<void> {
     const loadedTemplate = ++templateVersion
@@ -289,6 +317,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     file, page, selection, template, results, matches, searchMatchLength, searchTruncated, activity, busy, progress, error, viewportOffset, editMode,
     requestPage, openFile, goTo, search, applyTemplate, editSelectedByte, undo, saveAs, loadTemplate,
     saveTemplate, exportCsv, updateTemplate, navigate, clearSelection: () => { selection.value = null }, clearError: () => { error.value = null }, presentError,
+    prepareClose, releaseCloseBarrier,
   }
 }
 

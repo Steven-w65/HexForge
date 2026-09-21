@@ -33,6 +33,8 @@ pub struct FileSession {
     info: FileInfo,
     cache: PageCache,
     edits: EditBuffer,
+    #[cfg(test)]
+    read_count: usize,
 }
 
 impl FileSession {
@@ -84,6 +86,8 @@ impl FileSession {
             },
             cache: PageCache::new(page_size, max_pages),
             edits: EditBuffer::default(),
+            #[cfg(test)]
+            read_count: 0,
         })
     }
 
@@ -146,6 +150,10 @@ impl FileSession {
         offset: u64,
         buffer: &mut [u8],
     ) -> Result<usize, AppError> {
+        #[cfg(test)]
+        {
+            self.read_count += 1;
+        }
         if buffer.len() as u64 > MAX_READ_RANGE {
             return Err(invalid_length("The requested chunk is too large."));
         }
@@ -166,6 +174,11 @@ impl FileSession {
             .map_err(|error| AppError::from_io(error, Some(path)))?;
         self.edits.overlay(offset, &mut buffer[..len]);
         Ok(len)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_read_count(&self) -> usize {
+        self.read_count
     }
 
     pub fn edit_byte(&mut self, offset: u64, value: u8) -> Result<(), AppError> {

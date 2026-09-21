@@ -34,6 +34,16 @@ describe('AppShell', () => {
     }
   })
 
+  it('blocks Apply and template Save consistently while the editor reports invalid input', async () => {
+    const template = { version: 1 as const, name: 'T', defaultEndianness: 'little' as const, fields: [{ name: 'x', offset: '0', type: 'u8' as const, endianness: 'little' as const, comment: '' }] }
+    const wrapper = mount(AppShell, { props: { file: { name: 'x', path: 'x', size: '1', revision: '1', dirty: false }, template }, global: { stubs: { HexCanvas: true } } })
+    await wrapper.get('input[data-field="offset"]').setValue('0x')
+    expect(wrapper.get('[data-action="template"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-action="save-template"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-action="template"]').trigger('click')
+    expect(wrapper.emitted('template')).toBeUndefined()
+  })
+
   it('passes orchestration navigation targets into the Canvas viewport', () => {
     const wrapper = mount(AppShell, {
       props: { file: { name: 'firmware.bin', path: 'C:/firmware.bin', size: '4096', revision: '1', dirty: false }, navigationOffset: 160n },

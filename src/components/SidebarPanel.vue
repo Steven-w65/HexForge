@@ -6,7 +6,7 @@ defineProps<{ file: FileInfo | null; template: TemplateDefinition; collapsed: bo
 const emit = defineEmits<{
   'toggle-collapse': []
   'update:template': [value: TemplateDefinition]
-  'save-template': []; 'load-template': []; navigate: [range: { start: bigint; end: bigint }]
+  'save-template': []; 'load-template': []; navigate: [range: { start: bigint; end: bigint }]; 'template-validity': [valid: boolean]
 }>()
 
 function formatSize(value: string): string {
@@ -33,7 +33,7 @@ function formatSize(value: string): string {
       </section>
       <section class="template-panel">
         <div class="panel-heading">PARSING TEMPLATE</div>
-        <TemplateEditor :model-value="template" @update:model-value="emit('update:template', $event)" @save="emit('save-template')" @load="emit('load-template')" @navigate="emit('navigate', $event)" />
+        <TemplateEditor :model-value="template" @update:model-value="emit('update:template', $event)" @validity="emit('template-validity', $event)" @save="emit('save-template')" @load="emit('load-template')" @navigate="emit('navigate', $event)" />
       </section>
     </div>
   </aside>

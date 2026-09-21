@@ -6,7 +6,7 @@ import tauriConfig from '../../src-tauri/tauri.conf.json'
 
 describe('TopToolbar', () => {
   it('keeps the required action order and forwards each action', async () => {
-    const wrapper = mount(TopToolbar, { props: { hasFile: true, dirty: true, editMode: false, theme: 'dark' } })
+    const wrapper = mount(TopToolbar, { props: { hasFile: true, dirty: true, editMode: false, theme: 'dark', templateValid: true } })
     const buttons = wrapper.findAll('[data-action]')
     expect(buttons.map((button) => button.attributes('data-action'))).toEqual([
       'open', 'goto', 'search', 'template', 'export', 'theme', 'edit', 'save-as',
@@ -27,5 +27,10 @@ describe('TopToolbar', () => {
     const breakpoint = Number(source.match(/@media \(max-width: (\d+)px\)/)?.[1])
     expect(breakpoint).toBeGreaterThan(tauriConfig.app.windows[0]!.minWidth)
     expect(source).toContain('button span { display: none; }')
+    const wrapper = mount(TopToolbar, { props: { hasFile: true, dirty: false, editMode: false, theme: 'dark' } })
+    const required = Number(wrapper.get('.toolbar').attributes('style')?.match(/--compact-required-width: (\d+)px/)?.[1])
+    expect(required).toBeLessThanOrEqual(tauriConfig.app.windows[0]!.minWidth)
+    expect(source).toContain('overflow-x: auto')
+    expect(wrapper.findAll('[data-action]')).toHaveLength(8)
   })
 })

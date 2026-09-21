@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { ColorTheme } from '../types'
+import { compactToolbarRequiredWidth } from '../shell/layout'
 
-defineProps<{ hasFile: boolean; dirty: boolean; editMode: boolean; theme: ColorTheme }>()
+defineProps<{ hasFile: boolean; dirty: boolean; editMode: boolean; theme: ColorTheme; templateValid?: boolean }>()
 const emit = defineEmits<{
   open: []; goto: []; search: []; template: []; export: []; theme: []; edit: []; 'save-as': []
 }>()
@@ -16,6 +17,7 @@ const actions = [
   { id: 'edit', label: 'Edit Mode Toggle', path: 'M4 20l4-1 10-10-3-3L5 16z M13 8l3 3' },
   { id: 'save-as', label: 'Save As', path: 'M5 3h12l3 3v15H5z M8 3v6h8V3 M8 17h8' },
 ] as const
+const compactRequiredWidth = compactToolbarRequiredWidth(actions.length)
 
 function invoke(id: typeof actions[number]['id']): void {
   switch (id) {
@@ -32,7 +34,7 @@ function invoke(id: typeof actions[number]['id']): void {
 </script>
 
 <template>
-  <header class="toolbar">
+  <header class="toolbar" :style="{ '--compact-required-width': `${compactRequiredWidth}px` }">
     <div class="brand"><span class="brand-mark">HF</span><strong>HexForge</strong><span v-if="dirty" class="dirty-dot" title="Modified" /></div>
     <nav aria-label="File and analysis tools">
       <button
@@ -43,7 +45,7 @@ function invoke(id: typeof actions[number]['id']): void {
         :title="action.label"
         :aria-label="action.label"
         :aria-pressed="action.id === 'edit' ? editMode : action.id === 'theme' ? theme === 'light' : undefined"
-        :disabled="action.id !== 'open' && action.id !== 'theme' && !hasFile"
+        :disabled="(action.id !== 'open' && action.id !== 'theme' && !hasFile) || (action.id === 'template' && templateValid === false)"
         @click="invoke(action.id)"
       >
         <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="action.path" /></svg>
@@ -58,10 +60,10 @@ function invoke(id: typeof actions[number]['id']): void {
 .brand { display: flex; align-items: center; gap: 8px; white-space: nowrap; letter-spacing: .02em; }
 .brand-mark { display: grid; place-items: center; width: 24px; height: 24px; color: var(--selection-text); background: var(--selection); border-radius: 5px; font-size: 10px; font-weight: 700; }
 .dirty-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--modified); }
-nav { display: flex; min-width: 0; height: 100%; align-items: center; overflow: hidden; }
+nav { display: flex; min-width: 0; height: 100%; align-items: center; overflow-x: auto; overflow-y: hidden; }
 button { height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; color: var(--muted); background: transparent; border: 0; border-radius: 4px; font: inherit; font-size: 11px; white-space: nowrap; }
 button:hover:not(:disabled), button[aria-pressed='true'] { color: var(--text); background: var(--hover); }
 button:disabled { opacity: .36; }
 svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-@media (max-width: 1100px) { button span { display: none; } button { padding-inline: 8px; } }
+@media (max-width: 1100px) { nav { min-width: min(100%, var(--compact-required-width)); } button span { display: none; } button { padding-inline: 8px; } }
 </style>

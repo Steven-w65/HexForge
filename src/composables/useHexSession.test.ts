@@ -417,4 +417,40 @@ describe('useHexSession', () => {
     expect(session.template.value).toEqual(template); expect(session.results.value).toHaveLength(1)
     expect(backend.exportResultsCsv).toHaveBeenCalledWith('result.csv', template, expect.any(Function))
   })
+
+  it('barriers close behind an already-started edit before querying authoritative dirty state', async () => {
+    const backend = fakeBackend(); const edited = deferred<{ dirty: boolean; revision: string }>()
+    vi.mocked(backend.editByte).mockReturnValue(edited.promise)
+    vi.mocked(backend.getDirtyState).mockResolvedValue({ dirty: true, revision: '2' })
+    const session = useHexSession(backend)
+    session.file.value = { name: 'input.bin', path: 'input.bin', size: '2', revision: '1', dirty: false }
+    session.selection.value = { start: 0n, end: 0n, count: 1n }
+    const edit = session.editSelectedByte('42')
+    const preparing = session.prepareClose()
+    await Promise.resolve()
+    expect(backend.getDirtyState).not.toHaveBeenCalled()
+    await expect(session.undo()).rejects.toMatchObject({ code: 'operation_failed' })
+    expect(backend.undoEdit).not.toHaveBeenCalled()
+    edited.resolve({ dirty: true, revision: '2' }); await edit
+    expect(await preparing).toMatchObject({ dirty: true })
+  })
+
+  it('releases the close mutation barrier after cancellation or query failure', async () => {
+    const backend = fakeBackend(); vi.mocked(backend.getDirtyState).mockRejectedValueOnce({ code: 'operation_failed', message: 'query failed' })
+    const session = useHexSession(backend); session.file.value = { name: 'input.bin', path: 'input.bin', size: '2', revision: '1', dirty: false }
+    await expect(session.prepareClose()).rejects.toMatchObject({ message: 'query failed' })
+    session.releaseCloseBarrier()
+    await session.undo()
+    expect(backend.undoEdit).toHaveBeenCalledOnce()
+  })
+
+  it('keeps new mutations blocked after a clean query until close is released', async () => {
+    const backend = fakeBackend(); vi.mocked(backend.getDirtyState).mockResolvedValue({ dirty: false, revision: '1' })
+    const session = useHexSession(backend); session.file.value = { name: 'input.bin', path: 'input.bin', size: '2', revision: '1', dirty: false }
+    expect(await session.prepareClose()).toMatchObject({ dirty: false })
+    await expect(session.saveAs('copy.bin')).rejects.toMatchObject({ code: 'operation_failed' })
+    expect(backend.saveAs).not.toHaveBeenCalled()
+    session.releaseCloseBarrier(); await session.undo()
+    expect(backend.undoEdit).toHaveBeenCalledOnce()
+  })
 })

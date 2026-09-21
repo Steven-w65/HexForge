@@ -358,6 +358,7 @@ mod tests {
             "invalid_template"
         );
         assert_eq!(session.cache_len(), 0);
+        assert_eq!(session.test_read_count(), 0);
     }
 
     #[test]
@@ -387,6 +388,7 @@ mod tests {
         assert_eq!(error.code(), "invalid_template");
         assert!(error.message.contains("decoded data budget"));
         assert_eq!(session.cache_len(), 0);
+        assert_eq!(session.test_read_count(), 0);
     }
 }
 use crate::error::{AppError, ErrorCode};

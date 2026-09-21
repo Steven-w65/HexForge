@@ -4,7 +4,6 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { confirm, message, open, save } from '@tauri-apps/plugin-dialog'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppShell from './components/AppShell.vue'
-import { backend } from './api/backend'
 import { useHexSession } from './composables/useHexSession'
 import { handleCloseRequest, useHotkeys } from './composables/useHotkeys'
 import type { BytesPerRow } from './hex/layout'
@@ -16,6 +15,7 @@ const session = useHexSession()
 const bytesPerRow = ref<BytesPerRow>(16)
 const popup = ref<{ kind: PromptKind; title: string; value: string } | null>(null)
 const templateRange = ref<ByteSelection | null>(null)
+const templateValid = ref(true)
 const allowClose = { value: false }
 const disposers: Array<() => void> = []
 let disposed = false
@@ -59,6 +59,7 @@ async function chooseTemplateLoad(): Promise<void> {
 }
 
 async function chooseTemplateSave(): Promise<void> {
+  if (!templateValid.value) { session.presentError({ code: 'invalid_template', message: 'Correct the highlighted template field before saving.' }); return }
   const path = await nativeCall(() => save({ title: 'Save parsing template', defaultPath: `${session.template.value.name || 'template'}.json`, filters: [{ name: 'JSON template', extensions: ['json'] }] }))
   if (path) await reportFailure(() => session.saveTemplate(path))
 }
@@ -88,6 +89,10 @@ function beginEdit(offset: bigint): void {
 }
 
 function updateTemplate(value: TemplateDefinition): void { session.updateTemplate(value) }
+function applyValidTemplate(): void {
+  if (!templateValid.value) { session.presentError({ code: 'invalid_template', message: 'Correct the highlighted template field before applying.' }); return }
+  void reportFailure(session.applyTemplate)
+}
 function navigateTemplate(range: { start: bigint; end: bigint }): void {
   templateRange.value = normalizeSelection(range.start, range.end)
   session.navigate(range)
@@ -115,7 +120,7 @@ onMounted(async () => {
   }))
   try {
     const closeUnlisten = await getCurrentWindow().onCloseRequested(async (event) => {
-      try { await handleCloseRequest(event, session.file.value ? () => backend.getDirtyState() : async () => ({ dirty: false }), confirmDiscard, () => getCurrentWindow().close(), allowClose) }
+      try { await handleCloseRequest(event, session.prepareClose, confirmDiscard, () => getCurrentWindow().close(), allowClose, session.releaseCloseBarrier) }
       catch (error) { session.presentError(error) }
     })
     if (disposed) closeUnlisten(); else disposers.push(closeUnlisten)
@@ -139,12 +144,14 @@ onBeforeUnmount(() => { disposed = true; disposers.splice(0).forEach((dispose) =
     :template="session.template.value" :results="session.results.value" :matches="session.matches.value"
     :match-length="session.searchMatchLength.value" :search-truncated="session.searchTruncated.value" :template-range="templateRange"
     :busy-label="activeBusy" :progress-text="progressText"
+    :template-valid="templateValid"
     :bytes-per-row="bytesPerRow" :edit-mode="session.editMode.value" :endianness="session.template.value.defaultEndianness"
     :navigation-offset="session.viewportOffset.value" :dialog-open="popup !== null || session.error.value !== null"
     :dialog-title="popup?.title ?? (session.error.value ? 'Operation failed' : '')" :dialog-message="session.error.value?.message ?? ''"
     @open="chooseFile" @goto="showPrompt('goto', 'Go to offset')" @search="showPrompt('search', 'Search bytes')"
-    @template="reportFailure(session.applyTemplate)" @export="chooseCsvExport" @edit="session.editMode.value = !session.editMode.value"
+    @template="applyValidTemplate" @export="chooseCsvExport" @edit="session.editMode.value = !session.editMode.value"
     @save-as="chooseSaveAs" @update:bytes-per-row="bytesPerRow = $event" @update:template="updateTemplate"
+    @template-validity="templateValid = $event"
     @save-template="chooseTemplateSave" @load-template="chooseTemplateLoad" @navigate="navigateTemplate"
     @request-page="reportFailure(() => session.requestPage($event.offset, $event.length, $event.generation))" @select="selectBytes"
     @edit-request="beginEdit" @viewport-offset="session.viewportOffset.value = $event" @close-dialog="closePopup"
