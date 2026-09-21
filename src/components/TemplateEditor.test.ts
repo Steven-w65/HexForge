@@ -118,6 +118,16 @@ describe('TemplateEditor', () => {
     expect(wrapper.emitted('validity')?.at(-1)).toEqual([true])
   })
 
+  it('publishes valid state when the field containing a rejected draft is removed', async () => {
+    const value = { ...emptyTemplate(), fields: [{ name: 'a', offset: '16', type: 'u8' as const, endianness: 'little' as const, comment: '' }] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: value } })
+    await wrapper.get('input[data-field="offset"]').setValue('0x')
+    expect(wrapper.emitted('validity')?.at(-1)).toEqual([false])
+    await wrapper.get('[title="Remove field"]').trigger('click')
+    expect(wrapper.emitted('validity')?.at(-1)).toEqual([true])
+    expect(wrapper.get('[data-action="save-template"]').attributes('disabled')).toBeUndefined()
+  })
+
   it('normalizes a hexadecimal offset and inherits the template default endianness', async () => {
     const wrapper = mount(TemplateEditor, { props: { modelValue: { ...emptyTemplate(), defaultEndianness: 'big' } } })
     await wrapper.get('[data-action="add-field"]').trigger('click')

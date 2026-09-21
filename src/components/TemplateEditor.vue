@@ -23,7 +23,7 @@ watch(() => props.modelValue.fields.length, (length) => {
 watch(() => props.modelValue, (value) => {
   if (value === lastEmittedModel) { lastEmittedModel = null; return }
   for (const key of Object.keys(validationErrors)) delete validationErrors[Number(key)]
-  emit('validity', true)
+  publishValidity()
 })
 
 function defaultField(): TemplateField {
@@ -39,8 +39,10 @@ function setValidationError(index: number, key: 'offset' | 'length', message?: s
     if (Object.keys(next).length) validationErrors[id] = next
     else delete validationErrors[id]
   }
-  emit('validity', Object.keys(validationErrors).length === 0)
+  publishValidity()
 }
+
+function publishValidity(): void { emit('validity', Object.keys(validationErrors).length === 0) }
 
 function validationError(index: number, key: 'offset' | 'length'): string | undefined {
   return validationErrors[rowIds.value[index]!]?.[key]
@@ -96,12 +98,14 @@ function updateLength(index: number, text: string, input: HTMLInputElement): voi
 function addField(): void {
   rowIds.value.push(nextId++)
   updateTemplate({ fields: [...props.modelValue.fields, defaultField()] })
+  publishValidity()
 }
 
 function removeField(index: number): void {
   delete validationErrors[rowIds.value[index]!]
   rowIds.value.splice(index, 1)
   updateTemplate({ fields: props.modelValue.fields.filter((_, current) => current !== index) })
+  publishValidity()
 }
 
 function isVariableWidth(type: FieldType): boolean {

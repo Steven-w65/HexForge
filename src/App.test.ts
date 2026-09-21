@@ -188,6 +188,22 @@ describe('App desktop orchestration', () => {
     wrapper.unmount()
   })
 
+  it('re-enables local Save, Ctrl+S, and Apply after removing the invalid field', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin'); mocks.save.mockResolvedValue('C:/template.json'); mocks.backend.saveTemplate.mockResolvedValue(undefined)
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    await wrapper.get('[data-action="open"]').trigger('click'); await flushPromises()
+    await wrapper.get('[data-action="add-field"]').trigger('click'); await flushPromises()
+    await wrapper.get('input[data-field="offset"]').setValue('0x'); await flushPromises()
+    await wrapper.get('[title="Remove field"]').trigger('click'); await flushPromises()
+    expect(wrapper.get('[data-action="template"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-action="save-template"]').attributes('disabled')).toBeUndefined()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true })); await flushPromises()
+    expect(mocks.save).toHaveBeenCalledOnce(); expect(mocks.backend.saveTemplate).toHaveBeenCalledOnce()
+    await wrapper.get('[data-action="template"]').trigger('click'); await flushPromises()
+    expect(mocks.backend.applyTemplate).toHaveBeenCalledOnce()
+    wrapper.unmount()
+  })
+
   it('wires template navigation to both selection and the cyan Canvas range', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
