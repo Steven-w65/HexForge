@@ -65,7 +65,46 @@ describe('TemplateEditor', () => {
     const value = { ...emptyTemplate(), fields: [{ name: 'data', offset: '16', type: 'bytes' as const, length: 4, endianness: 'little' as const, comment: '' }] }
     const wrapper = mount(TemplateEditor, { props: { modelValue: value } })
     await wrapper.get('input[data-field="length"]').setValue('1.5')
+    const input = wrapper.get<HTMLInputElement>('input[data-field="length"]')
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(input.element.value).toBe('4')
+    expect(input.attributes('aria-invalid')).toBe('true')
+    expect(wrapper.get('[role="alert"]').text()).toContain('positive whole number')
+    expect(wrapper.get('[data-action="save-template"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('restores an invalid partial offset while clearly marking the rejected draft', async () => {
+    const value = { ...emptyTemplate(), fields: [{ name: 'data', offset: '16', type: 'u8' as const, endianness: 'little' as const, comment: '' }] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: value } })
+    const input = wrapper.get<HTMLInputElement>('input[data-field="offset"]')
+    await input.setValue('0x')
+    expect(input.element.value).toBe('16')
+    expect(input.attributes('aria-invalid')).toBe('true')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    await input.setValue('0x20')
+    expect(input.attributes('aria-invalid')).toBeUndefined()
+  })
+
+  it('rejects offsets beyond u64 and lengths beyond the backend field limit', async () => {
+    const value = { ...emptyTemplate(), fields: [{ name: 'data', offset: '16', type: 'bytes' as const, length: 4, endianness: 'little' as const, comment: '' }] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: value } })
+    const offset = wrapper.get<HTMLInputElement>('input[data-field="offset"]')
+    const length = wrapper.get<HTMLInputElement>('input[data-field="length"]')
+    await offset.setValue('18446744073709551616')
+    await length.setValue('1048577')
+    expect(offset.element.value).toBe('16')
+    expect(length.element.value).toBe('4')
+    expect(wrapper.findAll('[aria-invalid="true"]')).toHaveLength(2)
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('clears a stale length error when switching to a fixed-width type', async () => {
+    const value = { ...emptyTemplate(), fields: [{ name: 'data', offset: '16', type: 'bytes' as const, length: 4, endianness: 'little' as const, comment: '' }] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: value } })
+    await wrapper.get('input[data-field="length"]').setValue('0')
+    await wrapper.get('select[data-field="type"]').setValue('u8')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.get('[data-action="save-template"]').attributes('disabled')).toBeUndefined()
   })
 
   it('normalizes a hexadecimal offset and inherits the template default endianness', async () => {

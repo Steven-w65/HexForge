@@ -342,14 +342,67 @@ mod tests {
             "invalid_template"
         );
     }
+
+    #[test]
+    fn rejects_excessive_field_count_before_session_reads() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), vec![0_u8; 8192]).unwrap();
+        let mut session = FileSession::open(file.path().to_path_buf(), 256, 2).unwrap();
+        let mut template = valid_template();
+        template.fields = (0..=super::MAX_TEMPLATE_FIELDS)
+            .map(|index| field(&format!("f{index}"), index as u64, FieldType::U8, None))
+            .collect();
+
+        assert_eq!(
+            parse_template(&mut session, &template).unwrap_err().code(),
+            "invalid_template"
+        );
+        assert_eq!(session.cache_len(), 0);
+    }
+
+    #[test]
+    fn rejects_aggregate_decoded_budget_before_session_reads() {
+        let field_length = MAX_READ_RANGE;
+        let field_count = super::MAX_TEMPLATE_DECODED_BYTES / (field_length * 4) + 1;
+        let file = tempfile::NamedTempFile::new().unwrap();
+        file.as_file().set_len(field_length * field_count).unwrap();
+        let mut session = FileSession::open(file.path().to_path_buf(), 256, 2).unwrap();
+        let template = TemplateDefinition {
+            version: 1,
+            name: "Adversarial".into(),
+            default_endianness: Endian::Little,
+            fields: (0..field_count)
+                .map(|index| {
+                    field(
+                        &format!("blob{index}"),
+                        index * field_length,
+                        FieldType::Bytes,
+                        Some(field_length),
+                    )
+                })
+                .collect(),
+        };
+
+        let error = parse_template(&mut session, &template).unwrap_err();
+        assert_eq!(error.code(), "invalid_template");
+        assert!(error.message.contains("decoded data budget"));
+        assert_eq!(session.cache_len(), 0);
+    }
 }
 use crate::error::{AppError, ErrorCode};
 use crate::session::{FileSession, MAX_READ_RANGE};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::fmt::Write as _;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
+
+/// Templates are intentionally flat and bounded so validation, parsing, and CSV export
+/// have a predictable memory ceiling even when a file contains many valid ranges.
+pub const MAX_TEMPLATE_FIELDS: usize = 4096;
+/// Maximum combined input buffers plus worst-case decoded value strings (16 MiB).
+pub const MAX_TEMPLATE_DECODED_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -441,9 +494,15 @@ pub fn validate_template(
     if template.name.trim().is_empty() {
         return Err(invalid_template("Template names must not be empty."));
     }
+    if template.fields.len() > MAX_TEMPLATE_FIELDS {
+        return Err(invalid_template(
+            "Templates may contain at most 4096 fields.",
+        ));
+    }
 
     let mut names = HashSet::with_capacity(template.fields.len());
     let mut validated = Vec::with_capacity(template.fields.len());
+    let mut decoded_budget = 0_u64;
     for field in &template.fields {
         if field.name.trim().is_empty() {
             return Err(invalid_template("Field names must not be empty."));
@@ -451,13 +510,30 @@ pub fn validate_template(
         if !names.insert(field.name.as_str()) {
             return Err(invalid_template("Template field names must be unique."));
         }
-        validated.push(validate_field(
-            field,
-            template.default_endianness,
-            file_size,
-        )?);
+        let validated_field = validate_field(field, template.default_endianness, file_size)?;
+        decoded_budget = decoded_budget
+            .checked_add(decoded_allocation_budget(&validated_field))
+            .ok_or_else(|| invalid_template("The template decoded data budget is too large."))?;
+        if decoded_budget > MAX_TEMPLATE_DECODED_BYTES {
+            return Err(invalid_template(
+                "The template exceeds the 16 MiB decoded data budget.",
+            ));
+        }
+        validated.push(validated_field);
     }
     Ok(validated)
+}
+
+fn decoded_allocation_budget(field: &ValidatedField) -> u64 {
+    let output = match field.field_type {
+        // Lossy UTF-8 can replace each invalid source byte with a three-byte replacement.
+        FieldType::String => field.length.saturating_mul(3),
+        // "FF " needs at most three output bytes for every source byte.
+        FieldType::Bytes => field.length.saturating_mul(3),
+        // Numeric formatting is small, but reserve enough for sign/exponent/precision.
+        _ => 32,
+    };
+    field.length.saturating_add(output)
 }
 
 fn validate_field(
@@ -592,11 +668,17 @@ pub fn decode(field_type: FieldType, bytes: &[u8], endian: Endian) -> Result<Str
         FieldType::String => Ok(String::from_utf8_lossy(bytes)
             .trim_end_matches('\0')
             .to_owned()),
-        FieldType::Bytes => Ok(bytes
-            .iter()
-            .map(|byte| format!("{byte:02X}"))
-            .collect::<Vec<_>>()
-            .join(" ")),
+        FieldType::Bytes => {
+            let capacity = bytes.len().saturating_mul(3).saturating_sub(1);
+            let mut output = String::with_capacity(capacity);
+            for (index, byte) in bytes.iter().enumerate() {
+                if index > 0 {
+                    output.push(' ');
+                }
+                write!(output, "{byte:02X}").expect("writing to a String cannot fail");
+            }
+            Ok(output)
+        }
     }
 }
 

@@ -75,6 +75,8 @@ Templates are independent local JSON files. The MVP supports flat fields only—
 
 Numeric fields may use little-endian or big-endian byte order. New fields inherit the template's default byte order. `string` and `bytes` fields require a positive `length`. The editor accepts decimal or `0x`-prefixed hexadecimal offsets and serializes them as decimal strings so large-file addresses remain exact across the frontend/backend boundary.
 
+For predictable memory use, a template is limited to 4,096 fields and a 16 MiB aggregate decoded-data budget. That budget conservatively includes every field's source bytes plus worst-case decoded string/hex representation, and it is validated before binary ranges are read. CSV export uses the same validation boundary.
+
 See [`templates/firmware-header.json`](templates/firmware-header.json) for a complete sample.
 
 ## Keyboard shortcuts

@@ -67,28 +67,57 @@ describe('useHotkeys', () => {
 
   it('prevents close until dirty discard is confirmed and allows exactly one retry', async () => {
     const event = { preventDefault: vi.fn() }; const close = vi.fn(); const guard = { value: false }
-    await handleCloseRequest(event, true, vi.fn().mockResolvedValue(false), close, guard)
+    await handleCloseRequest(event, vi.fn().mockResolvedValue({ dirty: true }), vi.fn().mockResolvedValue(false), close, guard)
     expect(event.preventDefault).toHaveBeenCalledOnce(); expect(close).not.toHaveBeenCalled()
-    await handleCloseRequest(event, true, vi.fn().mockResolvedValue(true), close, guard)
+    await handleCloseRequest(event, vi.fn().mockResolvedValue({ dirty: true }), vi.fn().mockResolvedValue(true), close, guard)
     expect(close).toHaveBeenCalledOnce(); expect(guard.value).toBe(true)
     const retry = { preventDefault: vi.fn() }
-    await handleCloseRequest(retry, true, vi.fn(), close, guard)
+    await handleCloseRequest(retry, vi.fn(), vi.fn(), close, guard)
     expect(retry.preventDefault).not.toHaveBeenCalled(); expect(guard.value).toBe(false)
   })
 
   it('serializes close confirmations and rolls back allowClose when close fails', async () => {
     const decision = deferredBoolean(); const confirm = vi.fn(() => decision.promise); const close = vi.fn().mockRejectedValue(new Error('close failed'))
     const guard = { value: false }; const first = { preventDefault: vi.fn() }; const second = { preventDefault: vi.fn() }
-    const a = handleCloseRequest(first, true, confirm, close, guard).catch(() => undefined)
-    const b = handleCloseRequest(second, true, confirm, close, guard).catch(() => undefined)
+    const query = vi.fn().mockResolvedValue({ dirty: true })
+    const a = handleCloseRequest(first, query, confirm, close, guard).catch(() => undefined)
+    const b = handleCloseRequest(second, query, confirm, close, guard).catch(() => undefined)
+    await Promise.resolve()
     expect(confirm).toHaveBeenCalledOnce(); expect(second.preventDefault).toHaveBeenCalledOnce()
     decision.resolve(true); await Promise.all([a, b])
     expect(close).toHaveBeenCalledOnce(); expect(guard.value).toBe(false)
+  })
+
+  it('prevents first, waits for authoritative state, and closes a clean session through one retry', async () => {
+    const state = deferredDirty(); const event = { preventDefault: vi.fn() }; const close = vi.fn(); const guard = { value: false }
+    const pending = handleCloseRequest(event, vi.fn(() => state.promise), vi.fn(), close, guard)
+    expect(event.preventDefault).toHaveBeenCalledOnce(); expect(close).not.toHaveBeenCalled()
+    state.resolve({ dirty: false }); await pending
+    expect(close).toHaveBeenCalledOnce(); expect(guard.value).toBe(true)
+  })
+
+  it('observes an edit that becomes dirty while the close query waits', async () => {
+    const state = deferredDirty(); const confirm = vi.fn().mockResolvedValue(false); const close = vi.fn()
+    const pending = handleCloseRequest({ preventDefault: vi.fn() }, () => state.promise, confirm, close, { value: false })
+    state.resolve({ dirty: true }); await pending
+    expect(confirm).toHaveBeenCalledOnce(); expect(close).not.toHaveBeenCalled()
+  })
+
+  it('keeps the window prevented and surfaces authoritative query failures', async () => {
+    const event = { preventDefault: vi.fn() }; const failure = new Error('state unavailable')
+    await expect(handleCloseRequest(event, vi.fn().mockRejectedValue(failure), vi.fn(), vi.fn())).rejects.toBe(failure)
+    expect(event.preventDefault).toHaveBeenCalledOnce()
   })
 })
 
 function deferredBoolean() {
   let resolve!: (value: boolean) => void
   const promise = new Promise<boolean>((done) => { resolve = done })
+  return { promise, resolve }
+}
+
+function deferredDirty() {
+  let resolve!: (value: { dirty: boolean }) => void
+  const promise = new Promise<{ dirty: boolean }>((done) => { resolve = done })
   return { promise, resolve }
 }

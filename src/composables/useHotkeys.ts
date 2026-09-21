@@ -39,18 +39,18 @@ export interface AllowCloseGuard { value: boolean; confirming?: boolean }
 
 export async function handleCloseRequest(
   event: CloseRequestEventLike,
-  dirty: boolean,
+  getDirtyState: () => Promise<{ dirty: boolean }>,
   confirmDiscard: () => Promise<boolean>,
   close: () => void | Promise<void>,
   allowClose: AllowCloseGuard = { value: false },
 ): Promise<void> {
   if (allowClose.value) { allowClose.value = false; return }
-  if (!dirty) return
   event.preventDefault()
   if (allowClose.confirming) return
   allowClose.confirming = true
   try {
-    if (!await confirmDiscard()) return
+    const { dirty } = await getDirtyState()
+    if (dirty && !await confirmDiscard()) return
     allowClose.value = true
     try { await close() }
     catch (error) { allowClose.value = false; throw error }

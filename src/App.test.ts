@@ -37,6 +37,7 @@ describe('App desktop orchestration', () => {
     mocks.unlistenClose.mockReset(); mocks.unlistenDrop.mockReset(); mocks.closeHandler = undefined; mocks.dropHandler = undefined
     mocks.backend.openFile.mockResolvedValue(file); mocks.backend.readPage.mockResolvedValue(page)
     mocks.backend.undoEdit.mockResolvedValue({ dirty: false, revision: '2', undone: true })
+    mocks.backend.getDirtyState.mockResolvedValue({ dirty: false, revision: '1' })
     mocks.backend.applyTemplate.mockResolvedValue([])
     mocks.backend.searchBytes.mockResolvedValue({ matches: [], truncated: false })
   })
@@ -88,13 +89,14 @@ describe('App desktop orchestration', () => {
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     const event = { preventDefault: vi.fn() }
     if (mocks.closeHandler) await mocks.closeHandler(event)
-    expect(event.preventDefault).not.toHaveBeenCalled(); expect(mocks.close).not.toHaveBeenCalled()
+    expect(event.preventDefault).toHaveBeenCalledOnce(); expect(mocks.close).toHaveBeenCalledOnce()
     wrapper.unmount()
   })
 
   it('prevents a dirty close until discard is confirmed', async () => {
     mocks.open.mockResolvedValue('C:/dirty.bin')
     mocks.backend.openFile.mockResolvedValue({ ...file, dirty: true })
+    mocks.backend.getDirtyState.mockResolvedValue({ dirty: true, revision: '1' })
     mocks.confirm.mockResolvedValue(false)
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     await wrapper.get('[data-action="open"]').trigger('click'); await flushPromises()
@@ -109,6 +111,7 @@ describe('App desktop orchestration', () => {
 
   it('presents confirm and message failures from void native listener paths', async () => {
     mocks.open.mockResolvedValue('C:/dirty.bin'); mocks.backend.openFile.mockResolvedValue({ ...file, dirty: true })
+    mocks.backend.getDirtyState.mockResolvedValue({ dirty: true, revision: '1' })
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     await wrapper.get('[data-action="open"]').trigger('click'); await flushPromises()
     mocks.confirm.mockRejectedValueOnce(new Error('Confirm failed.'))
@@ -118,6 +121,57 @@ describe('App desktop orchestration', () => {
     mocks.message.mockRejectedValueOnce(new Error('Message failed.'))
     mocks.dropHandler?.({ payload: { type: 'drop', paths: ['a.bin', 'b.bin'] } }); await flushPromises()
     expect(wrapper.get('[role="dialog"]').text()).toContain('Message failed.')
+    wrapper.unmount()
+  })
+
+  it('holds close until an in-flight edit is reflected by authoritative dirty state', async () => {
+    let finishEdit!: (value: { dirty: boolean; revision: string }) => void
+    const edit = new Promise<{ dirty: boolean; revision: string }>((resolve) => { finishEdit = resolve })
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    mocks.backend.editByte.mockReturnValue(edit)
+    mocks.backend.getDirtyState.mockImplementation(async () => { await edit; return { dirty: true, revision: '2' } })
+    mocks.confirm.mockResolvedValue(false)
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    await wrapper.get('[data-action="open"]').trigger('click'); await flushPromises()
+    wrapper.findComponent(AppShell).vm.$emit('select', { start: 0n, end: 0n, count: 1n })
+    wrapper.findComponent(AppShell).vm.$emit('edit-request', 0n); await flushPromises()
+    await wrapper.get('.prompt-form input').setValue('FF')
+    void wrapper.get('.prompt-form').trigger('submit'); await flushPromises()
+    const event = { preventDefault: vi.fn() }
+    const closeAttempt = mocks.closeHandler?.(event)
+    expect(event.preventDefault).toHaveBeenCalledOnce(); expect(mocks.confirm).not.toHaveBeenCalled()
+    finishEdit({ dirty: true, revision: '2' }); await closeAttempt; await flushPromises()
+    expect(mocks.confirm).toHaveBeenCalledOnce(); expect(mocks.close).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('closes without confirmation after a pending no-op edit resolves clean', async () => {
+    let finishEdit!: (value: { dirty: boolean; revision: string }) => void
+    const edit = new Promise<{ dirty: boolean; revision: string }>((resolve) => { finishEdit = resolve })
+    mocks.open.mockResolvedValue('C:/firmware.bin'); mocks.backend.editByte.mockReturnValue(edit)
+    mocks.backend.getDirtyState.mockImplementation(async () => { await edit; return { dirty: false, revision: '1' } })
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    await wrapper.get('[data-action="open"]').trigger('click'); await flushPromises()
+    wrapper.findComponent(AppShell).vm.$emit('select', { start: 0n, end: 0n, count: 1n })
+    wrapper.findComponent(AppShell).vm.$emit('edit-request', 0n); await flushPromises()
+    await wrapper.get('.prompt-form input').setValue('41')
+    void wrapper.get('.prompt-form').trigger('submit'); await flushPromises()
+    const event = { preventDefault: vi.fn() }; const closeAttempt = mocks.closeHandler?.(event)
+    expect(event.preventDefault).toHaveBeenCalledOnce(); expect(mocks.close).not.toHaveBeenCalled()
+    finishEdit({ dirty: false, revision: '1' }); await closeAttempt; await flushPromises()
+    expect(mocks.confirm).not.toHaveBeenCalled(); expect(mocks.close).toHaveBeenCalledOnce()
+    wrapper.unmount()
+  })
+
+  it('keeps close prevented and shows a friendly error when authoritative state fails', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    mocks.backend.getDirtyState.mockRejectedValue({ code: 'operation_failed', message: 'Could not check unsaved changes.' })
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    await wrapper.get('[data-action="open"]').trigger('click'); await flushPromises()
+    const event = { preventDefault: vi.fn() }
+    await mocks.closeHandler?.(event); await flushPromises()
+    expect(event.preventDefault).toHaveBeenCalledOnce(); expect(mocks.close).not.toHaveBeenCalled()
+    expect(wrapper.get('[role="dialog"]').text()).toContain('Could not check unsaved changes.')
     wrapper.unmount()
   })
 

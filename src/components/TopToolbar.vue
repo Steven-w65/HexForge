@@ -63,5 +63,5 @@ button { height: 32px; display: inline-flex; align-items: center; gap: 6px; padd
 button:hover:not(:disabled), button[aria-pressed='true'] { color: var(--text); background: var(--hover); }
 button:disabled { opacity: .36; }
 svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-@media (max-width: 920px) { button span { display: none; } button { padding-inline: 8px; } }
+@media (max-width: 1100px) { button span { display: none; } button { padding-inline: 8px; } }
 </style>

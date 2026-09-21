@@ -4,6 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { confirm, message, open, save } from '@tauri-apps/plugin-dialog'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppShell from './components/AppShell.vue'
+import { backend } from './api/backend'
 import { useHexSession } from './composables/useHexSession'
 import { handleCloseRequest, useHotkeys } from './composables/useHotkeys'
 import type { BytesPerRow } from './hex/layout'
@@ -114,7 +115,7 @@ onMounted(async () => {
   }))
   try {
     const closeUnlisten = await getCurrentWindow().onCloseRequested(async (event) => {
-      try { await handleCloseRequest(event, session.file.value?.dirty ?? false, confirmDiscard, () => getCurrentWindow().close(), allowClose) }
+      try { await handleCloseRequest(event, session.file.value ? () => backend.getDirtyState() : async () => ({ dirty: false }), confirmDiscard, () => getCurrentWindow().close(), allowClose) }
       catch (error) { session.presentError(error) }
     })
     if (disposed) closeUnlisten(); else disposers.push(closeUnlisten)

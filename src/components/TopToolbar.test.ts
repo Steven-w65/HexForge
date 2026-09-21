@@ -1,6 +1,8 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import TopToolbar from './TopToolbar.vue'
+import source from './TopToolbar.vue?raw'
+import tauriConfig from '../../src-tauri/tauri.conf.json'
 
 describe('TopToolbar', () => {
   it('keeps the required action order and forwards each action', async () => {
@@ -19,5 +21,11 @@ describe('TopToolbar', () => {
     const wrapper = mount(TopToolbar, { props: { hasFile: false, dirty: false, editMode: false, theme: 'dark' } })
     expect(wrapper.get('[data-action="open"]').attributes('disabled')).toBeUndefined()
     expect(wrapper.get('[data-action="search"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('switches to the compact icon layout above Tauri minimum width', () => {
+    const breakpoint = Number(source.match(/@media \(max-width: (\d+)px\)/)?.[1])
+    expect(breakpoint).toBeGreaterThan(tauriConfig.app.windows[0]!.minWidth)
+    expect(source).toContain('button span { display: none; }')
   })
 })

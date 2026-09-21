@@ -198,10 +198,23 @@ export class HexRenderer {
       }
     }
     const matchLength = Number.isSafeInteger(state.matchLength) && state.matchLength > 0 ? state.matchLength : 1
-    state.matches.forEach((start) => {
-      const count = BigInt(matchLength)
+    const count = BigInt(matchLength)
+    const firstVisible = state.viewportRow * BigInt(layout.bytesPerRow)
+    const visibleRows = BigInt(Math.ceil(Math.max(0, height - layout.headerHeight) / layout.rowHeight))
+    const lastVisible = firstVisible + visibleRows * BigInt(layout.bytesPerRow) - 1n
+    const earliestIntersectingStart = firstVisible >= count - 1n ? firstVisible - count + 1n : 0n
+    let low = 0
+    let high = state.matches.length
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2)
+      if (state.matches[middle]! < earliestIntersectingStart) low = middle + 1
+      else high = middle
+    }
+    for (let index = low; index < state.matches.length; index += 1) {
+      const start = state.matches[index]!
+      if (start > lastVisible) break
       drawRange({ start, end: start + count - 1n, count }, MATCH, false, 0.42)
-    })
+    }
     drawRange(state.selection, SELECTION)
     drawRange(state.templateRange, TEMPLATE, true)
     for (const offsetValue of state.modifiedOffsets) {

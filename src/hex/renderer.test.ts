@@ -91,6 +91,32 @@ describe('HexRenderer', () => {
     expect(recording.fills.filter((color) => color === '#8b6f2a')).toHaveLength(6)
   })
 
+  it('binary-searches sorted match starts and visits only the visible slice', () => {
+    const { recording, layers } = fixture()
+    const renderer = new HexRenderer(layers, {
+      width: 900, height: 80, dpr: 1, layout: createLayout(900, 16), fileSize: 2_000_000n,
+    })
+    const values = Array.from({ length: 100_000 }, (_, index) => BigInt(index * 16))
+    let reads = 0
+    const matches = new Proxy(values, { get(target, property, receiver) {
+      if (typeof property === 'string' && /^\d+$/.test(property)) reads += 1
+      return Reflect.get(target, property, receiver)
+    } })
+    renderer.drawOverlay({ modifiedOffsets: new Set(), selection: null, matches, matchLength: 3, templateRange: null, viewportRow: 50_000n })
+
+    expect(reads).toBeLessThan(64)
+    expect(recording.fills.filter((color) => color === '#8b6f2a').length).toBeGreaterThan(0)
+  })
+
+  it('includes a multi-byte match that starts before but intersects the viewport', () => {
+    const { recording, layers } = fixture()
+    const renderer = new HexRenderer(layers, {
+      width: 900, height: 80, dpr: 1, layout: createLayout(900, 16), fileSize: 1000n,
+    })
+    renderer.drawOverlay({ modifiedOffsets: new Set(), selection: null, matches: [14n], matchLength: 4, templateRange: null, viewportRow: 1n })
+    expect(recording.fills.filter((color) => color === '#8b6f2a')).toHaveLength(4)
+  })
+
   it('scales all backing stores and composites cached layers in order', () => {
     const { recording, layers } = fixture()
     const renderer = new HexRenderer(layers, {
