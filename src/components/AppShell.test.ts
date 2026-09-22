@@ -46,12 +46,13 @@ describe('AppShell', () => {
 
   it('passes orchestration navigation targets into the Canvas viewport', () => {
     const wrapper = mount(AppShell, {
-      props: { file: { name: 'firmware.bin', path: 'C:/firmware.bin', size: '4096', revision: '1', dirty: false }, navigationOffset: 160n },
+      props: { file: { name: 'firmware.bin', path: 'C:/firmware.bin', size: '4096', revision: '1', dirty: false }, sourceIdentity: 9, navigationOffset: 160n },
       global: { stubs: { HexCanvas: true } },
     })
     expect(wrapper.findComponent({ name: 'HexCanvas' }).props('navigateOffset')).toBe(160n)
     expect(wrapper.findComponent({ name: 'HexCanvas' }).props('sourceKey')).toBe('C:/firmware.bin')
     expect(wrapper.findComponent({ name: 'HexCanvas' }).props('sourceRevision')).toBe('1')
+    expect(wrapper.findComponent({ name: 'HexCanvas' }).props('sourceIdentity')).toBe(9)
   })
 
   it('renders non-blocking operation progress and a truncated-search notice', () => {

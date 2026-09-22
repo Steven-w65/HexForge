@@ -13,14 +13,14 @@ import StatusBar from './StatusBar.vue'
 import TopToolbar from './TopToolbar.vue'
 
 const props = withDefaults(defineProps<{
-  file?: FileInfo | null; page?: ViewportPage | null; bytesPerRow?: BytesPerRow; selection?: ByteSelection | null
+  file?: FileInfo | null; sourceIdentity?: number; page?: ViewportPage | null; bytesPerRow?: BytesPerRow; selection?: ByteSelection | null
   matches?: bigint[]; templateRange?: ByteSelection | null; editMode?: boolean; endianness?: Endian
   template?: TemplateDefinition; results?: ParsedField[]; dialogOpen?: boolean; dialogTitle?: string; dialogMessage?: string
   navigationOffset?: bigint
   matchLength?: number; busyLabel?: string; progressText?: string; searchTruncated?: boolean
   templateValid?: boolean
 }>(), {
-  file: null, page: null, bytesPerRow: 16, selection: null, matches: () => [], templateRange: null,
+  file: null, sourceIdentity: 0, page: null, bytesPerRow: 16, selection: null, matches: () => [], templateRange: null,
   editMode: false, endianness: 'little', template: () => ({ version: 1, name: 'Untitled', defaultEndianness: 'little', fields: [] }), results: () => [], dialogOpen: false,
   dialogTitle: '', dialogMessage: '',
   matchLength: 1, busyLabel: '', progressText: '', searchTruncated: false,
@@ -81,7 +81,7 @@ function toolbarAction(action: 'open' | 'goto' | 'search' | 'template' | 'export
       <SidebarPanel :file="file" :template="template" :collapsed="leftCollapsed" @toggle-collapse="leftCollapsed = !leftCollapsed"
         @update:template="emit('update:template', $event)" @template-validity="updateTemplateValidity" @save-template="emit('save-template')" @load-template="emit('load-template')" @navigate="emit('navigate', $event)" />
       <section class="hex-stage">
-        <HexCanvas v-if="file" :file-size="fileSize" :source-key="file.path" :source-revision="file.revision" :page="page" :bytes-per-row="bytesPerRow" :selection="selection" :matches="matches" :match-length="matchLength"
+        <HexCanvas v-if="file" :file-size="fileSize" :source-identity="sourceIdentity" :source-key="file.path" :source-revision="file.revision" :page="page" :bytes-per-row="bytesPerRow" :selection="selection" :matches="matches" :match-length="matchLength"
           :template-range="templateRange" :edit-mode="editMode" :theme="theme.value.value" :navigate-offset="navigationOffset" @request-page="emit('request-page', $event)"
           @select="emit('select', $event)" @edit-request="emit('edit-request', $event)" @viewport-offset="emit('viewport-offset', $event)" />
         <div v-else data-testid="drop-prompt" class="drop-prompt"><span>＋</span><strong>Drop a binary file here</strong><small>or use Open File</small></div>

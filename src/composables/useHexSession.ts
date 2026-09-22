@@ -39,6 +39,7 @@ function friendlyError(value: unknown): AppError {
 
 export interface HexSession {
   file: Ref<FileInfo | null>; page: Ref<ViewportPage | null>; selection: Ref<ByteSelection | null>
+  sourceIdentity: Ref<number>
   template: Ref<TemplateDefinition>; results: Ref<ParsedField[]>; matches: Ref<bigint[]>
   searchMatchLength: Ref<number>; searchTruncated: Ref<boolean>
   activity: Ref<OperationActivity | null>
@@ -58,6 +59,7 @@ interface OperationTicket { name: BusyOperation; token: number; epoch: number; i
 
 export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   const file = ref<FileInfo | null>(null)
+  const sourceIdentity = ref(0)
   const page = ref<ViewportPage | null>(null)
   const selection = ref<ByteSelection | null>(null)
   const template = ref<TemplateDefinition>({ ...EMPTY_TEMPLATE, fields: [] })
@@ -206,6 +208,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     void queueEnd.then(() => { if (openQueue === queueEnd) openQueue = null })
     const result = await run('open', () => queuedOpen)
     sessionEpoch += 1
+    sourceIdentity.value += 1
     installOpenedFile(result.value)
   }
   function openFile(path: string, discardUnsaved = false): Promise<void> { return runMutation(() => openFileCore(path, discardUnsaved)) }
@@ -306,7 +309,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   }
 
   return {
-    file, page, selection, template, results, matches, searchMatchLength, searchTruncated, activity, busy, progress, error, viewportOffset, editMode,
+    file, page, selection, sourceIdentity, template, results, matches, searchMatchLength, searchTruncated, activity, busy, progress, error, viewportOffset, editMode,
     requestPage, openFile, goTo, search, applyTemplate, editSelectedByte, undo, saveAs, loadTemplate,
     saveTemplate, exportCsv, updateTemplate, navigate, clearSelection: () => { selection.value = null }, clearError: () => { error.value = null }, presentError,
     prepareClose, releaseCloseBarrier,

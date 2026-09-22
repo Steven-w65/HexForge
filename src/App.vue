@@ -140,7 +140,7 @@ onBeforeUnmount(() => { disposed = true; disposers.splice(0).forEach((dispose) =
 
 <template>
   <AppShell
-    data-testid="hexforge-app" :file="session.file.value" :page="session.page.value" :selection="session.selection.value"
+    data-testid="hexforge-app" :file="session.file.value" :source-identity="session.sourceIdentity.value" :page="session.page.value" :selection="session.selection.value"
     :template="session.template.value" :results="session.results.value" :matches="session.matches.value"
     :match-length="session.searchMatchLength.value" :search-truncated="session.searchTruncated.value" :template-range="templateRange"
     :busy-label="activeBusy" :progress-text="progressText"

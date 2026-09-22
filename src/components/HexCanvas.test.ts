@@ -6,6 +6,10 @@ import HexCanvas from './HexCanvas.vue'
 
 let resizeCallback: ResizeObserverCallback
 let drawnColors: string[]
+let drawnTextByContext: string[][]
+let contextIndex: number
+let contextCanvases: Array<HTMLCanvasElement | undefined>
+let contentCompositeCount: number
 
 class TestResizeObserver {
   constructor(callback: ResizeObserverCallback) { resizeCallback = callback }
@@ -14,20 +18,26 @@ class TestResizeObserver {
   unobserve() {}
 }
 
-function context(): CanvasRenderingContext2D {
+function context(index: number): CanvasRenderingContext2D {
   return {
     canvas: null,
     fillStyle: '', strokeStyle: '', font: '', textBaseline: 'alphabetic', lineWidth: 1,
     globalAlpha: 1,
     clearRect: vi.fn(), fillRect: vi.fn(), strokeRect: vi.fn(),
-    fillText(this: CanvasRenderingContext2D) { drawnColors.push(String(this.fillStyle)) },
-    drawImage: vi.fn(),
+    fillText(this: CanvasRenderingContext2D, text: string) {
+      drawnColors.push(String(this.fillStyle))
+      drawnTextByContext[index]!.push(text)
+    },
+    drawImage(image: CanvasImageSource) {
+      if (index === 0 && image === contextCanvases[2]) contentCompositeCount += 1
+    },
     setTransform: vi.fn(), save: vi.fn(), restore: vi.fn(),
   } as unknown as CanvasRenderingContext2D
 }
 
 const readyProps = {
   fileSize: 4096n,
+  sourceIdentity: 1,
   sourceKey: 'input.bin',
   sourceRevision: '1',
   page: null,
@@ -55,12 +65,17 @@ describe('HexCanvas', () => {
   beforeEach(() => {
     resizeCallback = undefined as unknown as ResizeObserverCallback
     drawnColors = []
+    drawnTextByContext = [[], [], [], []]
+    contextIndex = 0
+    contextCanvases = []
+    contentCompositeCount = 0
     vi.stubGlobal('ResizeObserver', TestResizeObserver)
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1 })
     vi.stubGlobal('cancelAnimationFrame', () => {})
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
-      const value = context()
+      const value = context(contextIndex++)
       Object.defineProperty(value, 'canvas', { value: this })
+      contextCanvases[contextIndex - 1] = this
       return value
     })
     HTMLCanvasElement.prototype.setPointerCapture = vi.fn()
@@ -79,7 +94,10 @@ describe('HexCanvas', () => {
 
   it('requests a generation-tagged bounded page after resize', async () => {
     const wrapper = mount(HexCanvas, { props: readyProps })
+    await nextTick()
+    expect(wrapper.emitted('request-page')).toBeUndefined()
     await resize()
+    expect(wrapper.emitted('request-page')).toHaveLength(1)
     const request = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint; length: number; generation: number }
     expect(request.length).toBeGreaterThan(0)
     expect(request.length).toBeLessThanOrEqual(1024 * 1024)
@@ -126,10 +144,14 @@ describe('HexCanvas', () => {
       modifiedOffsets: [], revision: '1', generation: initialRequest.generation,
     } })
     const requestsBeforeMove = wrapper.emitted('request-page')?.length ?? 0
+    drawnTextByContext[2]!.length = 0
+    contentCompositeCount = 0
     await wrapper.get('canvas').trigger('wheel', { deltaY: 100 })
     expect(wrapper.emitted('viewport-offset')?.at(-1)).toEqual([16n])
     expect(wrapper.emitted('request-page')).toHaveLength(requestsBeforeMove)
     expect(wrapper.get('canvas').attributes('data-page-revision')).toBe('1')
+    expect(drawnTextByContext[2]).toContain('41')
+    expect(contentCompositeCount).toBeGreaterThan(0)
     expect(wrapper.get('.virtual-scrollbar__thumb').attributes('style')).toContain('translateY(')
     const movedStyle = wrapper.get('.virtual-scrollbar__thumb').attributes('style')
     expect(movedStyle).not.toContain('translateY(0px)')
@@ -180,9 +202,14 @@ describe('HexCanvas', () => {
     } })
     expect(wrapper.get('canvas').attributes('data-page-revision')).toBe('1')
     const requestsBeforeMove = wrapper.emitted('request-page')?.length ?? 0
-    for (let index = 0; index < 6; index += 1) await wrapper.get('canvas').trigger('wheel', { deltaY: 100 })
+    for (let index = 0; index < 5; index += 1) await wrapper.get('canvas').trigger('wheel', { deltaY: 100 })
+    drawnTextByContext[2]!.length = 0
+    contentCompositeCount = 0
+    await wrapper.get('canvas').trigger('wheel', { deltaY: 100 })
     expect(wrapper.emitted('request-page')?.length).toBeGreaterThan(requestsBeforeMove)
     expect(wrapper.get('canvas').attributes('data-page-revision')).toBe('1')
+    expect(drawnTextByContext[2]).toContain('41')
+    expect(contentCompositeCount).toBeGreaterThan(0)
     await wrapper.setProps({ page: null })
     expect(wrapper.get('canvas').attributes('data-page-revision')).toBeUndefined()
   })
@@ -200,6 +227,28 @@ describe('HexCanvas', () => {
     expect(wrapper.get('canvas').attributes('data-page-revision')).toBeUndefined()
     await wrapper.setProps({ page: { offset: replacement.offset.toString(), bytes: [0x43], modifiedOffsets: [], revision: '7', generation: replacement.generation } })
     expect(wrapper.get('canvas').attributes('data-page-revision')).toBe('7')
+  })
+
+  it('requests a measured page when the same pristine path and revision is reopened', async () => {
+    const wrapper = mount(HexCanvas, { props: readyProps })
+    await resize()
+    const first = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint; length: number; generation: number }
+    await wrapper.setProps({ page: {
+      offset: first.offset.toString(), bytes: Array.from({ length: first.length }, () => 0x41),
+      modifiedOffsets: [], revision: '1', generation: first.generation,
+    } })
+    const beforeReopen = wrapper.emitted('request-page')?.length ?? 0
+    await wrapper.setProps({ sourceIdentity: 2, page: null })
+    expect(wrapper.get('canvas').attributes('data-page-revision')).toBeUndefined()
+    expect(wrapper.emitted('request-page')).toHaveLength(beforeReopen + 1)
+    const reopened = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint; length: number; generation: number }
+    drawnTextByContext[2]!.length = 0
+    await wrapper.setProps({ page: {
+      offset: reopened.offset.toString(), bytes: Array.from({ length: reopened.length }, () => 0x42),
+      modifiedOffsets: [], revision: '1', generation: reopened.generation,
+    } })
+    expect(drawnTextByContext[2]).toContain('42')
+    expect(wrapper.get('canvas').attributes('data-page-revision')).toBe('1')
   })
 
   it('preserves the viewport position when an edit advances the source revision', async () => {

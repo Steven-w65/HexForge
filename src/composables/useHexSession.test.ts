@@ -26,6 +26,16 @@ function fakeBackend(): HexBackend {
 }
 
 describe('useHexSession', () => {
+  it('advances source identity on every successful open even when metadata is unchanged', async () => {
+    const backend = fakeBackend(); const session = useHexSession(backend)
+    expect(session.sourceIdentity.value).toBe(0)
+    await session.openFile('input.bin')
+    expect(session.sourceIdentity.value).toBe(1)
+    await session.openFile('input.bin')
+    expect(session.sourceIdentity.value).toBe(2)
+    expect(backend.readPage).not.toHaveBeenCalled()
+  })
+
   it('ignores a page response older than the newest generation', async () => {
     const backend = fakeBackend()
     const first = deferred<PageResponse>(); const second = deferred<PageResponse>()

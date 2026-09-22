@@ -8,6 +8,7 @@ import { createCanvasLayers, HexRenderer } from '../hex/renderer'
 
 const props = defineProps<{
   fileSize: bigint
+  sourceIdentity: number
   sourceKey: string
   sourceRevision: string
   page: ViewportPage | null
@@ -37,10 +38,12 @@ let layout: HexLayout = createLayout(size.width, props.bytesPerRow)
 let renderer: HexRenderer | null = null
 let resizeObserver: ResizeObserver | null = null
 let frame = 0
+let measured = false
 const scrollRow = ref(0n)
 let generation = 0
-let activeRequest: (PageRequest & { sourceKey: string; sourceRevision: string }) | null = null
+let activeRequest: (PageRequest & { sourceIdentity: number; sourceKey: string; sourceRevision: string }) | null = null
 let acceptedPage: ViewportPage | null = null
+let acceptedSourceIdentity: number | null = null
 let acceptedSourceKey: string | null = null
 let anchor: bigint | null = null
 let dragging = false
@@ -63,6 +66,7 @@ const THEMES = {
 
 function invalidateAcceptedPage(): void {
   acceptedPage = null
+  acceptedSourceIdentity = null
   acceptedSourceKey = null
   renderedRevision.value = undefined
   contentDirty = true
@@ -78,7 +82,7 @@ function visibleByteInterval(): { start: bigint; end: bigint } {
 }
 
 function acceptedPageCoversViewport(): boolean {
-  if (!acceptedPage || acceptedSourceKey !== props.sourceKey || acceptedPage.revision !== props.sourceRevision) return false
+  if (!acceptedPage || acceptedSourceIdentity !== props.sourceIdentity || acceptedSourceKey !== props.sourceKey || acceptedPage.revision !== props.sourceRevision) return false
   const interval = visibleByteInterval()
   const pageStart = BigInt(acceptedPage.offset)
   const pageEnd = pageStart + BigInt(acceptedPage.bytes.length)
@@ -86,17 +90,19 @@ function acceptedPageCoversViewport(): boolean {
 }
 
 function requestPage(): void {
+  if (!measured) return
   if (acceptedPageCoversViewport()) {
     activeRequest = null
     return
   }
   const range = visibleRange(layout, scrollRow.value, size.height, props.fileSize)
   if (activeRequest && activeRequest.offset === range.byteStart && activeRequest.length === range.byteLength &&
-      activeRequest.sourceKey === props.sourceKey && activeRequest.sourceRevision === props.sourceRevision) return
+      activeRequest.sourceIdentity === props.sourceIdentity && activeRequest.sourceKey === props.sourceKey && activeRequest.sourceRevision === props.sourceRevision) return
   const request = {
     offset: range.byteStart,
     length: range.byteLength,
     generation: ++generation,
+    sourceIdentity: props.sourceIdentity,
     sourceKey: props.sourceKey,
     sourceRevision: props.sourceRevision,
   }
@@ -150,10 +156,11 @@ function acceptPage(page: ViewportPage | null): void {
     return
   }
   if (!activeRequest || page.generation !== activeRequest.generation) return
-  if (activeRequest.sourceKey !== props.sourceKey || activeRequest.sourceRevision !== props.sourceRevision) return
+  if (activeRequest.sourceIdentity !== props.sourceIdentity || activeRequest.sourceKey !== props.sourceKey || activeRequest.sourceRevision !== props.sourceRevision) return
   if (BigInt(page.offset) !== activeRequest.offset || page.bytes.length > activeRequest.length) return
   if (page.revision !== props.sourceRevision) return
   acceptedPage = page
+  acceptedSourceIdentity = props.sourceIdentity
   acceptedSourceKey = props.sourceKey
   activeRequest = null
   renderedRevision.value = page.revision
@@ -166,6 +173,7 @@ function resize(width: number, height: number): void {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return
   size.width = width
   size.height = height
+  measured = true
   rebuildLayout(width)
   staticDirty = contentDirty = overlayDirty = true
   requestPage()
@@ -271,9 +279,9 @@ watch(() => props.fileSize, () => {
   requestPage()
   schedule()
 })
-watch([() => props.sourceKey, () => props.sourceRevision], ([nextKey], [previousKey]) => {
+watch([() => props.sourceIdentity, () => props.sourceKey, () => props.sourceRevision], ([nextIdentity, nextKey], [previousIdentity, previousKey]) => {
   invalidateAcceptedPage()
-  if (nextKey !== previousKey) scrollRow.value = 0n
+  if (nextIdentity !== previousIdentity || nextKey !== previousKey) scrollRow.value = 0n
   requestPage()
   schedule()
 })
@@ -304,7 +312,6 @@ onMounted(async () => {
     if (box) resize(box.width, box.height)
   })
   resizeObserver.observe(root.value)
-  requestPage()
   schedule()
 })
 
