@@ -81,7 +81,7 @@ function toolbarAction(action: 'open' | 'goto' | 'search' | 'template' | 'export
       <SidebarPanel :file="file" :template="template" :collapsed="leftCollapsed" @toggle-collapse="leftCollapsed = !leftCollapsed"
         @update:template="emit('update:template', $event)" @template-validity="updateTemplateValidity" @save-template="emit('save-template')" @load-template="emit('load-template')" @navigate="emit('navigate', $event)" />
       <section class="hex-stage">
-        <HexCanvas v-if="file" :file-size="fileSize" :page="page" :bytes-per-row="bytesPerRow" :selection="selection" :matches="matches" :match-length="matchLength"
+        <HexCanvas v-if="file" :file-size="fileSize" :source-key="file.path" :source-revision="file.revision" :page="page" :bytes-per-row="bytesPerRow" :selection="selection" :matches="matches" :match-length="matchLength"
           :template-range="templateRange" :edit-mode="editMode" :theme="theme.value.value" :navigate-offset="navigationOffset" @request-page="emit('request-page', $event)"
           @select="emit('select', $event)" @edit-request="emit('edit-request', $event)" @viewport-offset="emit('viewport-offset', $event)" />
         <div v-else data-testid="drop-prompt" class="drop-prompt"><span>＋</span><strong>Drop a binary file here</strong><small>or use Open File</small></div>

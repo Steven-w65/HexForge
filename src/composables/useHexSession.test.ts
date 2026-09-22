@@ -182,7 +182,7 @@ describe('useHexSession', () => {
     expect(backendFile).toBe('b.bin'); expect(session.file.value?.name).toBe('b.bin'); expect(session.busy.open).toBe(true)
     openedC.resolve(); await c
     expect(backendFile).toBe('b.bin'); expect(session.file.value?.name).toBe('b.bin')
-    expect(session.page.value?.bytes).toEqual([0x42]); expect(session.error.value?.message).toBe('C failed.')
+    expect(session.page.value).toBeNull(); expect(backend.readPage).not.toHaveBeenCalled(); expect(session.error.value?.message).toBe('C failed.')
   })
 
   it('invalidates a pending search when an older edit succeeds and a newer edit fails', async () => {
@@ -226,7 +226,7 @@ describe('useHexSession', () => {
     editedA.resolve({ dirty: true, revision: 'a2' }); await edit
     expect(session.file.value).toMatchObject({ name: 'b.bin', revision: 'b1', dirty: false })
     expect(session.matches.value).toEqual([1n]); expect(session.results.value).toEqual([{ name: 'b-field' }])
-    expect(session.page.value?.bytes).toEqual([0x42]); expect(backend.readPage).toHaveBeenCalledTimes(1)
+    expect(session.page.value).toBeNull(); expect(backend.readPage).not.toHaveBeenCalled()
   })
 
   it('ignores an undo result from file A after file B replaces the session', async () => {
@@ -241,7 +241,7 @@ describe('useHexSession', () => {
     session.matches.value = [1n]
     undoneA.resolve({ dirty: false, revision: 'a2', undone: true }); await undo
     expect(session.file.value).toMatchObject({ name: 'b.bin', revision: 'b1', dirty: true })
-    expect(session.matches.value).toEqual([1n]); expect(backend.readPage).toHaveBeenCalledTimes(1)
+    expect(session.matches.value).toEqual([1n]); expect(backend.readPage).not.toHaveBeenCalled()
   })
 
   it('ignores a Save As result from file A after file B replaces the session', async () => {
@@ -307,12 +307,13 @@ describe('useHexSession', () => {
     expect(session.file.value?.dirty).toBe(true)
   })
 
-  it('opens with a first page, resets view state, and always releases busy flags', async () => {
+  it('opens metadata without preloading a page, resets view state, and always releases busy flags', async () => {
     const backend = fakeBackend(); const session = useHexSession(backend)
     session.matches.value = [9n]; session.results.value = [{ name: 'x' } as never]
     await session.openFile('input.bin')
     expect(session.matches.value).toEqual([]); expect(session.results.value).toEqual([])
-    expect(backend.readPage).toHaveBeenCalledWith(0n, 1024 * 1024)
+    expect(session.page.value).toBeNull()
+    expect(backend.readPage).not.toHaveBeenCalled()
     expect(session.busy.open).toBe(false)
     vi.mocked(backend.openFile).mockRejectedValueOnce({ code: 'permission_denied', message: 'Permission denied.' })
     await expect(session.openFile('secret.bin')).rejects.toEqual(expect.objectContaining({ message: 'Permission denied.' }))

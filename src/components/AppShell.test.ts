@@ -50,6 +50,8 @@ describe('AppShell', () => {
       global: { stubs: { HexCanvas: true } },
     })
     expect(wrapper.findComponent({ name: 'HexCanvas' }).props('navigateOffset')).toBe(160n)
+    expect(wrapper.findComponent({ name: 'HexCanvas' }).props('sourceKey')).toBe('C:/firmware.bin')
+    expect(wrapper.findComponent({ name: 'HexCanvas' }).props('sourceRevision')).toBe('1')
   })
 
   it('renders non-blocking operation progress and a truncated-search notice', () => {

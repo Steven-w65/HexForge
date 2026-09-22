@@ -28,6 +28,8 @@ function context(): CanvasRenderingContext2D {
 
 const readyProps = {
   fileSize: 4096n,
+  sourceKey: 'input.bin',
+  sourceRevision: '1',
   page: null,
   bytesPerRow: 16 as const,
   selection: null,
@@ -114,13 +116,20 @@ describe('HexCanvas', () => {
     expect(wrapper.emitted('edit-request')?.at(-1)).toEqual([4n])
   })
 
-  it('uses wheel input to move the bigint virtual viewport', async () => {
+  it('reuses a prefetched page for a one-row wheel movement without blanking or rereading', async () => {
     const wrapper = mount(HexCanvas, { props: readyProps })
     await resize()
+    const initialRequest = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint; length: number; generation: number }
+    await wrapper.setProps({ page: {
+      offset: initialRequest.offset.toString(),
+      bytes: Array.from({ length: initialRequest.length }, () => 0x41),
+      modifiedOffsets: [], revision: '1', generation: initialRequest.generation,
+    } })
+    const requestsBeforeMove = wrapper.emitted('request-page')?.length ?? 0
     await wrapper.get('canvas').trigger('wheel', { deltaY: 100 })
     expect(wrapper.emitted('viewport-offset')?.at(-1)).toEqual([16n])
-    const request = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint }
-    expect(request.offset).toBe(0n)
+    expect(wrapper.emitted('request-page')).toHaveLength(requestsBeforeMove)
+    expect(wrapper.get('canvas').attributes('data-page-revision')).toBe('1')
     expect(wrapper.get('.virtual-scrollbar__thumb').attributes('style')).toContain('translateY(')
     const movedStyle = wrapper.get('.virtual-scrollbar__thumb').attributes('style')
     expect(movedStyle).not.toContain('translateY(0px)')
@@ -156,24 +165,69 @@ describe('HexCanvas', () => {
     const first = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint; generation: number }
     await wrapper.setProps({ page: { offset: first.offset.toString(), bytes: [0x41], modifiedOffsets: [], revision: '1', generation: first.generation } })
     expect(wrapper.get('canvas').attributes('data-page-revision')).toBe('1')
-    await resize(920, 500)
+    await wrapper.setProps({ sourceRevision: '2', page: null })
     await wrapper.setProps({ page: { offset: first.offset.toString(), bytes: [0x42], modifiedOffsets: [], revision: '2', generation: first.generation } })
     expect(wrapper.get('canvas').attributes('data-page-revision')).toBeUndefined()
   })
 
-  it('clears accepted bytes when a new request starts or the page becomes null', async () => {
+  it('keeps overlapping accepted bytes visible while a replacement page is pending', async () => {
     const wrapper = mount(HexCanvas, { props: readyProps })
     await resize()
-    let request = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint; generation: number }
-    await wrapper.setProps({ page: { offset: request.offset.toString(), bytes: [0x41], modifiedOffsets: [], revision: '1', generation: request.generation } })
+    const request = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint; length: number; generation: number }
+    await wrapper.setProps({ page: {
+      offset: request.offset.toString(), bytes: Array.from({ length: request.length }, () => 0x41),
+      modifiedOffsets: [], revision: '1', generation: request.generation,
+    } })
     expect(wrapper.get('canvas').attributes('data-page-revision')).toBe('1')
-    await wrapper.get('canvas').trigger('wheel', { deltaY: 100 })
-    expect(wrapper.get('canvas').attributes('data-page-revision')).toBeUndefined()
-    request = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint; generation: number }
-    await wrapper.setProps({ page: { offset: request.offset.toString(), bytes: [0x42], modifiedOffsets: [], revision: '2', generation: request.generation } })
-    expect(wrapper.get('canvas').attributes('data-page-revision')).toBe('2')
+    const requestsBeforeMove = wrapper.emitted('request-page')?.length ?? 0
+    for (let index = 0; index < 6; index += 1) await wrapper.get('canvas').trigger('wheel', { deltaY: 100 })
+    expect(wrapper.emitted('request-page')?.length).toBeGreaterThan(requestsBeforeMove)
+    expect(wrapper.get('canvas').attributes('data-page-revision')).toBe('1')
     await wrapper.setProps({ page: null })
     expect(wrapper.get('canvas').attributes('data-page-revision')).toBeUndefined()
+  })
+
+  it('drops cached bytes and rejects responses from another file or revision', async () => {
+    const wrapper = mount(HexCanvas, { props: readyProps })
+    await resize()
+    const first = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint; generation: number }
+    await wrapper.setProps({ page: { offset: first.offset.toString(), bytes: [0x41], modifiedOffsets: [], revision: '1', generation: first.generation } })
+    expect(wrapper.get('canvas').attributes('data-page-revision')).toBe('1')
+    await wrapper.setProps({ sourceKey: 'replacement.bin', sourceRevision: '7', page: null })
+    expect(wrapper.get('canvas').attributes('data-page-revision')).toBeUndefined()
+    const replacement = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint; generation: number }
+    await wrapper.setProps({ page: { offset: replacement.offset.toString(), bytes: [0x42], modifiedOffsets: [], revision: '1', generation: replacement.generation } })
+    expect(wrapper.get('canvas').attributes('data-page-revision')).toBeUndefined()
+    await wrapper.setProps({ page: { offset: replacement.offset.toString(), bytes: [0x43], modifiedOffsets: [], revision: '7', generation: replacement.generation } })
+    expect(wrapper.get('canvas').attributes('data-page-revision')).toBe('7')
+  })
+
+  it('preserves the viewport position when an edit advances the source revision', async () => {
+    const wrapper = mount(HexCanvas, { props: readyProps })
+    await resize()
+    await wrapper.get('canvas').trigger('wheel', { deltaY: 100 })
+    await wrapper.setProps({ sourceRevision: '2', page: null })
+    await wrapper.get('canvas').trigger('pointerdown', point(0))
+    expect(wrapper.emitted('select')?.at(-1)).toEqual([{ start: 16n, end: 16n, count: 1n }])
+  })
+
+  it('keeps the pointer grab offset while dragging across the effective scrollbar track', async () => {
+    const wrapper = mount(HexCanvas, { props: readyProps })
+    await resize(900, 500)
+    const scrollbar = wrapper.get('.virtual-scrollbar')
+    vi.spyOn(scrollbar.element, 'getBoundingClientRect').mockReturnValue({
+      top: 0, height: 500, left: 0, right: 8, bottom: 500, width: 8, x: 0, y: 0, toJSON: () => ({}),
+    })
+    await scrollbar.trigger('pointerdown', { clientY: 250, pointerId: 5 })
+    const middleOffset = wrapper.emitted('viewport-offset')?.at(-1)?.[0] as bigint
+    const thumbTop = Number.parseFloat((wrapper.get('.virtual-scrollbar__thumb').attributes('style') ?? '').match(/translateY\(([-\d.]+)px\)/)?.[1] ?? '0')
+    await scrollbar.trigger('pointerdown', { clientY: thumbTop + 5, pointerId: 6 })
+    await scrollbar.trigger('pointermove', { clientY: thumbTop + 105, pointerId: 6, buttons: 1 })
+    const draggedOffset = wrapper.emitted('viewport-offset')?.at(-1)?.[0] as bigint
+    expect(middleOffset).toBeGreaterThan(0n)
+    expect(draggedOffset).toBeGreaterThan(middleOffset)
+    const draggedTop = Number.parseFloat((wrapper.get('.virtual-scrollbar__thumb').attributes('style') ?? '').match(/translateY\(([-\d.]+)px\)/)?.[1] ?? '0')
+    expect(Math.abs(draggedTop - (thumbTop + 100))).toBeLessThanOrEqual(2)
   })
 
   it('applies theme changes to the renderer and redraws cached text layers', async () => {

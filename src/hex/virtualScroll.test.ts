@@ -25,4 +25,15 @@ describe('64-bit virtual scrolling', () => {
     expect(after).toBeGreaterThanOrEqual(before)
     expect(thumbToRow(500, totalRows, 1000)).toBeLessThan(totalRows)
   })
+
+  it.each([
+    ['top', 0n, 0],
+    ['middle', 238n, 238],
+    ['bottom', 476n, 476],
+  ] as const)('round-trips the %s row over the effective thumb travel', (_label, row, expectedPixel) => {
+    const effectiveTrack = 500 - 24
+    const pixel = rowToThumb(row, 477n, effectiveTrack)
+    expect(pixel).toBe(expectedPixel)
+    expect(thumbToRow(pixel, 477n, effectiveTrack)).toBe(row)
+  })
 })

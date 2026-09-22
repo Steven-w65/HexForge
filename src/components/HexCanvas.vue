@@ -8,6 +8,8 @@ import { createCanvasLayers, HexRenderer } from '../hex/renderer'
 
 const props = defineProps<{
   fileSize: bigint
+  sourceKey: string
+  sourceRevision: string
   page: ViewportPage | null
   bytesPerRow: BytesPerRow
   selection: ByteSelection | null
@@ -37,16 +39,21 @@ let resizeObserver: ResizeObserver | null = null
 let frame = 0
 const scrollRow = ref(0n)
 let generation = 0
-let activeRequest: PageRequest | null = null
+let activeRequest: (PageRequest & { sourceKey: string; sourceRevision: string }) | null = null
 let acceptedPage: ViewportPage | null = null
+let acceptedSourceKey: string | null = null
 let anchor: bigint | null = null
 let dragging = false
 let staticDirty = true
 let contentDirty = true
 let overlayDirty = true
+let scrollbarPointerId: number | null = null
+let scrollbarGrabOffset = 0
+
+const THUMB_HEIGHT = 24
 
 const totalRows = computed(() => props.fileSize === 0n ? 0n : (props.fileSize + BigInt(props.bytesPerRow) - 1n) / BigInt(props.bytesPerRow))
-const thumbTop = computed(() => `${rowToThumb(scrollRow.value, totalRows.value, Math.max(0, size.height - 24))}px`)
+const thumbTop = computed(() => `${rowToThumb(scrollRow.value, totalRows.value, Math.max(0, size.height - THUMB_HEIGHT))}px`)
 const horizontalOverflow = computed(() => canvasWidth.value + 8 > size.width)
 
 const THEMES = {
@@ -56,17 +63,45 @@ const THEMES = {
 
 function invalidateAcceptedPage(): void {
   acceptedPage = null
+  acceptedSourceKey = null
   renderedRevision.value = undefined
   contentDirty = true
   overlayDirty = true
 }
 
+function visibleByteInterval(): { start: bigint; end: bigint } {
+  const start = scrollRow.value * BigInt(props.bytesPerRow)
+  if (start >= props.fileSize) return { start, end: start }
+  const rows = Math.max(1, Math.ceil(Math.max(0, size.height - layout.headerHeight) / layout.rowHeight))
+  const requestedEnd = start + BigInt(rows * props.bytesPerRow)
+  return { start, end: requestedEnd < props.fileSize ? requestedEnd : props.fileSize }
+}
+
+function acceptedPageCoversViewport(): boolean {
+  if (!acceptedPage || acceptedSourceKey !== props.sourceKey || acceptedPage.revision !== props.sourceRevision) return false
+  const interval = visibleByteInterval()
+  const pageStart = BigInt(acceptedPage.offset)
+  const pageEnd = pageStart + BigInt(acceptedPage.bytes.length)
+  return pageStart <= interval.start && pageEnd >= interval.end
+}
+
 function requestPage(): void {
-  invalidateAcceptedPage()
+  if (acceptedPageCoversViewport()) {
+    activeRequest = null
+    return
+  }
   const range = visibleRange(layout, scrollRow.value, size.height, props.fileSize)
-  const request = { offset: range.byteStart, length: range.byteLength, generation: ++generation }
+  if (activeRequest && activeRequest.offset === range.byteStart && activeRequest.length === range.byteLength &&
+      activeRequest.sourceKey === props.sourceKey && activeRequest.sourceRevision === props.sourceRevision) return
+  const request = {
+    offset: range.byteStart,
+    length: range.byteLength,
+    generation: ++generation,
+    sourceKey: props.sourceKey,
+    sourceRevision: props.sourceRevision,
+  }
   activeRequest = request
-  emit('request-page', request)
+  emit('request-page', { offset: request.offset, length: request.length, generation: request.generation })
 }
 
 function schedule(): void {
@@ -101,11 +136,6 @@ function schedule(): void {
   frame = completedSynchronously ? 0 : requestedFrame
 }
 
-function revisionIsOlder(next: string, current: string | undefined): boolean {
-  if (current === undefined) return false
-  try { return BigInt(next) < BigInt(current) } catch { return next < current }
-}
-
 function rebuildLayout(width: number): void {
   const base = createLayout(Math.max(0, width - 8), props.bytesPerRow)
   layout = createLayout(Math.max(base.width, contentWidth(base)), props.bytesPerRow)
@@ -120,9 +150,12 @@ function acceptPage(page: ViewportPage | null): void {
     return
   }
   if (!activeRequest || page.generation !== activeRequest.generation) return
+  if (activeRequest.sourceKey !== props.sourceKey || activeRequest.sourceRevision !== props.sourceRevision) return
   if (BigInt(page.offset) !== activeRequest.offset || page.bytes.length > activeRequest.length) return
-  if (revisionIsOlder(page.revision, renderedRevision.value)) return
+  if (page.revision !== props.sourceRevision) return
   acceptedPage = page
+  acceptedSourceKey = props.sourceKey
+  activeRequest = null
   renderedRevision.value = page.revision
   contentDirty = true
   overlayDirty = true
@@ -189,10 +222,37 @@ function onWheel(event: WheelEvent): void {
   setScrollRow(scrollRow.value + (event.deltaY > 0 ? 1n : -1n))
 }
 
-function onScrollbarPointer(event: PointerEvent): void {
+function updateScrollbarPointer(event: PointerEvent): void {
   const element = event.currentTarget as HTMLElement
   const rect = element.getBoundingClientRect()
-  setScrollRow(thumbToRow(event.clientY - rect.top, totalRows.value, rect.height))
+  const trackHeight = Math.max(0, rect.height - THUMB_HEIGHT)
+  setScrollRow(thumbToRow(event.clientY - rect.top - scrollbarGrabOffset, totalRows.value, trackHeight))
+}
+
+function onScrollbarPointerDown(event: PointerEvent): void {
+  const element = event.currentTarget as HTMLElement
+  const rect = element.getBoundingClientRect()
+  const pointerY = event.clientY - rect.top
+  const trackHeight = Math.max(0, rect.height - THUMB_HEIGHT)
+  const currentTop = rowToThumb(scrollRow.value, totalRows.value, trackHeight)
+  scrollbarGrabOffset = pointerY >= currentTop && pointerY <= currentTop + THUMB_HEIGHT
+    ? pointerY - currentTop
+    : THUMB_HEIGHT / 2
+  scrollbarPointerId = event.pointerId
+  element.setPointerCapture?.(event.pointerId)
+  updateScrollbarPointer(event)
+}
+
+function onScrollbarPointerMove(event: PointerEvent): void {
+  if (scrollbarPointerId !== event.pointerId || event.buttons !== 1) return
+  updateScrollbarPointer(event)
+}
+
+function onScrollbarPointerUp(event: PointerEvent): void {
+  if (scrollbarPointerId !== event.pointerId) return
+  const element = event.currentTarget as HTMLElement
+  element.releasePointerCapture?.(event.pointerId)
+  scrollbarPointerId = null
 }
 
 watch(() => props.page, acceptPage)
@@ -208,6 +268,12 @@ watch(() => props.bytesPerRow, (nextWidth, previousWidth) => {
 watch(() => props.fileSize, () => {
   if (scrollRow.value >= totalRows.value) scrollRow.value = totalRows.value > 0n ? totalRows.value - 1n : 0n
   staticDirty = contentDirty = overlayDirty = true
+  requestPage()
+  schedule()
+})
+watch([() => props.sourceKey, () => props.sourceRevision], ([nextKey], [previousKey]) => {
+  invalidateAcceptedPage()
+  if (nextKey !== previousKey) scrollRow.value = 0n
   requestPage()
   schedule()
 })
@@ -260,7 +326,7 @@ onBeforeUnmount(() => {
       @dblclick="onDoubleClick"
       @wheel="onWheel"
     />
-    <div class="virtual-scrollbar" aria-label="Hex viewport scrollbar" @pointerdown="onScrollbarPointer" @pointermove="($event.buttons === 1) && onScrollbarPointer($event)">
+    <div class="virtual-scrollbar" aria-label="Hex viewport scrollbar" @pointerdown="onScrollbarPointerDown" @pointermove="onScrollbarPointerMove" @pointerup="onScrollbarPointerUp" @pointercancel="onScrollbarPointerUp">
       <div class="virtual-scrollbar__thumb" :style="{ transform: `translateY(${thumbTop})` }" />
     </div>
   </div>

@@ -29,7 +29,6 @@ export type BusyOperation = 'open' | 'page' | 'search' | 'parse' | 'edit' | 'und
 export interface OperationActivity { operation: BusyOperation; progress: OperationProgress | null }
 
 const EMPTY_TEMPLATE: TemplateDefinition = { version: 1, name: 'Untitled', defaultEndianness: 'little', fields: [] }
-const FIRST_PAGE_LENGTH = 1024 * 1024
 
 function friendlyError(value: unknown): AppError {
   if (typeof value === 'object' && value !== null && 'code' in value && typeof value.code === 'string' &&
@@ -82,7 +81,6 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   let contentVersion = 0
   let templateVersion = 0
   let viewportIntentVersion = 0
-  let openIntentVersion = 0
   let openQueue: Promise<void> | null = null
   const activities = new Map<number, OperationActivity>()
   const pendingMutations = new Set<Promise<unknown>>()
@@ -193,12 +191,12 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     if (expectedViewportIntent !== viewportIntentVersion) return
     if (!page.value) return
     const current = page.value
-    await loadPage(BigInt(current.offset), current.bytes.length || FIRST_PAGE_LENGTH, current.generation)
+    if (current.bytes.length === 0) return
+    await loadPage(BigInt(current.offset), current.bytes.length, current.generation)
   }
 
   async function openFileCore(path: string, discardUnsaved = false): Promise<void> {
     contentVersion += 1
-    const openIntent = ++openIntentVersion
     const predecessor = openQueue
     const queuedOpen = predecessor
       ? (async () => { await predecessor; return api.openFile(path, discardUnsaved) })()
@@ -206,15 +204,9 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     const queueEnd = queuedOpen.then(() => undefined, () => undefined)
     openQueue = queueEnd
     void queueEnd.then(() => { if (openQueue === queueEnd) openQueue = null })
-    try {
-      const result = await run('open', () => queuedOpen)
-      sessionEpoch += 1
-      installOpenedFile(result.value)
-      if (openIntent === openIntentVersion) await requestPage(0n, FIRST_PAGE_LENGTH)
-    } catch (error) {
-      if (openIntent === openIntentVersion && file.value) await requestPage(0n, FIRST_PAGE_LENGTH)
-      throw error
-    }
+    const result = await run('open', () => queuedOpen)
+    sessionEpoch += 1
+    installOpenedFile(result.value)
   }
   function openFile(path: string, discardUnsaved = false): Promise<void> { return runMutation(() => openFileCore(path, discardUnsaved)) }
 
