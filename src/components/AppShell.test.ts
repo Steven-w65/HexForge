@@ -16,6 +16,13 @@ describe('AppShell', () => {
     expect(wrapper.find('.status-bar').exists()).toBe(true)
   })
 
+  it('coordinates the enlarged menu row with top-layer positioning', () => {
+    const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: true } } })
+    const style = wrapper.get('[data-testid="app-shell"]').attributes('style') ?? ''
+    expect(style).toContain('--top-menu-height: 32px')
+    expect(style).toContain('--top-layer-offset: 74px')
+  })
+
   it('requests the parsed-results panel toggle and row-width changes', async () => {
     const wrapper = mount(AppShell, { props: { rightCollapsed: false } })
     await wrapper.get('[data-action="collapse-right"]').trigger('click')

@@ -67,7 +67,7 @@ const selectedByte = computed(() => {
     data-testid="app-shell"
     class="app-shell"
     :class="{ 'right-collapsed': rightCollapsed }"
-    :style="{ '--compact-right-width': `${COMPACT_RIGHT_WIDTH}px` }"
+    :style="{ '--compact-right-width': `${COMPACT_RIGHT_WIDTH}px`, '--top-menu-height': '32px', '--top-layer-offset': '74px' }"
     role="application"
   >
     <TopMenu :state="effectiveMenuState" :bytes-per-row="bytesPerRow"
@@ -105,7 +105,7 @@ const selectedByte = computed(() => {
 </template>
 
 <style scoped>
-.app-shell { position: relative; width: 100vw; height: 100vh; display: grid; grid-template-rows: 28px auto minmax(0, 1fr) 24px; color: var(--text); background: var(--bg); overflow: hidden; }
+.app-shell { position: relative; width: 100vw; height: 100vh; display: grid; grid-template-rows: var(--top-menu-height) auto minmax(0, 1fr) 24px; color: var(--text); background: var(--bg); overflow: hidden; }
 .workspace { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(240px, 30vw); min-width: 0; min-height: 0; }
 .app-shell.right-collapsed .workspace { grid-template-columns: minmax(360px, 1fr) 28px; }
 .hex-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
@@ -115,7 +115,7 @@ const selectedByte = computed(() => {
 .drop-prompt button { height: 28px; margin-top: 3px; padding: 0 12px; color: var(--text); background: var(--button); border: 0; border-radius: 4px; font: inherit; font-size: 10px; }
 .drop-prompt button:hover { background: var(--hover); }
 .empty-file { position: absolute; inset: 0 8px 0 0; display: grid; place-items: center; color: var(--muted); background: var(--bg); font-size: 11px; pointer-events: none; }
-.template-editor-panel { position: absolute; z-index: 5; top: 70px; right: 0; bottom: 24px; box-sizing: border-box; width: min(560px, calc(100vw - 36px)); display: flex; flex-direction: column; gap: 12px; padding: 12px; color: var(--text); background: color-mix(in srgb, var(--panel) 97%, transparent); border-left: 1px solid var(--border-strong); box-shadow: -12px 0 28px rgb(0 0 0 / 16%); }
+.template-editor-panel { position: absolute; z-index: 5; top: var(--top-layer-offset); right: 0; bottom: 24px; box-sizing: border-box; width: min(560px, calc(100vw - 36px)); display: flex; flex-direction: column; gap: 12px; padding: 12px; color: var(--text); background: color-mix(in srgb, var(--panel) 97%, transparent); border-left: 1px solid var(--border-strong); box-shadow: -12px 0 28px rgb(0 0 0 / 16%); }
 .template-editor-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 9px; border-bottom: 1px solid var(--border); }
 .template-editor-header div { display: grid; gap: 2px; }
 .template-editor-header strong { font-size: 12px; }
