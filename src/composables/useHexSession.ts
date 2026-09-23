@@ -1,4 +1,4 @@
-import { reactive, ref, type Ref } from 'vue'
+import { computed, reactive, ref, type ComputedRef, type Ref } from 'vue'
 import { backend as defaultBackend } from '../api/backend'
 import { parseHexBytes, parseOffset, parseSingleByte } from '../hex/input'
 import { normalizeSelection, type ByteSelection } from '../hex/selection'
@@ -25,7 +25,7 @@ export interface HexBackend {
   exportResultsCsv(path: string, template: TemplateDefinition, onProgress: ProgressHandler): Promise<void>
 }
 
-export type BusyOperation = 'open' | 'page' | 'search' | 'parse' | 'edit' | 'undo' | 'save' | 'template' | 'export'
+export type BusyOperation = 'open' | 'close' | 'page' | 'search' | 'parse' | 'edit' | 'undo' | 'save' | 'template' | 'export'
 export interface OperationActivity { operation: BusyOperation; progress: OperationProgress | null }
 
 const EMPTY_TEMPLATE: TemplateDefinition = { version: 1, name: 'Untitled', defaultEndianness: 'little', fields: [] }
@@ -44,9 +44,9 @@ export interface HexSession {
   searchMatchLength: Ref<number>; searchTruncated: Ref<boolean>
   activity: Ref<OperationActivity | null>
   busy: Record<BusyOperation, boolean>; progress: Ref<OperationProgress | null>; error: Ref<AppError | null>
-  viewportOffset: Ref<bigint>; editMode: Ref<boolean>
+  viewportOffset: Ref<bigint>; editMode: Ref<boolean>; canUndo: ComputedRef<boolean>
   requestPage(offset: bigint, length: number, generation?: number): Promise<void>
-  openFile(path: string, discardUnsaved?: boolean): Promise<void>; goTo(text: string): bigint
+  openFile(path: string, discardUnsaved?: boolean): Promise<void>; closeFile(discardUnsaved?: boolean): Promise<void>; goTo(text: string): bigint
   search(text: string): Promise<void>; applyTemplate(): Promise<void>; editSelectedByte(text: string): Promise<void>
   undo(): Promise<void>; saveAs(path: string): Promise<void>; loadTemplate(path: string): Promise<void>
   saveTemplate(path: string): Promise<void>; exportCsv(path: string): Promise<void>
@@ -72,9 +72,11 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   const error = ref<AppError | null>(null)
   const viewportOffset = ref(0n)
   const editMode = ref(false)
-  const busy = reactive<Record<BusyOperation, boolean>>({ open: false, page: false, search: false, parse: false, edit: false, undo: false, save: false, template: false, export: false })
-  const pending = reactive<Record<BusyOperation, number>>({ open: 0, page: 0, search: 0, parse: 0, edit: 0, undo: 0, save: 0, template: 0, export: 0 })
-  const tokens: Record<BusyOperation, number> = { open: 0, page: 0, search: 0, parse: 0, edit: 0, undo: 0, save: 0, template: 0, export: 0 }
+  const undoDepth = ref(0)
+  const canUndo = computed(() => undoDepth.value > 0)
+  const busy = reactive<Record<BusyOperation, boolean>>({ open: false, close: false, page: false, search: false, parse: false, edit: false, undo: false, save: false, template: false, export: false })
+  const pending = reactive<Record<BusyOperation, number>>({ open: 0, close: 0, page: 0, search: 0, parse: 0, edit: 0, undo: 0, save: 0, template: 0, export: 0 })
+  const tokens: Record<BusyOperation, number> = { open: 0, close: 0, page: 0, search: 0, parse: 0, edit: 0, undo: 0, save: 0, template: 0, export: 0 }
   let nextGeneration = 0
   let sessionEpoch = 0
   let latestIssue = 0
@@ -172,6 +174,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
 
   function installOpenedFile(opened: FileInfo): void {
     file.value = opened
+    undoDepth.value = 0
     selection.value = null
     invalidateDerivedContent()
     viewportOffset.value = 0n
@@ -212,6 +215,21 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     installOpenedFile(result.value)
   }
   function openFile(path: string, discardUnsaved = false): Promise<void> { return runMutation(() => openFileCore(path, discardUnsaved)) }
+
+  async function closeFileCore(discardUnsaved = false): Promise<void> {
+    const result = await run('close', () => api.closeFile(discardUnsaved))
+    if (!result.current) return
+    sessionEpoch += 1
+    sourceIdentity.value += 1
+    file.value = null
+    page.value = null
+    selection.value = null
+    undoDepth.value = 0
+    editMode.value = false
+    viewportOffset.value = 0n
+    invalidateDerivedContent()
+  }
+  function closeFile(discardUnsaved = false): Promise<void> { return runMutation(() => closeFileCore(discardUnsaved)) }
 
   function navigate(range: { start: bigint; end: bigint }): void {
     selection.value = normalizeSelection(range.start, range.end)
@@ -258,9 +276,11 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     catch (cause) { const normalized = friendlyError(cause); presentError(normalized); throw normalized }
     const selected = selection.value
     if (!selected || selected.count !== 1n) { const normalized = friendlyError(new Error('Select exactly one byte to edit.')); presentError(normalized); throw normalized }
+    const previousRevision = file.value?.revision
     const viewportIntent = viewportIntentVersion
     const result = await run('edit', () => api.editByte(selected.start, value))
     if (!result.epochCurrent) return
+    if (previousRevision !== undefined && result.value.revision !== previousRevision) undoDepth.value += 1
     invalidateDerivedContent()
     updateFileState(result.value)
     await refreshPage(viewportIntent)
@@ -271,7 +291,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     const viewportIntent = viewportIntentVersion
     const result = await run('undo', () => api.undoEdit())
     if (!result.epochCurrent) return
-    if (result.value.undone) invalidateDerivedContent()
+    if (result.value.undone) { undoDepth.value = Math.max(0, undoDepth.value - 1); invalidateDerivedContent() }
     updateFileState(result.value)
     await refreshPage(viewportIntent)
   }
@@ -281,6 +301,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     const viewportIntent = viewportIntentVersion
     const result = await run('save', (ticket) => api.saveAs(path, (value) => reportProgress(ticket, value)), true)
     if (!result.epochCurrent) return
+    undoDepth.value = 0
     invalidateDerivedContent()
     updateFileState(result.value)
     await refreshPage(viewportIntent)
@@ -309,8 +330,8 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   }
 
   return {
-    file, page, selection, sourceIdentity, template, results, matches, searchMatchLength, searchTruncated, activity, busy, progress, error, viewportOffset, editMode,
-    requestPage, openFile, goTo, search, applyTemplate, editSelectedByte, undo, saveAs, loadTemplate,
+    file, page, selection, sourceIdentity, template, results, matches, searchMatchLength, searchTruncated, activity, busy, progress, error, viewportOffset, editMode, canUndo,
+    requestPage, openFile, closeFile, goTo, search, applyTemplate, editSelectedByte, undo, saveAs, loadTemplate,
     saveTemplate, exportCsv, updateTemplate, navigate, clearSelection: () => { selection.value = null }, clearError: () => { error.value = null }, presentError,
     prepareClose, releaseCloseBarrier,
   }

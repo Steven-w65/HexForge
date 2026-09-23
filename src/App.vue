@@ -6,13 +6,29 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppShell from './components/AppShell.vue'
 import { useHexSession } from './composables/useHexSession'
 import { handleCloseRequest, useHotkeys } from './composables/useHotkeys'
+import { useTheme } from './composables/useTheme'
 import type { BytesPerRow } from './hex/layout'
-import type { TemplateDefinition } from './types'
+import { commandEnabled, type MenuCommand, type MenuState } from './menu/commands'
+import type { TemplateDefinition, TemplateField } from './types'
 import { normalizeSelection, type ByteSelection } from './hex/selection'
 
 type PromptKind = 'goto' | 'search' | 'edit'
 const session = useHexSession()
 const bytesPerRow = ref<BytesPerRow>(16)
+const RIGHT_PANEL_KEY = 'hexforge.rightCollapsed'
+function readPanelPreference(key: string, fallback: boolean): boolean {
+  try {
+    const value = localStorage.getItem(key)
+    return value === null ? fallback : value === 'true'
+  } catch { return fallback }
+}
+function storePanelPreference(key: string, value: boolean): void {
+  try { localStorage.setItem(key, String(value)) } catch { /* preference storage is optional */ }
+}
+
+const rightCollapsed = ref(readPanelPreference(RIGHT_PANEL_KEY, false))
+const templateEditorOpen = ref(false)
+const theme = useTheme()
 const popup = ref<{ kind: PromptKind; title: string; value: string } | null>(null)
 const templateRange = ref<ByteSelection | null>(null)
 const templateValid = ref(true)
@@ -20,9 +36,13 @@ const closeGuard = { confirming: false }
 const disposers: Array<() => void> = []
 let disposed = false
 
-async function reportFailure(operation: () => Promise<void>): Promise<void> {
-  try { await operation() }
-  catch { /* useHexSession exposes the normalized failure through AppDialog */ }
+function templateSnapshot(value: TemplateDefinition): string { return JSON.stringify(value) }
+const templateBaseline = ref(templateSnapshot(session.template.value))
+const templateDirty = computed(() => templateSnapshot(session.template.value) !== templateBaseline.value)
+
+async function reportFailure(operation: () => Promise<void>): Promise<boolean> {
+  try { await operation(); return true }
+  catch { return false /* useHexSession exposes the normalized failure through AppDialog */ }
 }
 
 async function nativeCall<T>(operation: () => Promise<T>): Promise<T | undefined> {
@@ -53,15 +73,33 @@ async function chooseSaveAs(): Promise<void> {
   if (path) await reportFailure(() => session.saveAs(path))
 }
 
+async function closeCurrentFile(): Promise<void> {
+  if (!session.file.value) return
+  let discard = false
+  if (session.file.value.dirty) {
+    discard = await confirmDiscard()
+    if (!discard) return
+  }
+  await reportFailure(() => session.closeFile(discard))
+  if (!session.file.value) templateRange.value = null
+}
+
+async function exitApplication(): Promise<void> {
+  await nativeCall(() => getCurrentWindow().close())
+}
+
 async function chooseTemplateLoad(): Promise<void> {
   const path = await nativeCall(() => open({ multiple: false, directory: false, title: 'Load parsing template', filters: [{ name: 'JSON template', extensions: ['json'] }] }))
-  if (typeof path === 'string') await reportFailure(() => session.loadTemplate(path))
+  if (typeof path === 'string') {
+    templateEditorOpen.value = true
+    if (await reportFailure(() => session.loadTemplate(path))) templateBaseline.value = templateSnapshot(session.template.value)
+  }
 }
 
 async function chooseTemplateSave(): Promise<void> {
   if (!templateValid.value) { session.presentError({ code: 'invalid_template', message: 'Correct the highlighted template field before saving.' }); return }
   const path = await nativeCall(() => save({ title: 'Save parsing template', defaultPath: `${session.template.value.name || 'template'}.json`, filters: [{ name: 'JSON template', extensions: ['json'] }] }))
-  if (path) await reportFailure(() => session.saveTemplate(path))
+  if (path && await reportFailure(() => session.saveTemplate(path))) templateBaseline.value = templateSnapshot(session.template.value)
 }
 
 async function chooseCsvExport(): Promise<void> {
@@ -71,6 +109,10 @@ async function chooseCsvExport(): Promise<void> {
 
 function showPrompt(kind: PromptKind, title: string, value = ''): void { popup.value = { kind, title, value } }
 function closePopup(): void { popup.value = null; session.clearError() }
+function closeTopLayer(): void {
+  if (popup.value !== null || session.error.value !== null) closePopup()
+  else templateEditorOpen.value = false
+}
 
 async function submitPrompt(): Promise<void> {
   const active = popup.value
@@ -89,6 +131,31 @@ function beginEdit(offset: bigint): void {
 }
 
 function updateTemplate(value: TemplateDefinition): void { session.updateTemplate(value) }
+function templateFieldLength(field: TemplateField): bigint {
+  if (field.type === 'string' || field.type === 'bytes') return BigInt(field.length ?? 1)
+  if (field.type.endsWith('8')) return 1n
+  if (field.type.endsWith('16')) return 2n
+  if (field.type.endsWith('32') || field.type === 'f32') return 4n
+  return 8n
+}
+function nextTemplateOffset(): string {
+  let next = 0n
+  for (const field of session.template.value.fields) {
+    try {
+      const offset = BigInt(field.offset)
+      const end = offset + templateFieldLength(field)
+      if (end > next) next = end
+    } catch { /* invalid drafts are handled by the editor */ }
+  }
+  return next.toString()
+}
+function addTemplateField(): void {
+  templateEditorOpen.value = true
+  const fields = session.template.value.fields
+  session.updateTemplate({ ...session.template.value, fields: [...fields, {
+    name: `field${fields.length + 1}`, offset: nextTemplateOffset(), type: 'u8', endianness: session.template.value.defaultEndianness, comment: '',
+  }] })
+}
 function applyValidTemplate(): void {
   if (!templateValid.value) { session.presentError({ code: 'invalid_template', message: 'Correct the highlighted template field before applying.' }); return }
   void reportFailure(session.applyTemplate)
@@ -101,7 +168,7 @@ function selectBytes(value: ByteSelection): void { templateRange.value = null; s
 
 const activeBusy = computed(() => {
   const labels: Array<[keyof typeof session.busy, string]> = [
-    ['open', 'Opening file'], ['search', 'Searching bytes'], ['parse', 'Parsing template'], ['save', 'Saving copy'],
+    ['open', 'Opening file'], ['close', 'Closing file'], ['search', 'Searching bytes'], ['parse', 'Parsing template'], ['save', 'Saving copy'],
     ['export', 'Exporting CSV'], ['template', 'Working with template'], ['edit', 'Applying edit'], ['undo', 'Undoing edit'], ['page', 'Loading bytes'],
   ]
   const operation = session.activity.value?.operation
@@ -111,12 +178,53 @@ const progressText = computed(() => session.activity.value?.progress
   ? `${session.activity.value.progress.processed} / ${session.activity.value.progress.total}`
   : '')
 
+const menuState = computed<MenuState>(() => ({
+  hasFile: session.file.value !== null,
+  hasBytes: BigInt(session.file.value?.size ?? '0') > 0n,
+  singleByteSelected: session.selection.value?.count === 1n,
+  editMode: session.editMode.value,
+  canUndo: session.canUndo.value,
+  templateValid: templateValid.value,
+  templateHasFields: session.template.value.fields.length > 0,
+  hasNavigableTemplateFields: session.template.value.fields.length > 0,
+  hasParsedResults: session.results.value.length > 0,
+  operationBusy: session.activity.value !== null,
+}))
+
+function executeCommand(command: MenuCommand): void {
+  if (!commandEnabled(command, menuState.value)) return
+  switch (command) {
+    case 'open': void chooseFile(); break
+    case 'close-file': void closeCurrentFile(); break
+    case 'save-as': void chooseSaveAs(); break
+    case 'export': void chooseCsvExport(); break
+    case 'exit': void exitApplication(); break
+    case 'edit-selected': {
+      const selected = session.selection.value
+      if (selected) beginEdit(selected.start)
+      break
+    }
+    case 'toggle-edit': session.editMode.value = !session.editMode.value; break
+    case 'undo': void reportFailure(session.undo); break
+    case 'goto': showPrompt('goto', 'Go to offset'); break
+    case 'search': showPrompt('search', 'Search bytes'); break
+    case 'template-editor': templateEditorOpen.value = !templateEditorOpen.value; break
+    case 'apply-template': applyValidTemplate(); break
+    case 'load-template': void chooseTemplateLoad(); break
+    case 'save-template': void chooseTemplateSave(); break
+    case 'add-field': addTemplateField(); break
+    case 'theme-toggle': theme.toggle(); break
+    case 'row-16': bytesPerRow.value = 16; break
+    case 'row-32': bytesPerRow.value = 32; break
+    case 'toggle-right-panel': rightCollapsed.value = !rightCollapsed.value; storePanelPreference(RIGHT_PANEL_KEY, rightCollapsed.value); break
+  }
+}
+
 onMounted(async () => {
   disposers.push(useHotkeys({
-    open: () => { void chooseFile() }, search: () => showPrompt('search', 'Search bytes'), goTo: () => showPrompt('goto', 'Go to offset'),
-    saveTemplate: () => { void chooseTemplateSave() }, undo: () => { if (session.file.value) void reportFailure(session.undo) },
-    isPopupOpen: () => popup.value !== null || session.error.value !== null,
-    closePopup, clearSelection: session.clearSelection,
+    invoke: executeCommand, isEnabled: (command) => commandEnabled(command, menuState.value),
+    isPopupOpen: () => popup.value !== null || session.error.value !== null || templateEditorOpen.value,
+    closePopup: closeTopLayer, clearSelection: session.clearSelection,
   }))
   try {
     const closeUnlisten = await getCurrentWindow().onCloseRequested(async (event) => {
@@ -144,29 +252,37 @@ onBeforeUnmount(() => { disposed = true; disposers.splice(0).forEach((dispose) =
     :template="session.template.value" :results="session.results.value" :matches="session.matches.value"
     :match-length="session.searchMatchLength.value" :search-truncated="session.searchTruncated.value" :template-range="templateRange"
     :busy-label="activeBusy" :progress-text="progressText"
-    :template-valid="templateValid"
+    :template-valid="templateValid" :template-editor-open="templateEditorOpen" :template-dirty="templateDirty"
+    :menu-state="menuState" :theme="theme.value.value" :right-collapsed="rightCollapsed"
     :bytes-per-row="bytesPerRow" :edit-mode="session.editMode.value" :endianness="session.template.value.defaultEndianness"
     :navigation-offset="session.viewportOffset.value" :dialog-open="popup !== null || session.error.value !== null"
     :dialog-title="popup?.title ?? (session.error.value ? 'Operation failed' : '')" :dialog-message="session.error.value?.message ?? ''"
-    @open="chooseFile" @goto="showPrompt('goto', 'Go to offset')" @search="showPrompt('search', 'Search bytes')"
-    @template="applyValidTemplate" @export="chooseCsvExport" @edit="session.editMode.value = !session.editMode.value"
-    @save-as="chooseSaveAs" @update:bytes-per-row="bytesPerRow = $event" @update:template="updateTemplate"
+    @command="executeCommand" @update:bytes-per-row="bytesPerRow = $event" @update:template="updateTemplate"
     @template-validity="templateValid = $event"
     @save-template="chooseTemplateSave" @load-template="chooseTemplateLoad" @navigate="navigateTemplate"
     @request-page="reportFailure(() => session.requestPage($event.offset, $event.length, $event.generation))" @select="selectBytes"
     @edit-request="beginEdit" @viewport-offset="session.viewportOffset.value = $event" @close-dialog="closePopup"
+    @close-template-editor="templateEditorOpen = false"
   >
     <template #dialog>
       <form v-if="popup" class="prompt-form" @submit.prevent="submitPrompt">
-        <input v-model="popup.value" autofocus :placeholder="popup.kind === 'search' ? '41 42 43' : popup.kind === 'goto' ? '0x100' : 'FF'">
-        <button type="submit">OK</button>
+        <label for="prompt-value">{{ popup.kind === 'search' ? 'Hex byte sequence' : popup.kind === 'goto' ? 'Offset' : 'Hex byte value' }}</label>
+        <input id="prompt-value" v-model="popup.value" autofocus :placeholder="popup.kind === 'search' ? '41 42 43' : popup.kind === 'goto' ? '0x100' : 'FF'">
+        <small>{{ popup.kind === 'search' ? 'Enter space-separated hexadecimal bytes.' : popup.kind === 'goto' ? 'Enter a decimal value or a 0x-prefixed hexadecimal offset.' : 'Enter one hexadecimal byte from 00 to FF.' }}</small>
+        <div class="prompt-actions"><button type="button" class="secondary" @click="closePopup">Cancel</button><button type="submit">{{ popup.kind === 'search' ? 'Search' : popup.kind === 'goto' ? 'Go' : 'Apply' }}</button></div>
       </form>
     </template>
   </AppShell>
 </template>
 <style src="./styles/theme.css"></style>
 <style scoped>
-.prompt-form { display: flex; gap: 8px; margin-top: 12px; }
-.prompt-form input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; color: var(--text); background: var(--input); border: 1px solid var(--border); border-radius: 3px; font: inherit; }
-.prompt-form button { padding: 0 14px; color: var(--text); background: var(--button); border: 0; border-radius: 3px; font: inherit; }
+.prompt-form { display: grid; gap: 7px; margin-top: 12px; }
+.prompt-form label { color: var(--text); font-size: 10px; }
+.prompt-form small { color: var(--muted); font-size: 9px; line-height: 1.4; }
+.prompt-form input { min-width: 0; height: 30px; padding: 0 8px; color: var(--text); background: var(--input); border: 1px solid var(--border); border-radius: 4px; outline: none; font: inherit; }
+.prompt-form input:focus { border-color: var(--selection); box-shadow: 0 0 0 1px color-mix(in srgb, var(--selection) 55%, transparent); }
+.prompt-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 5px; }
+.prompt-form button { height: 28px; padding: 0 14px; color: var(--text); background: var(--button); border: 0; border-radius: 4px; font: inherit; }
+.prompt-form button:hover { background: var(--hover); }
+.prompt-form button.secondary { color: var(--muted); background: transparent; border: 1px solid var(--border); }
 </style>

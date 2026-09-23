@@ -1,17 +1,11 @@
+import { matchMenuShortcut, type MenuCommand } from '../menu/commands'
+
 export interface HotkeyActions {
-  open(): void
-  search(): void
-  goTo(): void
-  saveTemplate(): void
-  undo(): void
+  invoke(command: MenuCommand): void
+  isEnabled(command: MenuCommand): boolean
   isPopupOpen(): boolean
   closePopup(): void
   clearSelection(): void
-}
-
-function isEditable(target: EventTarget | null): boolean {
-  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement ||
-    (target instanceof HTMLElement && target.isContentEditable)
 }
 
 export function useHotkeys(actions: HotkeyActions, target: Window = window): () => void {
@@ -22,13 +16,10 @@ export function useHotkeys(actions: HotkeyActions, target: Window = window): () 
       else actions.clearSelection()
       return
     }
-    if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return
-    const shortcuts: Record<string, () => void> = { o: actions.open, f: actions.search, g: actions.goTo, s: actions.saveTemplate, z: actions.undo }
-    const action = shortcuts[event.key.toLowerCase()]
-    if (!action) return
-    if (event.key.toLowerCase() === 'z' && isEditable(event.target)) return
+    const command = matchMenuShortcut(event)
+    if (!command || !actions.isEnabled(command)) return
     event.preventDefault()
-    action()
+    actions.invoke(command)
   }
   target.addEventListener('keydown', listener)
   return () => target.removeEventListener('keydown', listener)

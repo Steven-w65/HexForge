@@ -464,4 +464,40 @@ describe('useHexSession', () => {
     session.releaseCloseBarrier(); await session.undo()
     expect(backend.undoEdit).toHaveBeenCalledOnce()
   })
+
+  it('tracks whether the in-memory edit history can be undone and clears it after Save As', async () => {
+    const backend = fakeBackend(); const session = useHexSession(backend)
+    session.file.value = { name: 'input.bin', path: 'input.bin', size: '2', revision: '1', dirty: false }
+    session.selection.value = { start: 0n, end: 0n, count: 1n }
+    expect(session.canUndo.value).toBe(false)
+    await session.editSelectedByte('42')
+    expect(session.canUndo.value).toBe(true)
+    await session.undo()
+    expect(session.canUndo.value).toBe(false)
+    vi.mocked(backend.editByte).mockResolvedValueOnce({ dirty: true, revision: '4' })
+    await session.editSelectedByte('43')
+    expect(session.canUndo.value).toBe(true)
+    await session.saveAs('copy.bin')
+    expect(session.canUndo.value).toBe(false)
+  })
+
+  it('closes the backend file and clears file-specific frontend state', async () => {
+    const backend = fakeBackend(); const session = useHexSession(backend)
+    await session.openFile('input.bin')
+    session.selection.value = { start: 4n, end: 5n, count: 2n }
+    session.matches.value = [4n]
+    session.results.value = [{ name: 'x', offset: '4', type: 'u8', length: 1, endianness: 'little', value: '41', comment: '' }]
+    session.viewportOffset.value = 4n
+    session.editMode.value = true
+    await session.closeFile(true)
+    expect(backend.closeFile).toHaveBeenCalledWith(true)
+    expect(session.file.value).toBeNull()
+    expect(session.page.value).toBeNull()
+    expect(session.selection.value).toBeNull()
+    expect(session.matches.value).toEqual([])
+    expect(session.results.value).toEqual([])
+    expect(session.viewportOffset.value).toBe(0n)
+    expect(session.editMode.value).toBe(false)
+    expect(session.canUndo.value).toBe(false)
+  })
 })

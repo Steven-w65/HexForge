@@ -5,6 +5,7 @@ import { HexRenderer, type CanvasLayerSet } from './renderer'
 interface Recording {
   text: Array<{ text: string; color: string }>
   fills: string[]
+  rects: Array<{ color: string; x: number; y: number; width: number; height: number }>
   fillAlphas: number[]
   strokes: string[]
   clears: number
@@ -23,9 +24,10 @@ function recordingContext(name: string, recording: Recording): CanvasRenderingCo
     globalAlpha: 1,
     setTransform: () => {},
     clearRect: () => { recording.clears += 1 },
-    fillRect(this: CanvasRenderingContext2D) {
+    fillRect(this: CanvasRenderingContext2D, x: number, y: number, width: number, height: number) {
       recording.fills.push(String(this.fillStyle))
       recording.fillAlphas.push(this.globalAlpha)
+      recording.rects.push({ color: String(this.fillStyle), x, y, width, height })
     },
     strokeRect(this: CanvasRenderingContext2D) { recording.strokes.push(String(this.strokeStyle)) },
     fillText(this: CanvasRenderingContext2D, text: string) { recording.text.push({ text, color: String(this.fillStyle) }) },
@@ -36,7 +38,7 @@ function recordingContext(name: string, recording: Recording): CanvasRenderingCo
 }
 
 function fixture() {
-  const recording: Recording = { text: [], fills: [], fillAlphas: [], strokes: [], clears: 0, composites: [] }
+  const recording: Recording = { text: [], fills: [], rects: [], fillAlphas: [], strokes: [], clears: 0, composites: [] }
   const layers: CanvasLayerSet = {
     visible: recordingContext('visible', recording),
     static: recordingContext('static', recording),
@@ -47,6 +49,18 @@ function fixture() {
 }
 
 describe('HexRenderer', () => {
+  it('draws aligned column headings with separators between Offset, Hex, and ASCII', () => {
+    const { recording, layers } = fixture()
+    const layout = createLayout(900, 16)
+    const renderer = new HexRenderer(layers, { width: 900, height: 200, dpr: 1, layout, fileSize: 64n })
+    renderer.drawStatic()
+    expect(recording.text.map(({ text }) => text)).toEqual(['OFFSET', 'HEX BYTES', 'ASCII'])
+    const verticalDividers = recording.rects.filter((rect) => rect.color === '#30363d' && rect.width === 1 && rect.height > layout.headerHeight)
+    expect(verticalDividers).toHaveLength(2)
+    expect(verticalDividers[0]!.x).toBeLessThan(layout.hexX)
+    expect(verticalDividers[1]!.x).toBeLessThan(layout.asciiX)
+  })
+
   it('renders uppercase addresses and bytes while replacing non-printable ASCII with dots', () => {
     const { recording, layers } = fixture()
     const renderer = new HexRenderer(layers, {
@@ -80,6 +94,7 @@ describe('HexRenderer', () => {
     const matchFill = recording.fills.indexOf('#8b6f2a')
     expect(recording.fillAlphas[selectionFill]).toBeLessThan(1)
     expect(recording.fillAlphas[matchFill]).toBeLessThan(1)
+    expect(recording.fills.lastIndexOf('#f0883e')).toBeGreaterThan(recording.fills.lastIndexOf('#1f6feb'))
   })
 
   it('highlights every byte in a multi-byte search match', () => {

@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { MenuCommand } from '../menu/commands'
 import { handleCloseRequest, useHotkeys, type HotkeyActions } from './useHotkeys'
 
 function actions(popupOpen = false): HotkeyActions {
   return {
-    open: vi.fn(), search: vi.fn(), goTo: vi.fn(), saveTemplate: vi.fn(), undo: vi.fn(),
+    invoke: vi.fn(), isEnabled: vi.fn(() => true),
     isPopupOpen: () => popupOpen, closePopup: vi.fn(), clearSelection: vi.fn(),
   }
 }
@@ -18,46 +19,55 @@ describe('useHotkeys', () => {
   const cleanups: Array<() => void> = []
   afterEach(() => { cleanups.splice(0).forEach((cleanup) => cleanup()) })
 
-  it('dispatches specified shortcuts and lets Escape close a popup before clearing selection', () => {
+  it('dispatches shortcuts through the shared command layer and lets Escape close a popup first', () => {
     const target = actions(true); cleanups.push(useHotkeys(target))
     keydown('o', { ctrlKey: true }); keydown('f', { ctrlKey: true }); keydown('Escape')
-    expect(target.open).toHaveBeenCalledOnce(); expect(target.search).toHaveBeenCalledOnce()
+    expect(target.invoke).toHaveBeenNthCalledWith(1, 'open'); expect(target.invoke).toHaveBeenNthCalledWith(2, 'search')
     expect(target.closePopup).toHaveBeenCalledOnce(); expect(target.clearSelection).not.toHaveBeenCalled()
   })
 
-  it('routes go-to, template save and undo while preventing default browser actions', () => {
+  it.each([
+    ['o', { ctrlKey: true }, 'open'], ['w', { ctrlKey: true }, 'close-file'],
+    ['s', { ctrlKey: true, shiftKey: true }, 'save-as'], ['e', { ctrlKey: true, shiftKey: true }, 'export'],
+    ['F4', { altKey: true }, 'exit'], ['F2', {}, 'edit-selected'],
+    ['e', { ctrlKey: true, altKey: true }, 'toggle-edit'], ['z', { ctrlKey: true }, 'undo'],
+    ['g', { ctrlKey: true }, 'goto'], ['f', { ctrlKey: true }, 'search'],
+    ['Enter', { ctrlKey: true }, 'apply-template'], ['o', { ctrlKey: true, altKey: true }, 'load-template'],
+    ['s', { ctrlKey: true }, 'save-template'], ['a', { ctrlKey: true, altKey: true }, 'add-field'],
+    ['t', { ctrlKey: true, altKey: true }, 'theme-toggle'], ['1', { ctrlKey: true }, 'row-16'],
+    ['2', { ctrlKey: true }, 'row-32'],
+  ] satisfies Array<[string, KeyboardEventInit, MenuCommand]>)('routes %s to %s and prevents the browser default', (key, options, command) => {
     const target = actions(); cleanups.push(useHotkeys(target))
-    expect(keydown('g', { ctrlKey: true }).defaultPrevented).toBe(true)
-    expect(keydown('s', { ctrlKey: true }).defaultPrevented).toBe(true)
-    expect(keydown('z', { ctrlKey: true }).defaultPrevented).toBe(true)
-    expect(target.goTo).toHaveBeenCalledOnce(); expect(target.saveTemplate).toHaveBeenCalledOnce(); expect(target.undo).toHaveBeenCalledOnce()
+    expect(keydown(key, options).defaultPrevented).toBe(true)
+    expect(target.invoke).toHaveBeenCalledWith(command)
   })
 
-  it('does not hijack text editing shortcuts and removes its listener on cleanup', () => {
+  it('does not hijack text editing Undo or F2 and removes its listener on cleanup', () => {
     const target = actions(); const dispose = useHotkeys(target)
     const input = document.createElement('input'); document.body.append(input)
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true }))
-    expect(target.undo).not.toHaveBeenCalled()
-    dispose(); keydown('o', { ctrlKey: true }); expect(target.open).not.toHaveBeenCalled()
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2', bubbles: true, cancelable: true }))
+    expect(target.invoke).not.toHaveBeenCalled()
+    dispose(); keydown('o', { ctrlKey: true }); expect(target.invoke).not.toHaveBeenCalled()
     input.remove()
   })
 
-  it.each([
-    ['o', 'open'], ['f', 'search'], ['g', 'goTo'], ['s', 'saveTemplate'],
-  ] as const)('dispatches Ctrl+%s from an input to %s', (key, action) => {
-    const target = actions(); cleanups.push(useHotkeys(target))
-    const input = document.createElement('input'); document.body.append(input)
-    const event = new KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true, cancelable: true })
-    input.dispatchEvent(event)
-    expect(target[action]).toHaveBeenCalledOnce(); expect(event.defaultPrevented).toBe(true)
-    input.remove()
+  it('does not invoke or consume a disabled command', () => {
+    const target = actions(); vi.mocked(target.isEnabled).mockReturnValue(false); cleanups.push(useHotkeys(target))
+    const event = keydown('g', { ctrlKey: true })
+    expect(target.invoke).not.toHaveBeenCalled(); expect(event.defaultPrevented).toBe(false)
   })
 
-  it('requires exact Ctrl shortcuts and ignores shifted variants', () => {
+  it('does not consume removed theme-selection or panel-visibility shortcuts', () => {
     const target = actions(); cleanups.push(useHotkeys(target))
-    for (const key of ['o', 'f', 'g', 's', 'z']) keydown(key, { ctrlKey: true, shiftKey: true })
-    expect(target.open).not.toHaveBeenCalled(); expect(target.search).not.toHaveBeenCalled(); expect(target.goTo).not.toHaveBeenCalled()
-    expect(target.saveTemplate).not.toHaveBeenCalled(); expect(target.undo).not.toHaveBeenCalled()
+    const events = [
+      keydown('d', { ctrlKey: true, altKey: true }),
+      keydown('l', { ctrlKey: true, altKey: true }),
+      keydown('b', { ctrlKey: true }),
+      keydown('b', { ctrlKey: true, altKey: true }),
+    ]
+    expect(events.every((event) => !event.defaultPrevented)).toBe(true)
+    expect(target.invoke).not.toHaveBeenCalled()
   })
 
   it('clears selection with Escape when no popup is open', () => {

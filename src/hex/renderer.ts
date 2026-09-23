@@ -116,6 +116,10 @@ export class HexRenderer {
     context.fillText('ASCII', layout.asciiX, layout.headerHeight / 2)
     context.fillStyle = this.theme.divider
     context.fillRect(0, layout.headerHeight - 1, width, 1)
+    const addressDividerX = layout.hexX - layout.charWidth
+    const hexDividerX = layout.asciiX - layout.charWidth * 1.5
+    context.fillRect(addressDividerX, 0, 1, height)
+    context.fillRect(hexDividerX, 0, 1, height)
   }
 
   drawContent(page: PageResponse | null, viewportRow = this.viewportRow): void {
@@ -210,6 +214,7 @@ export class HexRenderer {
       if (state.matches[middle]! < earliestIntersectingStart) low = middle + 1
       else high = middle
     }
+    for (const offsetValue of state.modifiedOffsets) drawFill(BigInt(offsetValue), MODIFIED, 0.22)
     for (let index = low; index < state.matches.length; index += 1) {
       const start = state.matches[index]!
       if (start > lastVisible) break

@@ -12,4 +12,14 @@ describe('useTheme', () => {
     expect(theme.value.value).toBe('light')
     expect(document.documentElement.dataset.theme).toBe('light')
   })
+
+  it('applies a deterministic menu-selected theme', () => {
+    const theme = useTheme(document.documentElement)
+    theme.apply('light')
+    expect(theme.value.value).toBe('light')
+    expect(document.documentElement.dataset.theme).toBe('light')
+    theme.apply('dark')
+    expect(theme.value.value).toBe('dark')
+    expect(document.documentElement.dataset.theme).toBe('dark')
+  })
 })

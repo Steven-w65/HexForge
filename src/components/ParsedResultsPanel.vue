@@ -1,30 +1,47 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { ParsedField } from '../types'
 
-defineProps<{ results: ParsedField[]; collapsed: boolean }>()
-const emit = defineEmits<{ 'toggle-collapse': []; navigate: [range: { start: bigint; end: bigint }] }>()
+const props = withDefaults(defineProps<{
+  results: ParsedField[]; collapsed: boolean; hasFile?: boolean; templateHasFields?: boolean
+}>(), { hasFile: false, templateHasFields: false })
+const emit = defineEmits<{
+  'toggle-collapse': []; navigate: [range: { start: bigint; end: bigint }]
+  'empty-action': [command: 'open' | 'template-editor' | 'apply-template']
+}>()
+
+const emptyState = computed(() => {
+  if (!props.hasFile) return { message: 'Open a binary file to inspect parsed fields.', action: 'Open File', command: 'open' as const }
+  if (!props.templateHasFields) return { message: 'Create or load a parsing template.', action: 'Template Editor', command: 'template-editor' as const }
+  return { message: 'The template is ready to apply.', action: 'Apply Template', command: 'apply-template' as const }
+})
 
 function navigate(field: ParsedField): void {
   const start = BigInt(field.offset)
   emit('navigate', { start, end: start + BigInt(field.length) - 1n })
 }
+
+function formatOffset(value: string): string {
+  try { return `0x${BigInt(value).toString(16).toUpperCase().padStart(8, '0')}` } catch { return value }
+}
 </script>
 
 <template>
   <aside class="results-panel" :class="{ collapsed }">
-    <button type="button" class="collapse" data-action="collapse-right" :title="collapsed ? 'Expand results' : 'Collapse results'" @click="emit('toggle-collapse')">{{ collapsed ? '‹' : '›' }}</button>
+    <button type="button" class="collapse" data-action="collapse-right" :title="collapsed ? 'Expand results' : 'Collapse results'" :aria-label="collapsed ? 'Expand parsed results' : 'Collapse parsed results'" @click="emit('toggle-collapse')">{{ collapsed ? '‹' : '›' }}</button>
     <div v-if="!collapsed" class="results-content">
       <div class="panel-heading">PARSED RESULTS</div>
-      <div class="table-scroll">
-        <table>
-          <thead><tr><th>Name</th><th>Offset</th><th>Type</th><th>Value</th><th>Comment</th></tr></thead>
-          <tbody>
-            <tr v-for="(field, index) in results" :key="`${field.offset}-${field.name}-${index}`" tabindex="0" @click="navigate(field)" @keydown.enter="navigate(field)">
-              <td>{{ field.name }}</td><td>{{ field.offset }}</td><td>{{ field.type }}</td><td>{{ field.value }}</td><td>{{ field.comment }}</td>
-            </tr>
-            <tr v-if="results.length === 0" class="empty-row"><td colspan="5">Apply a template to inspect fields.</td></tr>
-          </tbody>
-        </table>
+      <div v-if="results.length" class="result-list">
+        <button v-for="(field, index) in results" :key="`${field.offset}-${field.name}-${index}`" type="button" data-testid="parsed-result" class="result-card" @click="navigate(field)">
+          <span class="result-heading"><strong class="result-name">{{ field.name }}</strong><strong class="result-value">{{ field.value }}</strong></span>
+          <span class="result-meta">{{ formatOffset(field.offset) }} · {{ field.type }} · {{ field.endianness === 'little' ? 'LE' : 'BE' }}</span>
+          <span v-if="field.comment" class="result-comment">{{ field.comment }}</span>
+        </button>
+      </div>
+      <div v-else data-testid="results-empty" class="results-empty">
+        <span class="empty-icon">⌁</span>
+        <p>{{ emptyState.message }}</p>
+        <button type="button" data-action="results-empty-action" @click="emit('empty-action', emptyState.command)">{{ emptyState.action }}</button>
       </div>
     </div>
   </aside>
@@ -37,11 +54,18 @@ function navigate(field: ParsedField): void {
 .collapse:hover { color: var(--text); background: var(--hover); }
 .results-content { height: 100%; display: flex; flex-direction: column; padding-top: 8px; overflow: hidden; }
 .panel-heading { padding: 0 8px 8px 32px; color: var(--muted); font-size: 10px; letter-spacing: .08em; }
-.table-scroll { flex: 1; overflow: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 10px; }
-th, td { max-width: 130px; padding: 7px 8px; overflow: hidden; border-bottom: 1px solid var(--border); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
-th { position: sticky; top: 0; color: var(--muted); background: var(--panel); font-weight: 500; }
-tbody tr:not(.empty-row) { cursor: pointer; }
-tbody tr:not(.empty-row):hover { background: var(--hover); }
-.empty-row td { color: var(--muted); text-align: center; white-space: normal; }
+.result-list { flex: 1; min-height: 0; padding: 0 7px 8px; overflow: auto; }
+.result-card { width: 100%; display: grid; gap: 4px; margin-bottom: 5px; padding: 8px; color: var(--text); background: transparent; border: 1px solid transparent; border-radius: 5px; font: inherit; text-align: left; }
+.result-card:hover, .result-card:focus-visible { background: var(--hover); border-color: var(--border); outline: none; }
+.result-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.result-name, .result-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.result-name { font-size: 10px; }
+.result-value { max-width: 58%; color: var(--text); font-size: 10px; font-weight: 500; text-align: right; }
+.result-meta { color: var(--address); font-size: 9px; }
+.result-comment { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.results-empty { flex: 1; display: grid; place-content: center; justify-items: center; gap: 7px; padding: 18px; color: var(--muted); text-align: center; }
+.results-empty p { max-width: 190px; margin: 0; font-size: 10px; line-height: 1.5; }
+.empty-icon { font-size: 20px; color: var(--address); }
+.results-empty button { height: 27px; padding: 0 10px; color: var(--text); background: var(--button); border: 0; border-radius: 4px; font: inherit; font-size: 10px; }
+.results-empty button:hover { background: var(--hover); }
 </style>

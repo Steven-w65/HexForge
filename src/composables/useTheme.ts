@@ -14,5 +14,5 @@ export function useTheme(root: HTMLElement = document.documentElement) {
   }
 
   apply('dark')
-  return { value, toggle }
+  return { value, apply, toggle }
 }

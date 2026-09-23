@@ -138,4 +138,72 @@ describe('TemplateEditor', () => {
     template = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as TemplateDefinition
     expect(template.fields[0]?.offset).toBe('42')
   })
+
+  it('places new fields after the highest existing byte range', async () => {
+    const value: TemplateDefinition = { ...emptyTemplate(), fields: [
+      { name: 'magic', offset: '16', type: 'bytes', length: 4, endianness: 'little', comment: '' },
+      { name: 'version', offset: '4', type: 'u16', endianness: 'little', comment: '' },
+    ] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: value } })
+    await wrapper.get('[data-action="add-field"]').trigger('click')
+    const updated = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as TemplateDefinition
+    expect(updated.fields.at(-1)?.offset).toBe('20')
+  })
+
+  it('duplicates a field at the next available offset', async () => {
+    const value: TemplateDefinition = { ...emptyTemplate(), fields: [
+      { name: 'header', offset: '8', type: 'u32', endianness: 'big', comment: 'Header value' },
+    ] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: value } })
+    await wrapper.get('[data-action="duplicate-field"]').trigger('click')
+    const updated = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as TemplateDefinition
+    expect(updated.fields).toEqual([
+      value.fields[0],
+      { ...value.fields[0], name: 'header copy', offset: '12' },
+    ])
+  })
+
+  it('reorders fields while preserving their values', async () => {
+    const value: TemplateDefinition = { ...emptyTemplate(), fields: [
+      { name: 'first', offset: '0', type: 'u8', comment: '' },
+      { name: 'second', offset: '1', type: 'u8', comment: '' },
+    ] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: value } })
+    expect(wrapper.findAll('[data-action="move-field-up"]')[0]!.attributes('disabled')).toBeDefined()
+    await wrapper.findAll('[data-action="move-field-up"]')[1]!.trigger('click')
+    const updated = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as TemplateDefinition
+    expect(updated.fields.map((field) => field.name)).toEqual(['second', 'first'])
+  })
+
+  it('shows byte ranges and applied values beside their fields', () => {
+    const value: TemplateDefinition = { ...emptyTemplate(), fields: [
+      { name: 'magic', offset: '16', type: 'u32', endianness: 'little', comment: '' },
+    ] }
+    const wrapper = mount(TemplateEditor, { props: {
+      modelValue: value,
+      fileSize: 32n,
+      results: [{ ...value.fields[0]!, length: 4, endianness: 'little', value: '0x12345678' }],
+    } })
+    expect(wrapper.get('[data-testid="field-range"]').text()).toContain('0x00000010–0x00000013')
+    expect(wrapper.get('[data-testid="field-preview"]').text()).toContain('0x12345678')
+  })
+
+  it('keeps parsed previews aligned when the backend normalizes hexadecimal offsets', () => {
+    const field = { name: 'magic', offset: '0x10', type: 'u32' as const, endianness: 'little' as const, comment: '' }
+    const wrapper = mount(TemplateEditor, { props: {
+      modelValue: { ...emptyTemplate(), fields: [field] },
+      results: [{ ...field, offset: '16', length: 4, value: '0xCAFEBABE' }],
+    } })
+    expect(wrapper.get('[data-testid="field-preview"]').text()).toContain('0xCAFEBABE')
+  })
+
+  it('marks ranges outside the current file and exposes Apply as the primary action', async () => {
+    const value: TemplateDefinition = { ...emptyTemplate(), fields: [
+      { name: 'tooFar', offset: '31', type: 'u32', endianness: 'little', comment: '' },
+    ] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: value, fileSize: 32n, canApply: true } })
+    expect(wrapper.get('[data-testid="range-warning"]').text()).toContain('outside the current file')
+    await wrapper.get('[data-action="apply-template"]').trigger('click')
+    expect(wrapper.emitted('apply')).toEqual([[]])
+  })
 })

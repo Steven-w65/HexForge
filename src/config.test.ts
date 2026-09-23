@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { UserConfig } from 'vite'
 import packageJson from '../package.json'
 import tauriConfig from '../src-tauri/tauri.conf.json'
+import capabilities from '../src-tauri/capabilities/default.json'
 import viteConfig from '../vite.config'
 
 describe('desktop development configuration', () => {
@@ -20,5 +21,10 @@ describe('desktop development configuration', () => {
 
   it('builds a portable executable without installer bundles', () => {
     expect(tauriConfig.bundle.active).toBe(false)
+  })
+
+  it('allows menu Exit to request a guarded close and the accepted request to destroy the window', () => {
+    expect(capabilities.permissions).toContain('core:window:allow-close')
+    expect(capabilities.permissions).toContain('core:window:allow-destroy')
   })
 })

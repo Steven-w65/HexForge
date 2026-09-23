@@ -17,11 +17,12 @@ describe('StatusBar', () => {
   })
 
   it('shows all state and emits row-width changes', async () => {
-    const wrapper = mount(StatusBar, { props: { ...statusProps(), dirty: true, editMode: true, endianness: 'big' as const } })
+    const wrapper = mount(StatusBar, { props: { ...statusProps(), dirty: true, editMode: true, endianness: 'big' as const, busyLabel: 'Saving copy', progressText: '64 / 128' } })
     expect(wrapper.text()).toContain('4 KiB')
     expect(wrapper.text()).toContain('Edit')
-    expect(wrapper.text()).toContain('BE')
+    expect(wrapper.text()).toContain('Parse: BE')
     expect(wrapper.text()).toContain('Modified')
+    expect(wrapper.get('[data-testid="status-progress"]').text()).toContain('Saving copy · 64 / 128')
     await wrapper.get('[data-row-width="32"]').trigger('click')
     expect(wrapper.emitted('update:bytesPerRow')).toEqual([[32]])
   })
