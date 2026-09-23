@@ -1,4 +1,4 @@
-name: Build Windows MSI
+name: Build Portable Windows EXE
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build Windows MSI
+    name: Build Portable Windows EXE
     runs-on: windows-latest
     timeout-minutes: 45
 
@@ -45,11 +45,16 @@ jobs:
       - name: Test Rust backend
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
-      - name: Build Windows MSI
-        uses: tauri-apps/tauri-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build portable Windows executable
+        run: npm run tauri -- build --no-bundle
+
+      - name: Verify GUI-only Windows executable
+        shell: pwsh
+        run: ./src-tauri/tests/verify_windows_gui.ps1 -ExecutablePath ./src-tauri/target/release/hexforge.exe
+
+      - name: Upload portable executable
+        uses: actions/upload-artifact@v6
         with:
-          args: --bundles msi
-          uploadWorkflowArtifacts: true
-          workflowArtifactNamePattern: HexForge-[version]-windows-[arch]-[bundle]
+          name: HexForge-windows-x64-portable
+          path: src-tauri/target/release/hexforge.exe
+          if-no-files-found: error

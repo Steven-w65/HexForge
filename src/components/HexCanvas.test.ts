@@ -92,6 +92,13 @@ describe('HexCanvas', () => {
     expect(wrapper.emitted('select')?.at(-1)).toEqual([{ start: 2n, end: 5n, count: 4n }])
   })
 
+  it('fills the available stage before ResizeObserver measures it', () => {
+    const wrapper = mount(HexCanvas, { props: readyProps })
+    const viewport = wrapper.get<HTMLElement>('[data-testid="hex-canvas"]').element
+    expect(viewport.style.width).toBe('100%')
+    expect(viewport.style.height).toBe('100%')
+  })
+
   it('requests a generation-tagged bounded page after resize', async () => {
     const wrapper = mount(HexCanvas, { props: readyProps })
     await nextTick()

@@ -65,57 +65,56 @@ describe('useHotkeys', () => {
     expect(target.clearSelection).toHaveBeenCalledOnce()
   })
 
-  it('prevents close until dirty discard is confirmed and allows exactly one retry', async () => {
-    const event = { preventDefault: vi.fn() }; const close = vi.fn(); const guard = { value: false }
-    await handleCloseRequest(event, vi.fn().mockResolvedValue({ dirty: true }), vi.fn().mockResolvedValue(false), close, guard)
-    expect(event.preventDefault).toHaveBeenCalledOnce(); expect(close).not.toHaveBeenCalled()
-    await handleCloseRequest(event, vi.fn().mockResolvedValue({ dirty: true }), vi.fn().mockResolvedValue(true), close, guard)
-    expect(close).toHaveBeenCalledOnce(); expect(guard.value).toBe(true)
-    const retry = { preventDefault: vi.fn() }
-    await handleCloseRequest(retry, vi.fn(), vi.fn(), close, guard)
-    expect(retry.preventDefault).not.toHaveBeenCalled(); expect(guard.value).toBe(false)
+  it('prevents a dirty close only when discard is declined', async () => {
+    const guard = { confirming: false }
+    const declined = { preventDefault: vi.fn() }
+    await handleCloseRequest(declined, vi.fn().mockResolvedValue({ dirty: true }), vi.fn().mockResolvedValue(false), guard)
+    expect(declined.preventDefault).toHaveBeenCalledOnce()
+
+    const confirmed = { preventDefault: vi.fn() }
+    await handleCloseRequest(confirmed, vi.fn().mockResolvedValue({ dirty: true }), vi.fn().mockResolvedValue(true), guard)
+    expect(confirmed.preventDefault).not.toHaveBeenCalled()
   })
 
-  it('serializes close confirmations and rolls back allowClose when close fails', async () => {
-    const decision = deferredBoolean(); const confirm = vi.fn(() => decision.promise); const close = vi.fn().mockRejectedValue(new Error('close failed'))
-    const guard = { value: false }; const first = { preventDefault: vi.fn() }; const second = { preventDefault: vi.fn() }
+  it('serializes close confirmations and prevents overlapping close requests', async () => {
+    const decision = deferredBoolean(); const confirm = vi.fn(() => decision.promise)
+    const guard = { confirming: false }; const first = { preventDefault: vi.fn() }; const second = { preventDefault: vi.fn() }
     const query = vi.fn().mockResolvedValue({ dirty: true })
-    const a = handleCloseRequest(first, query, confirm, close, guard).catch(() => undefined)
-    const b = handleCloseRequest(second, query, confirm, close, guard).catch(() => undefined)
+    const a = handleCloseRequest(first, query, confirm, guard)
+    const b = handleCloseRequest(second, query, confirm, guard)
     await Promise.resolve()
     expect(confirm).toHaveBeenCalledOnce(); expect(second.preventDefault).toHaveBeenCalledOnce()
     decision.resolve(true); await Promise.all([a, b])
-    expect(close).toHaveBeenCalledOnce(); expect(guard.value).toBe(false)
+    expect(first.preventDefault).not.toHaveBeenCalled()
   })
 
-  it('prevents first, waits for authoritative state, and closes a clean session through one retry', async () => {
-    const state = deferredDirty(); const event = { preventDefault: vi.fn() }; const close = vi.fn(); const guard = { value: false }
-    const pending = handleCloseRequest(event, vi.fn(() => state.promise), vi.fn(), close, guard)
-    expect(event.preventDefault).toHaveBeenCalledOnce(); expect(close).not.toHaveBeenCalled()
+  it('waits for authoritative state and leaves a clean close request unblocked', async () => {
+    const state = deferredDirty(); const event = { preventDefault: vi.fn() }; const guard = { confirming: false }
+    const pending = handleCloseRequest(event, vi.fn(() => state.promise), vi.fn(), guard)
+    expect(event.preventDefault).not.toHaveBeenCalled()
     state.resolve({ dirty: false }); await pending
-    expect(close).toHaveBeenCalledOnce(); expect(guard.value).toBe(true)
+    expect(event.preventDefault).not.toHaveBeenCalled()
   })
 
   it('observes an edit that becomes dirty while the close query waits', async () => {
-    const state = deferredDirty(); const confirm = vi.fn().mockResolvedValue(false); const close = vi.fn()
-    const pending = handleCloseRequest({ preventDefault: vi.fn() }, () => state.promise, confirm, close, { value: false })
+    const state = deferredDirty(); const confirm = vi.fn().mockResolvedValue(false)
+    const event = { preventDefault: vi.fn() }
+    const pending = handleCloseRequest(event, () => state.promise, confirm, { confirming: false })
     state.resolve({ dirty: true }); await pending
-    expect(confirm).toHaveBeenCalledOnce(); expect(close).not.toHaveBeenCalled()
+    expect(confirm).toHaveBeenCalledOnce(); expect(event.preventDefault).toHaveBeenCalledOnce()
   })
 
   it('keeps the window prevented and surfaces authoritative query failures', async () => {
     const event = { preventDefault: vi.fn() }; const failure = new Error('state unavailable'); const release = vi.fn()
-    await expect(handleCloseRequest(event, vi.fn().mockRejectedValue(failure), vi.fn(), vi.fn(), { value: false }, release)).rejects.toBe(failure)
+    await expect(handleCloseRequest(event, vi.fn().mockRejectedValue(failure), vi.fn(), { confirming: false }, release)).rejects.toBe(failure)
     expect(event.preventDefault).toHaveBeenCalledOnce()
     expect(release).toHaveBeenCalledOnce()
   })
 
-  it('releases the mutation barrier when discard is declined or native close fails', async () => {
+  it('releases the mutation barrier when discard is declined', async () => {
     const release = vi.fn()
-    await handleCloseRequest({ preventDefault: vi.fn() }, vi.fn().mockResolvedValue({ dirty: true }), vi.fn().mockResolvedValue(false), vi.fn(), { value: false }, release)
+    await handleCloseRequest({ preventDefault: vi.fn() }, vi.fn().mockResolvedValue({ dirty: true }), vi.fn().mockResolvedValue(false), { confirming: false }, release)
     expect(release).toHaveBeenCalledOnce()
-    await expect(handleCloseRequest({ preventDefault: vi.fn() }, vi.fn().mockResolvedValue({ dirty: false }), vi.fn(), vi.fn().mockRejectedValue(new Error('close failed')), { value: false }, release)).rejects.toThrow('close failed')
-    expect(release).toHaveBeenCalledTimes(2)
   })
 })
 

@@ -322,7 +322,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="root" class="hex-canvas" data-testid="hex-canvas" :data-theme="theme" :style="{ '--canvas-width': `${canvasWidth}px`, overflowX: horizontalOverflow ? 'auto' : 'hidden' }">
+  <div ref="root" class="hex-canvas" data-testid="hex-canvas" :data-theme="theme" :style="{ '--canvas-width': `${canvasWidth}px`, width: '100%', height: '100%', overflowX: horizontalOverflow ? 'auto' : 'hidden' }">
     <canvas
       ref="canvas"
       :data-page-revision="renderedRevision"

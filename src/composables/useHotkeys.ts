@@ -35,30 +35,28 @@ export function useHotkeys(actions: HotkeyActions, target: Window = window): () 
 }
 
 export interface CloseRequestEventLike { preventDefault(): void }
-export interface AllowCloseGuard { value: boolean; confirming?: boolean }
+export interface CloseRequestGuard { confirming?: boolean }
 
 export async function handleCloseRequest(
   event: CloseRequestEventLike,
   getDirtyState: () => Promise<{ dirty: boolean }>,
   confirmDiscard: () => Promise<boolean>,
-  close: () => void | Promise<void>,
-  allowClose: AllowCloseGuard = { value: false },
+  guard: CloseRequestGuard = {},
   releaseBarrier: () => void = () => {},
 ): Promise<void> {
-  if (allowClose.value) { allowClose.value = false; return }
-  event.preventDefault()
-  if (allowClose.confirming) return
-  allowClose.confirming = true
+  if (guard.confirming) { event.preventDefault(); return }
+  guard.confirming = true
   try {
     const { dirty } = await getDirtyState()
-    if (dirty && !await confirmDiscard()) { releaseBarrier(); return }
-    allowClose.value = true
-    try { await close() }
-    catch (error) { allowClose.value = false; throw error }
+    if (dirty && !await confirmDiscard()) {
+      event.preventDefault()
+      releaseBarrier()
+    }
   } catch (error) {
+    event.preventDefault()
     releaseBarrier()
     throw error
   } finally {
-    allowClose.confirming = false
+    guard.confirming = false
   }
 }

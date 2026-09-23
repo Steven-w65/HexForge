@@ -16,7 +16,7 @@ const bytesPerRow = ref<BytesPerRow>(16)
 const popup = ref<{ kind: PromptKind; title: string; value: string } | null>(null)
 const templateRange = ref<ByteSelection | null>(null)
 const templateValid = ref(true)
-const allowClose = { value: false }
+const closeGuard = { confirming: false }
 const disposers: Array<() => void> = []
 let disposed = false
 
@@ -120,7 +120,7 @@ onMounted(async () => {
   }))
   try {
     const closeUnlisten = await getCurrentWindow().onCloseRequested(async (event) => {
-      try { await handleCloseRequest(event, session.prepareClose, confirmDiscard, () => getCurrentWindow().close(), allowClose, session.releaseCloseBarrier) }
+      try { await handleCloseRequest(event, session.prepareClose, confirmDiscard, closeGuard, session.releaseCloseBarrier) }
       catch (error) { session.presentError(error) }
     })
     if (disposed) closeUnlisten(); else disposers.push(closeUnlisten)

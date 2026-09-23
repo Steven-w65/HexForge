@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => {
     saveAs: vi.fn(), searchBytes: vi.fn(), applyTemplate: vi.fn(), loadTemplate: vi.fn(), saveTemplate: vi.fn(), exportResultsCsv: vi.fn(),
   }
   return {
-    backend, open: vi.fn(), save: vi.fn(), message: vi.fn(), confirm: vi.fn(), close: vi.fn(),
+    backend, open: vi.fn(), save: vi.fn(), message: vi.fn(), confirm: vi.fn(),
     closeHandler: undefined as ((event: { preventDefault(): void }) => Promise<void>) | undefined,
     dropHandler: undefined as ((event: { payload: { type: string; paths: string[] } }) => void) | undefined,
     unlistenClose: vi.fn(), unlistenDrop: vi.fn(),
@@ -17,7 +17,6 @@ const mocks = vi.hoisted(() => {
 vi.mock('./api/backend', () => ({ backend: mocks.backend }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: mocks.open, save: mocks.save, message: mocks.message, confirm: mocks.confirm }))
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => ({
-  close: mocks.close,
   onCloseRequested: vi.fn(async (handler) => { mocks.closeHandler = handler; return mocks.unlistenClose }),
 }) }))
 vi.mock('@tauri-apps/api/webview', () => ({ getCurrentWebview: () => ({
@@ -33,7 +32,7 @@ const page = { offset: '0', bytes: [0x41], modifiedOffsets: [], revision: '1' }
 describe('App desktop orchestration', () => {
   beforeEach(() => {
     Object.values(mocks.backend).forEach((mock) => mock.mockReset())
-    mocks.open.mockReset(); mocks.save.mockReset(); mocks.confirm.mockReset(); mocks.message.mockReset(); mocks.close.mockReset()
+    mocks.open.mockReset(); mocks.save.mockReset(); mocks.confirm.mockReset(); mocks.message.mockReset()
     mocks.unlistenClose.mockReset(); mocks.unlistenDrop.mockReset(); mocks.closeHandler = undefined; mocks.dropHandler = undefined
     mocks.backend.openFile.mockResolvedValue(file); mocks.backend.readPage.mockResolvedValue(page)
     mocks.backend.undoEdit.mockResolvedValue({ dirty: false, revision: '2', undone: true })
@@ -85,11 +84,11 @@ describe('App desktop orchestration', () => {
     expect(mocks.backend.saveAs).not.toHaveBeenCalled(); wrapper.unmount()
   })
 
-  it('installs a close interceptor which leaves a clean session closable', async () => {
+  it('leaves the original close request unblocked for a clean session', async () => {
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     const event = { preventDefault: vi.fn() }
     if (mocks.closeHandler) await mocks.closeHandler(event)
-    expect(event.preventDefault).toHaveBeenCalledOnce(); expect(mocks.close).toHaveBeenCalledOnce()
+    expect(event.preventDefault).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
@@ -102,10 +101,11 @@ describe('App desktop orchestration', () => {
     await wrapper.get('[data-action="open"]').trigger('click'); await flushPromises()
     const event = { preventDefault: vi.fn() }
     if (mocks.closeHandler) await mocks.closeHandler(event)
-    expect(event.preventDefault).toHaveBeenCalledOnce(); expect(mocks.close).not.toHaveBeenCalled()
+    expect(event.preventDefault).toHaveBeenCalledOnce()
     mocks.confirm.mockResolvedValue(true)
-    if (mocks.closeHandler) await mocks.closeHandler(event)
-    expect(mocks.close).toHaveBeenCalledOnce()
+    const confirmedEvent = { preventDefault: vi.fn() }
+    if (mocks.closeHandler) await mocks.closeHandler(confirmedEvent)
+    expect(confirmedEvent.preventDefault).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
@@ -139,9 +139,9 @@ describe('App desktop orchestration', () => {
     void wrapper.get('.prompt-form').trigger('submit'); await flushPromises()
     const event = { preventDefault: vi.fn() }
     const closeAttempt = mocks.closeHandler?.(event)
-    expect(event.preventDefault).toHaveBeenCalledOnce(); expect(mocks.backend.getDirtyState).not.toHaveBeenCalled(); expect(mocks.confirm).not.toHaveBeenCalled()
+    expect(event.preventDefault).not.toHaveBeenCalled(); expect(mocks.backend.getDirtyState).not.toHaveBeenCalled(); expect(mocks.confirm).not.toHaveBeenCalled()
     finishEdit({ dirty: true, revision: '2' }); await closeAttempt; await flushPromises()
-    expect(mocks.confirm).toHaveBeenCalledOnce(); expect(mocks.close).not.toHaveBeenCalled()
+    expect(mocks.confirm).toHaveBeenCalledOnce(); expect(event.preventDefault).toHaveBeenCalledOnce()
     wrapper.unmount()
   })
 
@@ -157,9 +157,9 @@ describe('App desktop orchestration', () => {
     await wrapper.get('.prompt-form input').setValue('41')
     void wrapper.get('.prompt-form').trigger('submit'); await flushPromises()
     const event = { preventDefault: vi.fn() }; const closeAttempt = mocks.closeHandler?.(event)
-    expect(event.preventDefault).toHaveBeenCalledOnce(); expect(mocks.backend.getDirtyState).not.toHaveBeenCalled(); expect(mocks.close).not.toHaveBeenCalled()
+    expect(event.preventDefault).not.toHaveBeenCalled(); expect(mocks.backend.getDirtyState).not.toHaveBeenCalled()
     finishEdit({ dirty: false, revision: '1' }); await closeAttempt; await flushPromises()
-    expect(mocks.confirm).not.toHaveBeenCalled(); expect(mocks.close).toHaveBeenCalledOnce()
+    expect(event.preventDefault).not.toHaveBeenCalled(); expect(mocks.confirm).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
@@ -170,7 +170,7 @@ describe('App desktop orchestration', () => {
     await wrapper.get('[data-action="open"]').trigger('click'); await flushPromises()
     const event = { preventDefault: vi.fn() }
     await mocks.closeHandler?.(event); await flushPromises()
-    expect(event.preventDefault).toHaveBeenCalledOnce(); expect(mocks.close).not.toHaveBeenCalled()
+    expect(event.preventDefault).toHaveBeenCalledOnce()
     expect(wrapper.get('[role="dialog"]').text()).toContain('Could not check unsaved changes.')
     wrapper.unmount()
   })

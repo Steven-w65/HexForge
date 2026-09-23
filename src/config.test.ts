@@ -17,4 +17,8 @@ describe('desktop development configuration', () => {
   it('declares the Node versions supported by the Vite toolchain', () => {
     expect(packageJson.engines.node).toBe('^20.19.0 || >=22.12.0')
   })
+
+  it('builds a portable executable without installer bundles', () => {
+    expect(tauriConfig.bundle.active).toBe(false)
+  })
 })
