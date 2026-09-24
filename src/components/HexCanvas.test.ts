@@ -267,6 +267,19 @@ describe('HexCanvas', () => {
     expect(wrapper.emitted('select')?.at(-1)).toEqual([{ start: 16n, end: 16n, count: 1n }])
   })
 
+  it('uses the retained viewport offset when Save As switches the active source', async () => {
+    const wrapper = mount(HexCanvas, { props: readyProps })
+    await resize()
+    await wrapper.setProps({ navigateOffset: 160n })
+    await wrapper.setProps({ sourceIdentity: 2, sourceKey: 'copy.bin', sourceRevision: '0', page: null })
+
+    await wrapper.get('canvas').trigger('pointerdown', point(0))
+    expect(wrapper.emitted('select')?.at(-1)).toEqual([{ start: 160n, end: 160n, count: 1n }])
+    const request = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint; length: number }
+    expect(request.offset).toBeLessThanOrEqual(160n)
+    expect(request.offset + BigInt(request.length)).toBeGreaterThan(160n)
+  })
+
   it('keeps the pointer grab offset while dragging across the effective scrollbar track', async () => {
     const wrapper = mount(HexCanvas, { props: readyProps })
     await resize(900, 500)

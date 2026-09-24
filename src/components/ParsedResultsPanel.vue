@@ -53,19 +53,19 @@ function formatOffset(value: string): string {
 .collapse { position: absolute; z-index: 2; top: 5px; left: 4px; width: 21px; height: 21px; color: var(--muted); background: transparent; border: 0; border-radius: 3px; }
 .collapse:hover { color: var(--text); background: var(--hover); }
 .results-content { height: 100%; display: flex; flex-direction: column; padding-top: 8px; overflow: hidden; }
-.panel-heading { padding: 0 8px 8px 32px; color: var(--muted); font-size: 10px; letter-spacing: .08em; }
+.panel-heading { padding: 0 8px 8px 32px; color: var(--muted); font-size: var(--font-support); letter-spacing: .08em; }
 .result-list { flex: 1; min-height: 0; padding: 0 7px 8px; overflow: auto; }
 .result-card { width: 100%; display: grid; gap: 4px; margin-bottom: 5px; padding: 8px; color: var(--text); background: transparent; border: 1px solid transparent; border-radius: 5px; font: inherit; text-align: left; }
 .result-card:hover, .result-card:focus-visible { background: var(--hover); border-color: var(--border); outline: none; }
 .result-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
 .result-name, .result-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.result-name { font-size: 10px; }
-.result-value { max-width: 58%; color: var(--text); font-size: 10px; font-weight: 500; text-align: right; }
-.result-meta { color: var(--address); font-size: 9px; }
-.result-comment { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.result-name { font-size: var(--font-body); }
+.result-value { max-width: 58%; color: var(--text); font-size: var(--font-body); font-weight: 500; text-align: right; }
+.result-meta { color: var(--address); font-size: var(--font-support); }
+.result-comment { overflow: hidden; color: var(--muted); font-size: var(--font-support); text-overflow: ellipsis; white-space: nowrap; }
 .results-empty { flex: 1; display: grid; place-content: center; justify-items: center; gap: 7px; padding: 18px; color: var(--muted); text-align: center; }
-.results-empty p { max-width: 190px; margin: 0; font-size: 10px; line-height: 1.5; }
+.results-empty p { max-width: 190px; margin: 0; font-size: var(--font-body); line-height: 1.5; }
 .empty-icon { font-size: 20px; color: var(--address); }
-.results-empty button { height: 27px; padding: 0 10px; color: var(--text); background: var(--button); border: 0; border-radius: 4px; font: inherit; font-size: 10px; }
+.results-empty button { height: 27px; padding: 0 10px; color: var(--text); background: var(--button); border: 0; border-radius: 4px; font: inherit; font-size: var(--font-body); }
 .results-empty button:hover { background: var(--hover); }
 </style>

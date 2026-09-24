@@ -8,6 +8,10 @@
 
 :root, [data-theme='dark'] {
   color-scheme: dark;
+  --font-support: 11px;
+  --font-body: 12px;
+  --font-heading: 13px;
+  --font-title: 14px;
   --bg: #111418;
   --text: #c9d1d9;
   --address: #8b949e;
@@ -45,7 +49,7 @@
 }
 
 html, body, #app { width: 100%; height: 100%; }
-body { margin: 0; overflow: hidden; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+body { margin: 0; overflow: hidden; font-family: 'JetBrains Mono', monospace; font-size: var(--font-body); }
 button, input, select { font-family: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: default; }

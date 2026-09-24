@@ -46,7 +46,7 @@ fn operations_report_each_chunk_field_and_row() {
     )
     .unwrap();
     assert_eq!(saved, [2, 4, 5]);
-    assert!(!session.is_dirty());
+    assert!(session.is_dirty());
     assert_eq!(
         std::fs::read(directory.path().join("copy.bin")).unwrap(),
         [9, 2, 3, 4, 5]

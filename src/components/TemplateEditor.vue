@@ -244,8 +244,8 @@ function navigate(field: TemplateField): void {
 .template-editor { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 11px; }
 .template-meta { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 9px; padding-bottom: 2px; }
 .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
-label { display: grid; gap: 3px; color: var(--muted); font-size: 10px; }
-input, select { box-sizing: border-box; min-width: 0; width: 100%; height: 28px; padding: 0 7px; color: var(--text); background: var(--input); border: 1px solid var(--border); border-radius: 4px; outline: none; font: inherit; font-size: 11px; }
+label { display: grid; gap: 3px; color: var(--muted); font-size: var(--font-support); }
+input, select { box-sizing: border-box; min-width: 0; width: 100%; height: 28px; padding: 0 7px; color: var(--text); background: var(--input); border: 1px solid var(--border); border-radius: 4px; outline: none; font: inherit; font-size: var(--font-body); }
 input:focus, select:focus { border-color: var(--selection); box-shadow: 0 0 0 1px color-mix(in srgb, var(--selection) 48%, transparent); }
 input[aria-invalid='true'] { border-color: var(--modified); }
 .field-list { flex: 1; min-height: 0; padding-right: 3px; overflow: auto; }
@@ -253,14 +253,14 @@ input[aria-invalid='true'] { border-color: var(--modified); }
 .field-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
 .field-tools { display: flex; gap: 3px; }
 .field-tools button { width: 24px; height: 28px; }
-button { color: var(--text); background: var(--button); border: 0; border-radius: 3px; font: inherit; font-size: 11px; }
+button { color: var(--text); background: var(--button); border: 0; border-radius: 3px; font: inherit; font-size: var(--font-body); }
 button:hover:not(:disabled) { background: var(--hover); }
 button:disabled { opacity: .4; }
-.empty { color: var(--muted); font-size: 11px; }
-.validation-error { margin: 0; color: var(--modified); font-size: 10px; }
-.field-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; color: var(--muted); font-size: 9px; }
-.field-summary strong { overflow: hidden; color: var(--text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.range-warning { margin: -2px 0 0; color: var(--modified); font-size: 9px; }
+.empty { color: var(--muted); font-size: var(--font-body); }
+.validation-error { margin: 0; color: var(--modified); font-size: var(--font-support); }
+.field-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; color: var(--muted); font-size: var(--font-support); }
+.field-summary strong { overflow: hidden; color: var(--text); font-size: var(--font-body); text-overflow: ellipsis; white-space: nowrap; }
+.range-warning { margin: -2px 0 0; color: var(--modified); font-size: var(--font-support); }
 .template-actions { display: flex; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
 .template-actions > div { display: flex; gap: 6px; }
 .template-actions button { height: 27px; padding: 0 9px; }

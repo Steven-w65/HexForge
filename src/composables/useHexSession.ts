@@ -298,13 +298,14 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   function undo(): Promise<void> { return runMutation(undoCore) }
 
   async function saveAsCore(path: string): Promise<void> {
-    const viewportIntent = viewportIntentVersion
     const result = await run('save', (ticket) => api.saveAs(path, (value) => reportProgress(ticket, value)), true)
     if (!result.epochCurrent) return
+    sessionEpoch += 1
+    sourceIdentity.value += 1
     undoDepth.value = 0
     invalidateDerivedContent()
-    updateFileState(result.value)
-    await refreshPage(viewportIntent)
+    file.value = result.value.file
+    page.value = null
   }
   function saveAs(path: string): Promise<void> { return runMutation(() => saveAsCore(path)) }
 

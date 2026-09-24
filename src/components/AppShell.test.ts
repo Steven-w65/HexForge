@@ -16,11 +16,10 @@ describe('AppShell', () => {
     expect(wrapper.find('.status-bar').exists()).toBe(true)
   })
 
-  it('coordinates the enlarged menu row with top-layer positioning', () => {
+  it('keeps the menu row at its compact height', () => {
     const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: true } } })
     const style = wrapper.get('[data-testid="app-shell"]').attributes('style') ?? ''
-    expect(style).toContain('--top-menu-height: 32px')
-    expect(style).toContain('--top-layer-offset: 74px')
+    expect(style).toContain('--top-menu-height: 34px')
   })
 
   it('requests the parsed-results panel toggle and row-width changes', async () => {
@@ -65,6 +64,26 @@ describe('AppShell', () => {
     expect(wrapper.find('[data-testid="template-editor-panel"] .template-editor').exists()).toBe(true)
     await wrapper.get('[data-action="close-template-editor"]').trigger('click')
     expect(wrapper.emitted('close-template-editor')).toEqual([[]])
+  })
+
+  it('anchors the Template Editor below expanded file details', async () => {
+    const wrapper = mount(AppShell, { props: {
+      file: { name: 'firmware.bin', path: 'C:/firmware.bin', size: '32', revision: '1', dirty: false },
+      templateEditorOpen: true,
+    }, global: { stubs: { HexCanvas: true } } })
+    await wrapper.get('[data-action="toggle-file-details"]').trigger('click')
+    expect(wrapper.find('[data-testid="file-details"]').exists()).toBe(true)
+    expect(wrapper.get('.workspace').find('[data-testid="template-editor-panel"]').exists()).toBe(true)
+  })
+
+  it('keeps the selected offset visible when its byte is outside the current page', () => {
+    const wrapper = mount(AppShell, { props: {
+      file: { name: 'firmware.bin', path: 'C:/firmware.bin', size: '4096', revision: '1', dirty: false },
+      page: { offset: '0', bytes: [0x41], modifiedOffsets: [], revision: '1', generation: 1 },
+      selection: { start: 100n, end: 100n, count: 1n },
+    }, global: { stubs: { HexCanvas: true } } })
+    expect(wrapper.get('.status-bar').text()).toContain('Offset 0x64')
+    expect(wrapper.get('.status-bar').text()).toContain('Byte —')
   })
 
   it('routes the empty-state Open action and identifies an opened empty file', async () => {

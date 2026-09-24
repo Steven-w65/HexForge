@@ -45,10 +45,10 @@ function formatSize(value: string): string {
 </template>
 
 <style scoped>
-.file-info-bar { box-sizing: border-box; min-width: 0; min-height: 42px; padding: 0 10px; color: var(--muted); background: var(--surface); border-bottom: 1px solid var(--border); font-size: 10px; }
+.file-info-bar { box-sizing: border-box; min-width: 0; min-height: 42px; padding: 0 10px; color: var(--muted); background: var(--surface); border-bottom: 1px solid var(--border); font-size: var(--font-support); }
 .summary { min-width: 0; height: 41px; display: flex; align-items: center; gap: 7px; }
 .summary > svg { flex: 0 0 auto; width: 15px; height: 15px; color: var(--address); fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-strong { max-width: min(32vw, 320px); overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+strong { max-width: min(32vw, 320px); overflow: hidden; color: var(--text); font-size: var(--font-body); text-overflow: ellipsis; white-space: nowrap; }
 .separator { color: var(--border-strong); }
 .size { flex: 0 0 auto; }
 .path { min-width: 48px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -58,7 +58,7 @@ button { flex: 0 0 auto; width: 26px; height: 26px; display: grid; place-items: 
 button:hover { color: var(--text); background: var(--hover); }
 button svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .details { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 9px; padding: 0 22px 9px; line-height: 1.45; }
-.details-label { color: var(--address); font-size: 9px; letter-spacing: .08em; }
+.details-label { color: var(--address); font-size: var(--font-support); letter-spacing: .08em; }
 .full-path { overflow-wrap: anywhere; color: var(--text); }
 .empty { color: var(--muted); }
 @media (max-width: 720px) { .separator, .path { display: none; } strong { max-width: 42vw; } }

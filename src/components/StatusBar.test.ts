@@ -2,7 +2,7 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import StatusBar from './StatusBar.vue'
 
-const statusProps = (selected: { offset: bigint; value: number } | null = null) => ({
+const statusProps = (selected: { offset: bigint; value: number | null } | null = null) => ({
   fileSize: 4096n, selected, selectedCount: selected ? 1n : 0n, bytesPerRow: 16 as const,
   editMode: false, endianness: 'little' as const, dirty: false,
 })
@@ -25,5 +25,11 @@ describe('StatusBar', () => {
     expect(wrapper.get('[data-testid="status-progress"]').text()).toContain('Saving copy · 64 / 128')
     await wrapper.get('[data-row-width="32"]').trigger('click')
     expect(wrapper.emitted('update:bytesPerRow')).toEqual([[32]])
+  })
+
+  it('shows the selected offset even when the byte value has not been paged in', () => {
+    const wrapper = mount(StatusBar, { props: statusProps({ offset: 100n, value: null }) })
+    expect(wrapper.text()).toContain('Offset 0x64')
+    expect(wrapper.text()).toContain('Byte —')
   })
 })

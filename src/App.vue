@@ -54,6 +54,15 @@ async function confirmDiscard(): Promise<boolean> {
   return await nativeCall(() => confirm('This file has unsaved in-memory edits. Discard them?', { title: 'HexForge', kind: 'warning' })) === true
 }
 
+async function confirmExitDiscard(fileDirty: boolean, templateDraftDirty: boolean): Promise<boolean> {
+  const description = fileDirty && templateDraftDirty
+    ? 'Unsaved byte edits and template changes will be lost. Exit HexForge?'
+    : templateDraftDirty
+      ? 'Unsaved template changes will be lost. Exit HexForge?'
+      : 'Unsaved byte edits will be lost. Exit HexForge?'
+  return await nativeCall(() => confirm(description, { title: 'HexForge', kind: 'warning' })) === true
+}
+
 async function openPath(path: string): Promise<void> {
   let discard = false
   if (session.file.value?.dirty) {
@@ -228,7 +237,16 @@ onMounted(async () => {
   }))
   try {
     const closeUnlisten = await getCurrentWindow().onCloseRequested(async (event) => {
-      try { await handleCloseRequest(event, session.prepareClose, confirmDiscard, closeGuard, session.releaseCloseBarrier) }
+      let fileDirty = false
+      let templateDraftDirty = false
+      try {
+        await handleCloseRequest(event, async () => {
+          const state = await session.prepareClose()
+          fileDirty = state.dirty
+          templateDraftDirty = templateDirty.value
+          return { dirty: fileDirty || templateDraftDirty }
+        }, () => confirmExitDiscard(fileDirty, templateDraftDirty), closeGuard, session.releaseCloseBarrier)
+      }
       catch (error) { session.presentError(error) }
     })
     if (disposed) closeUnlisten(); else disposers.push(closeUnlisten)
@@ -277,8 +295,8 @@ onBeforeUnmount(() => { disposed = true; disposers.splice(0).forEach((dispose) =
 <style src="./styles/theme.css"></style>
 <style scoped>
 .prompt-form { display: grid; gap: 7px; margin-top: 12px; }
-.prompt-form label { color: var(--text); font-size: 10px; }
-.prompt-form small { color: var(--muted); font-size: 9px; line-height: 1.4; }
+.prompt-form label { color: var(--text); font-size: var(--font-support); }
+.prompt-form small { color: var(--muted); font-size: var(--font-support); line-height: 1.4; }
 .prompt-form input { min-width: 0; height: 30px; padding: 0 8px; color: var(--text); background: var(--input); border: 1px solid var(--border); border-radius: 4px; outline: none; font: inherit; }
 .prompt-form input:focus { border-color: var(--selection); box-shadow: 0 0 0 1px color-mix(in srgb, var(--selection) 55%, transparent); }
 .prompt-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 5px; }

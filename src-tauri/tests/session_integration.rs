@@ -56,7 +56,7 @@ fn save_as_applies_edits_without_changing_source() {
     assert_eq!(summary.destination, std::fs::canonicalize(&output).unwrap());
     assert_eq!(std::fs::read(&source).unwrap(), [1, 2, 3, 4]);
     assert_eq!(std::fs::read(&output).unwrap(), [1, 9, 3, 4]);
-    assert!(!session.is_dirty());
+    assert!(session.is_dirty());
 }
 
 #[test]

@@ -116,6 +116,22 @@ describe('App desktop orchestration', () => {
     wrapper.unmount()
   })
 
+  it('warns before exit when only a template draft is unsaved', async () => {
+    mocks.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('t', { ctrlKey: true, shiftKey: true }); await flushPromises()
+    await wrapper.get('[data-action="add-field"]').trigger('click'); await flushPromises()
+    await wrapper.get('[data-action="close-template-editor"]').trigger('click')
+    const cancelled = { preventDefault: vi.fn() }
+    await mocks.closeHandler?.(cancelled)
+    expect(cancelled.preventDefault).toHaveBeenCalledOnce()
+    expect(mocks.confirm).toHaveBeenCalledWith(expect.stringContaining('template'), expect.any(Object))
+    const approved = { preventDefault: vi.fn() }
+    await mocks.closeHandler?.(approved)
+    expect(approved.preventDefault).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('prevents a dirty close until discard is confirmed', async () => {
     mocks.open.mockResolvedValue('C:/dirty.bin')
     mocks.backend.openFile.mockResolvedValue({ ...file, dirty: true })
@@ -280,7 +296,8 @@ describe('App desktop orchestration', () => {
   it('routes File shortcuts to Open, Save As, Export, Close and Exit', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
     mocks.save.mockResolvedValueOnce('C:/results.csv').mockResolvedValueOnce('C:/copy.bin')
-    mocks.backend.saveAs.mockResolvedValue({ dirty: false, revision: '2', bytesWritten: '32', destination: 'C:/copy.bin' })
+    mocks.backend.saveAs.mockResolvedValue({ dirty: false, revision: '0', bytesWritten: '32', destination: 'C:/copy.bin',
+      file: { name: 'copy.bin', path: 'C:/copy.bin', size: '32', revision: '0', dirty: false } })
     mocks.backend.applyTemplate.mockResolvedValue([{ name: 'x', offset: '0', type: 'u8', length: 1, endianness: 'little', value: '41', comment: '' }])
     mocks.backend.exportResultsCsv.mockResolvedValue(undefined); mocks.backend.closeFile.mockResolvedValue(undefined)
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()

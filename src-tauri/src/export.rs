@@ -102,7 +102,6 @@ where
             AppError::from_io(error, Some(&destination)),
         ));
     }
-    session.clear_edits();
     Ok(SaveSummary {
         bytes_written,
         destination,
@@ -382,7 +381,7 @@ fn cleanup_owned_stage<S: OwnedStagedOutput>(stage: S, error: AppError) -> AppEr
 mod tests {
     use super::{
         copy_effective, export_csv_create_new, export_csv_create_new_with_stage,
-        normalized_destination, save_session_as_with_stage, OwnedStagedOutput,
+        normalized_destination, save_session_as, save_session_as_with_stage, OwnedStagedOutput,
     };
     use crate::edit_buffer::EditBuffer;
     use crate::error::ErrorCode;
@@ -603,6 +602,24 @@ mod tests {
             destination,
             std::fs::canonicalize(".").unwrap().join("copy.bin")
         );
+    }
+
+    #[test]
+    fn save_as_keeps_source_edits_until_the_saved_copy_is_opened() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.bin");
+        let copy = dir.path().join("copy.bin");
+        std::fs::write(&source, [1, 2, 3]).unwrap();
+        let mut session = FileSession::open(source.clone(), 2, 2).unwrap();
+        session.edit_byte(1, 9).unwrap();
+
+        let summary = save_session_as(&mut session, &copy, 2).unwrap();
+
+        assert_eq!(summary.bytes_written, 3);
+        assert_eq!(std::fs::read(&copy).unwrap(), [1, 9, 3]);
+        assert_eq!(std::fs::read(&source).unwrap(), [1, 2, 3]);
+        assert!(session.is_dirty());
+        assert_eq!(session.read_range(0, 3).unwrap().bytes, [1, 9, 3]);
     }
 
     #[test]

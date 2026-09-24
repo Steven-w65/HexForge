@@ -69,6 +69,7 @@ export interface UndoResponse extends DirtyState {
 export interface SaveResponse extends DirtyState {
   bytesWritten: OffsetString
   destination: string
+  file: FileInfo
 }
 
 export interface SearchResponse {

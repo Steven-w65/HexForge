@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { OperationProgress, PageResponse, ParsedField, TemplateDefinition } from '../types'
+import type { OperationProgress, PageResponse, ParsedField, SaveResponse, TemplateDefinition } from '../types'
 import { useHexSession, type HexBackend } from './useHexSession'
 
 function deferred<T>() {
@@ -19,7 +19,8 @@ function fakeBackend(): HexBackend {
     closeFile: vi.fn().mockResolvedValue(undefined), getFileInfo: vi.fn(),
     readPage: vi.fn().mockResolvedValue(pageAt(0n)), editByte: vi.fn().mockResolvedValue({ dirty: true, revision: '2' }),
     undoEdit: vi.fn().mockResolvedValue({ dirty: false, revision: '3', undone: true }), getDirtyState: vi.fn(),
-    saveAs: vi.fn().mockResolvedValue({ dirty: false, revision: '4', bytesWritten: '8192', destination: 'copy.bin' }),
+    saveAs: vi.fn().mockResolvedValue({ dirty: false, revision: '0', bytesWritten: '8192', destination: 'copy.bin',
+      file: { name: 'copy.bin', path: 'copy.bin', size: '8192', revision: '0', dirty: false } }),
     searchBytes: vi.fn().mockResolvedValue({ matches: ['16', '32'], truncated: false }),
     applyTemplate: vi.fn().mockResolvedValue([]), loadTemplate: vi.fn(), saveTemplate: vi.fn(), exportResultsCsv: vi.fn(),
   }
@@ -255,14 +256,15 @@ describe('useHexSession', () => {
   })
 
   it('ignores a Save As result from file A after file B replaces the session', async () => {
-    const backend = fakeBackend(); const savedA = deferred<{ dirty: boolean; revision: string; bytesWritten: string; destination: string }>()
+    const backend = fakeBackend(); const savedA = deferred<SaveResponse>()
     vi.mocked(backend.saveAs).mockReturnValue(savedA.promise)
     vi.mocked(backend.openFile).mockResolvedValue({ name: 'b.bin', path: 'b.bin', size: '2', revision: 'b1', dirty: true })
     const session = useHexSession(backend)
     session.file.value = { name: 'a.bin', path: 'a.bin', size: '2', revision: 'a1', dirty: true }
     const save = session.saveAs('a-copy.bin')
     await session.openFile('b.bin')
-    savedA.resolve({ dirty: false, revision: 'a2', bytesWritten: '2', destination: 'a-copy.bin' }); await save
+    savedA.resolve({ dirty: false, revision: '0', bytesWritten: '2', destination: 'a-copy.bin',
+      file: { name: 'a-copy.bin', path: 'a-copy.bin', size: '2', revision: '0', dirty: false } }); await save
     expect(session.file.value).toMatchObject({ name: 'b.bin', revision: 'b1', dirty: true })
   })
 
@@ -294,14 +296,15 @@ describe('useHexSession', () => {
   })
 
   it('applies a Save As result to file A when a replacement open fails', async () => {
-    const backend = fakeBackend(); const savedA = deferred<{ dirty: boolean; revision: string; bytesWritten: string; destination: string }>(); const openedB = deferred<never>()
+    const backend = fakeBackend(); const savedA = deferred<SaveResponse>(); const openedB = deferred<never>()
     vi.mocked(backend.saveAs).mockReturnValue(savedA.promise); vi.mocked(backend.openFile).mockReturnValue(openedB.promise)
     const session = useHexSession(backend)
     session.file.value = { name: 'a.bin', path: 'a.bin', size: '2', revision: 'a1', dirty: true }
     const save = session.saveAs('a-copy.bin'); const open = session.openFile('b.bin').catch(() => undefined)
     openedB.reject({ code: 'permission_denied', message: 'B failed.' }); await open
-    savedA.resolve({ dirty: false, revision: 'a2', bytesWritten: '2', destination: 'a-copy.bin' }); await save
-    expect(session.file.value).toMatchObject({ name: 'a.bin', revision: 'a2', dirty: false })
+    savedA.resolve({ dirty: false, revision: '0', bytesWritten: '2', destination: 'a-copy.bin',
+      file: { name: 'a-copy.bin', path: 'a-copy.bin', size: '2', revision: '0', dirty: false } }); await save
+    expect(session.file.value).toMatchObject({ name: 'a-copy.bin', revision: '0', dirty: false })
   })
 
   it('validates edit text before invoking Rust and refreshes the current page', async () => {
@@ -350,25 +353,45 @@ describe('useHexSession', () => {
     await session.undo(); expect(session.file.value!.dirty).toBe(false)
     session.file.value!.dirty = true
     await session.saveAs('copy.bin'); expect(session.file.value!.dirty).toBe(false)
-    expect(session.file.value!.path).toBe('input.bin')
+    expect(session.file.value!.path).toBe('copy.bin')
   })
 
-  it('refreshes the active source and invalidates derived state after Save As clears edits', async () => {
+  it('invalidates the old page and derived state after Save As changes the active source', async () => {
     const backend = fakeBackend(); const session = useHexSession(backend)
     session.file.value = { name: 'input.bin', path: 'input.bin', size: '8192', revision: '3', dirty: true }
     session.page.value = { offset: '16', bytes: [0x99], modifiedOffsets: ['16'], revision: '3', generation: 7 }
     session.matches.value = [16n]; session.results.value = [{ name: 'stale' } as ParsedField]
-    vi.mocked(backend.readPage).mockResolvedValue({ offset: '16', bytes: [0x41], modifiedOffsets: [], revision: '4' })
     await session.saveAs('copy.bin')
-    expect(session.file.value).toMatchObject({ path: 'input.bin', dirty: false, revision: '4' })
-    expect(session.page.value).toMatchObject({ offset: '16', bytes: [0x41], modifiedOffsets: [], revision: '4', generation: 7 })
+    expect(session.file.value).toMatchObject({ path: 'copy.bin', dirty: false, revision: '0' })
+    expect(session.page.value).toBeNull()
     expect(session.matches.value).toEqual([]); expect(session.results.value).toEqual([])
     expect(session.searchMatchLength.value).toBe(1); expect(session.searchTruncated.value).toBe(false)
-    expect(backend.readPage).toHaveBeenCalledWith(16n, 1)
+    expect(backend.readPage).not.toHaveBeenCalled()
+  })
+
+  it('keeps the viewport and selection while switching to the saved copy', async () => {
+    const backend = fakeBackend(); const session = useHexSession(backend)
+    session.file.value = { name: 'source.bin', path: 'C:/source.bin', size: '8192', revision: '3', dirty: true }
+    session.page.value = { offset: '16', bytes: [0x99], modifiedOffsets: ['16'], revision: '3', generation: 7 }
+    session.selection.value = { start: 16n, end: 16n, count: 1n }
+    session.viewportOffset.value = 16n
+    vi.mocked(backend.saveAs).mockResolvedValue({
+      dirty: false, revision: '0', bytesWritten: '8192', destination: 'C:/copy.bin',
+      file: { name: 'copy.bin', path: 'C:/copy.bin', size: '8192', revision: '0', dirty: false },
+    })
+
+    await session.saveAs('C:/copy.bin')
+
+    expect(session.file.value).toMatchObject({ name: 'copy.bin', path: 'C:/copy.bin', dirty: false })
+    expect(session.sourceIdentity.value).toBe(1)
+    expect(session.page.value).toBeNull()
+    expect(session.viewportOffset.value).toBe(16n)
+    expect(session.selection.value).toEqual({ start: 16n, end: 16n, count: 1n })
+    expect(backend.readPage).not.toHaveBeenCalled()
   })
 
   it('keeps the visible activity label and progress owned by the same newest operation', async () => {
-    const backend = fakeBackend(); const found = deferred<{ matches: string[]; truncated: boolean }>(); const saved = deferred<{ dirty: boolean; revision: string; bytesWritten: string; destination: string }>()
+    const backend = fakeBackend(); const found = deferred<{ matches: string[]; truncated: boolean }>(); const saved = deferred<SaveResponse>()
     let searchProgress!: (value: OperationProgress) => void; let saveProgress!: (value: OperationProgress) => void
     vi.mocked(backend.searchBytes).mockImplementation((_pattern, progress) => { searchProgress = progress; return found.promise })
     vi.mocked(backend.saveAs).mockImplementation((_path, progress) => { saveProgress = progress; return saved.promise })
@@ -379,7 +402,8 @@ describe('useHexSession', () => {
     saveProgress({ operationId: 'save', phase: 'save', processed: '2', total: '8' })
     searchProgress({ operationId: 'search', phase: 'search', processed: '9', total: '10' })
     expect(session.activity.value).toEqual({ operation: 'save', progress: expect.objectContaining({ operationId: 'save', processed: '2' }) })
-    saved.resolve({ dirty: false, revision: '2', bytesWritten: '8', destination: 'copy.bin' }); await save
+    saved.resolve({ dirty: false, revision: '0', bytesWritten: '8', destination: 'copy.bin',
+      file: { name: 'copy.bin', path: 'copy.bin', size: '8', revision: '0', dirty: false } }); await save
     expect(session.activity.value).toEqual({ operation: 'search', progress: expect.objectContaining({ operationId: 'search', processed: '9' }) })
     found.resolve({ matches: [], truncated: false }); await search
     expect(session.activity.value).toBeNull()

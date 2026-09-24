@@ -53,10 +53,11 @@ const effectiveMenuState = computed<MenuState>(() => ({
   hasParsedResults: props.results.length > 0,
 }))
 const selectedByte = computed(() => {
-  if (!props.selection || !props.page) return null
+  if (!props.selection) return null
   const offset = props.selection.start
+  if (!props.page) return { offset, value: null }
   const index = offset - BigInt(props.page.offset)
-  if (index < 0n || index >= BigInt(props.page.bytes.length)) return null
+  if (index < 0n || index >= BigInt(props.page.bytes.length)) return { offset, value: null }
   return { offset, value: props.page.bytes[Number(index)]! }
 })
 
@@ -67,7 +68,7 @@ const selectedByte = computed(() => {
     data-testid="app-shell"
     class="app-shell"
     :class="{ 'right-collapsed': rightCollapsed }"
-    :style="{ '--compact-right-width': `${COMPACT_RIGHT_WIDTH}px`, '--top-menu-height': '32px', '--top-layer-offset': '74px' }"
+    :style="{ '--compact-right-width': `${COMPACT_RIGHT_WIDTH}px`, '--top-menu-height': '34px' }"
     role="application"
   >
     <TopMenu :state="effectiveMenuState" :bytes-per-row="bytesPerRow"
@@ -87,16 +88,16 @@ const selectedByte = computed(() => {
       </section>
       <ParsedResultsPanel :results="results" :collapsed="rightCollapsed" :has-file="Boolean(file)" :template-has-fields="template.fields.length > 0"
         @toggle-collapse="emit('command', 'toggle-right-panel')" @navigate="emit('navigate', $event)" @empty-action="emit('command', $event)" />
+      <aside v-if="templateEditorOpen" data-testid="template-editor-panel" class="template-editor-panel" role="dialog" aria-modal="false" aria-label="Template Editor">
+        <header class="template-editor-header">
+          <div><strong>Template Editor</strong><small>{{ template.name || 'Untitled' }}<span v-if="templateDirty" data-testid="template-modified"> · Modified</span></small></div>
+          <button type="button" data-action="close-template-editor" aria-label="Close Template Editor" @click="emit('close-template-editor')">×</button>
+        </header>
+        <TemplateEditor :model-value="template" :file-size="file ? fileSize : null" :results="results"
+          :can-apply="commandEnabled('apply-template', effectiveMenuState)" @update:model-value="emit('update:template', $event)" @validity="updateTemplateValidity"
+          @save="emit('save-template')" @load="emit('load-template')" @apply="emit('command', 'apply-template')" @navigate="emit('navigate', $event)" />
+      </aside>
     </div>
-    <aside v-if="templateEditorOpen" data-testid="template-editor-panel" class="template-editor-panel" role="dialog" aria-modal="false" aria-label="Template Editor">
-      <header class="template-editor-header">
-        <div><strong>Template Editor</strong><small>{{ template.name || 'Untitled' }}<span v-if="templateDirty" data-testid="template-modified"> · Modified</span></small></div>
-        <button type="button" data-action="close-template-editor" aria-label="Close Template Editor" @click="emit('close-template-editor')">×</button>
-      </header>
-      <TemplateEditor :model-value="template" :file-size="file ? fileSize : null" :results="results"
-        :can-apply="commandEnabled('apply-template', effectiveMenuState)" @update:model-value="emit('update:template', $event)" @validity="updateTemplateValidity"
-        @save="emit('save-template')" @load="emit('load-template')" @apply="emit('command', 'apply-template')" @navigate="emit('navigate', $event)" />
-    </aside>
     <StatusBar :file-size="fileSize" :selected="selectedByte" :selected-count="selection?.count ?? 0n" :bytes-per-row="bytesPerRow"
       :edit-mode="editMode" :endianness="endianness" :dirty="file?.dirty ?? false" :busy-label="busyLabel" :progress-text="progressText"
       @update:bytes-per-row="emit('update:bytesPerRow', $event)" />
@@ -106,20 +107,20 @@ const selectedByte = computed(() => {
 
 <style scoped>
 .app-shell { position: relative; width: 100vw; height: 100vh; display: grid; grid-template-rows: var(--top-menu-height) auto minmax(0, 1fr) 24px; color: var(--text); background: var(--bg); overflow: hidden; }
-.workspace { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(240px, 30vw); min-width: 0; min-height: 0; }
+.workspace { position: relative; display: grid; grid-template-columns: minmax(360px, 1fr) minmax(240px, 30vw); min-width: 0; min-height: 0; }
 .app-shell.right-collapsed .workspace { grid-template-columns: minmax(360px, 1fr) 28px; }
 .hex-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
-.search-notice { position: absolute; z-index: 2; top: 10px; left: 12px; padding: 5px 8px; color: var(--modified); background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--border); border-radius: 4px; font-size: 10px; pointer-events: none; }
+.search-notice { position: absolute; z-index: 2; top: 10px; left: 12px; padding: 5px 8px; color: var(--modified); background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--border); border-radius: 4px; font-size: var(--font-support); pointer-events: none; }
 .drop-prompt { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 7px; color: var(--muted); }
 .drop-prompt span { display: grid; place-items: center; width: 42px; height: 42px; color: var(--address); border: 1px dashed var(--border-strong); border-radius: 8px; font-size: 22px; }
-.drop-prompt button { height: 28px; margin-top: 3px; padding: 0 12px; color: var(--text); background: var(--button); border: 0; border-radius: 4px; font: inherit; font-size: 10px; }
+.drop-prompt button { height: 28px; margin-top: 3px; padding: 0 12px; color: var(--text); background: var(--button); border: 0; border-radius: 4px; font: inherit; font-size: var(--font-body); }
 .drop-prompt button:hover { background: var(--hover); }
-.empty-file { position: absolute; inset: 0 8px 0 0; display: grid; place-items: center; color: var(--muted); background: var(--bg); font-size: 11px; pointer-events: none; }
-.template-editor-panel { position: absolute; z-index: 5; top: var(--top-layer-offset); right: 0; bottom: 24px; box-sizing: border-box; width: min(560px, calc(100vw - 36px)); display: flex; flex-direction: column; gap: 12px; padding: 12px; color: var(--text); background: color-mix(in srgb, var(--panel) 97%, transparent); border-left: 1px solid var(--border-strong); box-shadow: -12px 0 28px rgb(0 0 0 / 16%); }
+.empty-file { position: absolute; inset: 0 8px 0 0; display: grid; place-items: center; color: var(--muted); background: var(--bg); font-size: var(--font-body); pointer-events: none; }
+.template-editor-panel { position: absolute; z-index: 5; top: 0; right: 0; bottom: 0; box-sizing: border-box; width: min(560px, calc(100vw - 36px)); display: flex; flex-direction: column; gap: 12px; padding: 12px; color: var(--text); background: color-mix(in srgb, var(--panel) 97%, transparent); border-left: 1px solid var(--border-strong); box-shadow: -12px 0 28px rgb(0 0 0 / 16%); }
 .template-editor-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 9px; border-bottom: 1px solid var(--border); }
 .template-editor-header div { display: grid; gap: 2px; }
-.template-editor-header strong { font-size: 12px; }
-.template-editor-header small { color: var(--muted); font-size: 10px; }
+.template-editor-header strong { font-size: var(--font-heading); }
+.template-editor-header small { color: var(--muted); font-size: var(--font-support); }
 .template-editor-header small span { color: var(--modified); }
 .template-editor-header button { width: 26px; height: 26px; color: var(--muted); background: transparent; border: 0; border-radius: 4px; font: inherit; font-size: 18px; }
 .template-editor-header button:hover { color: var(--text); background: var(--hover); }

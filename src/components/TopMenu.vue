@@ -289,17 +289,17 @@ export default { components: { MenuCommandItem } }
 </script>
 
 <style scoped>
-.top-menu { position: relative; display: flex; align-items: center; height: var(--top-menu-height, 32px); padding: 0 10px; background: var(--surface); border-bottom: 1px solid var(--border); }
-.menu-brand { display: flex; align-items: center; gap: 8px; margin-right: 18px; white-space: nowrap; font-size: 13px; letter-spacing: .02em; }
-.brand-mark { display: grid; place-items: center; width: 22px; height: 22px; color: var(--selection-text); background: var(--selection); border-radius: 4px; font-size: 10px; font-weight: 700; }
-.top-menu > button { height: 27px; padding: 0 10px; color: var(--muted); background: transparent; border: 0; border-radius: 3px; font: inherit; font-size: 12px; text-transform: none; }
+.top-menu { position: relative; display: flex; align-items: center; height: var(--top-menu-height, 34px); padding: 0 10px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.menu-brand { display: flex; align-items: center; gap: 8px; margin-right: 19px; white-space: nowrap; font-size: var(--font-title); letter-spacing: .02em; }
+.brand-mark { display: grid; place-items: center; width: 23px; height: 23px; color: var(--selection-text); background: var(--selection); border-radius: 4px; font-size: 10px; font-weight: 700; }
+.top-menu > button { height: 29px; padding: 0 11px; color: var(--muted); background: transparent; border: 0; border-radius: 3px; font: inherit; font-size: var(--font-heading); text-transform: none; }
 .top-menu > button:hover, .top-menu > button[aria-expanded='true'] { color: var(--text); background: var(--hover); }
-.menu-popup { position: absolute; z-index: 20; top: calc(var(--top-menu-height, 32px) - 1px); display: grid; min-width: 260px; padding: 4px; color: var(--text); background: var(--panel); border: 1px solid var(--border-strong); border-radius: 4px; box-shadow: 0 8px 20px rgb(0 0 0 / 24%); }
-.menu-item { display: grid; grid-template-columns: 14px minmax(120px, 1fr) auto; align-items: center; min-height: 29px; gap: 7px; padding: 0 8px; color: var(--text); background: transparent; border: 0; border-radius: 3px; font: inherit; font-size: 11px; text-align: left; }
+.menu-popup { position: absolute; z-index: 20; top: calc(var(--top-menu-height, 34px) - 1px); display: grid; min-width: 280px; padding: 4px; color: var(--text); background: var(--panel); border: 1px solid var(--border-strong); border-radius: 4px; box-shadow: 0 8px 20px rgb(0 0 0 / 24%); }
+.menu-item { display: grid; grid-template-columns: 14px minmax(120px, 1fr) auto; align-items: center; min-height: 33px; gap: 7px; padding: 0 9px; color: var(--text); background: transparent; border: 0; border-radius: 3px; font: inherit; font-size: var(--font-body); text-align: left; }
 .menu-item:hover:not(:disabled), .menu-item:focus-visible { background: var(--hover); outline: none; }
 .menu-item:disabled { opacity: .38; }
 .submenu-trigger { grid-template-columns: minmax(120px, 1fr) auto; }
-kbd { color: var(--muted); font: inherit; font-size: 10px; }
+kbd { color: var(--muted); font: inherit; font-size: var(--font-support); }
 .separator { height: 1px; margin: 4px 3px; background: var(--border); }
 .submenu-flyout { position: absolute; left: calc(100% + 4px); display: grid; min-width: 230px; max-height: 280px; padding: 4px; overflow: auto; color: var(--text); background: var(--panel); border: 1px solid var(--border-strong); border-radius: 4px; box-shadow: 0 8px 20px rgb(0 0 0 / 24%); }
 .submenu-flyout .menu-item { grid-template-columns: minmax(120px, 1fr) auto; }

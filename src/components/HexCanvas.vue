@@ -281,7 +281,11 @@ watch(() => props.fileSize, () => {
 })
 watch([() => props.sourceIdentity, () => props.sourceKey, () => props.sourceRevision], ([nextIdentity, nextKey], [previousIdentity, previousKey]) => {
   invalidateAcceptedPage()
-  if (nextIdentity !== previousIdentity || nextKey !== previousKey) scrollRow.value = 0n
+  if (nextIdentity !== previousIdentity || nextKey !== previousKey) {
+    const requestedRow = (props.navigateOffset ?? 0n) / BigInt(props.bytesPerRow)
+    const lastRow = totalRows.value > 0n ? totalRows.value - 1n : 0n
+    scrollRow.value = requestedRow < 0n ? 0n : requestedRow > lastRow ? lastRow : requestedRow
+  }
   requestPage()
   schedule()
 })

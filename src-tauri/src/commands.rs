@@ -115,6 +115,7 @@ pub struct UndoResponse {
 pub struct SaveResponse {
     pub bytes_written: String,
     pub destination: String,
+    pub file: FileInfoDto,
     #[serde(flatten)]
     pub state: DirtyState,
 }
@@ -239,6 +240,30 @@ fn close_core(session: &mut Option<FileSession>, discard_unsaved: bool) -> Resul
     Ok(())
 }
 
+fn save_as_core(
+    session: &mut Option<FileSession>,
+    destination: PathBuf,
+    progress: &mut dyn FnMut(u64),
+) -> Result<SaveResponse, AppError> {
+    // Keep the source session and its edits intact until the new copy is readable.
+    let summary = export::save_session_as_with_progress(
+        active_session(session)?,
+        &destination,
+        PAGE_SIZE,
+        progress,
+    )?;
+    let replacement = FileSession::open(summary.destination.clone(), PAGE_SIZE, MAX_PAGES)?;
+    let file = replacement.info().into();
+    let state = DirtyState::from(&replacement);
+    *session = Some(replacement);
+    Ok(SaveResponse {
+        bytes_written: summary.bytes_written.to_string(),
+        destination: summary.destination.to_string_lossy().into_owned(),
+        file,
+        state,
+    })
+}
+
 fn with_session_state<T>(
     shared: &Arc<Mutex<Option<FileSession>>>,
     operation: impl FnOnce(&mut Option<FileSession>) -> Result<T, AppError>,
@@ -343,22 +368,14 @@ pub async fn save_as(
     on_progress: Channel<OperationProgress>,
 ) -> Result<SaveResponse, AppError> {
     session_operation(&state, move |session| {
-        let session = active_session(session)?;
         let reporter = Reporter::new(on_progress);
-        let total = session.source_size();
+        let total = active_session(session)?.source_size();
         reporter.send(OperationPhase::Save, 0, total);
-        let summary = export::save_session_as_with_progress(
-            session,
-            &PathBuf::from(path),
-            PAGE_SIZE,
-            &mut |processed| reporter.send(OperationPhase::Save, processed, total),
-        )?;
-        reporter.send(OperationPhase::Complete, summary.bytes_written, total);
-        Ok(SaveResponse {
-            bytes_written: summary.bytes_written.to_string(),
-            destination: summary.destination.to_string_lossy().into_owned(),
-            state: DirtyState::from(&*session),
-        })
+        let saved = save_as_core(session, PathBuf::from(path), &mut |processed| {
+            reporter.send(OperationPhase::Save, processed, total)
+        })?;
+        reporter.send(OperationPhase::Complete, total, total);
+        Ok(saved)
     })
     .await
 }
@@ -579,6 +596,38 @@ mod tests {
             close_core(&mut current, false).unwrap_err().code(),
             "no_active_file"
         );
+    }
+
+    #[test]
+    fn save_as_switches_to_the_new_read_only_copy_without_touching_the_original() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.bin");
+        let copy = dir.path().join("copy.bin");
+        std::fs::write(&source, [1, 2, 3]).unwrap();
+        let mut current = None;
+        open_core(&mut current, source.clone(), false).unwrap();
+        active_session(&mut current)
+            .unwrap()
+            .edit_byte(1, 9)
+            .unwrap();
+
+        let saved = save_as_core(&mut current, copy.clone(), &mut |_| {}).unwrap();
+
+        assert_eq!(saved.bytes_written, "3");
+        assert_eq!(
+            saved.file.path,
+            std::fs::canonicalize(&copy).unwrap().to_string_lossy()
+        );
+        assert_eq!(
+            active_session(&mut current)
+                .unwrap()
+                .read_range(0, 3)
+                .unwrap()
+                .bytes,
+            [1, 9, 3]
+        );
+        assert!(!active_session(&mut current).unwrap().is_dirty());
+        assert_eq!(std::fs::read(&source).unwrap(), [1, 2, 3]);
     }
 
     #[test]
