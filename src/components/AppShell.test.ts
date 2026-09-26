@@ -21,6 +21,14 @@ describe('AppShell', () => {
     expect(style).toContain('--top-menu-height: 34px')
   })
 
+  it('suppresses the browser context menu inside the main window', () => {
+    const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: true } } })
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+    wrapper.get('[data-testid="file-info-bar"]').element.dispatchEvent(event)
+    wrapper.unmount()
+    expect(event.defaultPrevented).toBe(true)
+  })
+
   it('requests the bottom results-pane toggle and row-width changes', async () => {
     const wrapper = mount(AppShell, { props: { rightCollapsed: false } })
     await wrapper.get('[data-action="collapse-results"]').trigger('click')

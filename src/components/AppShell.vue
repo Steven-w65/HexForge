@@ -63,6 +63,7 @@ const selectedByte = computed(() => {
     :class="{ 'results-collapsed': rightCollapsed }"
     :style="{ '--results-pane-height': '220px', '--top-menu-height': '34px' }"
     role="application"
+    @contextmenu.prevent
   >
     <TopMenu :state="effectiveMenuState" :bytes-per-row="bytesPerRow"
       :file-size="fileSize" :template="template" :results="results" @command="emit('command', $event)" @navigate="emit('navigate', $event)" />

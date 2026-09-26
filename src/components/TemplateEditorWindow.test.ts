@@ -41,6 +41,25 @@ describe('TemplateEditorWindow', () => {
     initial.checkpointTemplate = { ...initial.template }
   })
 
+  it('uses only the native title-bar close control', async () => {
+    const wrapper = mount(TemplateEditorWindow); await flushPromises()
+    const hasInPageCloseButton = wrapper.find('.editor-header button').exists()
+    const event = { preventDefault: vi.fn() }
+    mocks.closeHandler?.(event); await flushPromises()
+    wrapper.unmount()
+    expect(hasInPageCloseButton).toBe(false)
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(mocks.destroy).toHaveBeenCalledOnce()
+  })
+
+  it('suppresses the browser context menu inside the Template Editor', async () => {
+    const wrapper = mount(TemplateEditorWindow); await flushPromises()
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+    wrapper.get('input').element.dispatchEvent(event)
+    wrapper.unmount()
+    expect(event.defaultPrevented).toBe(true)
+  })
+
   it('renders the existing field editor with context and sends edits and actions to main', async () => {
     const wrapper = mount(TemplateEditorWindow); await flushPromises()
     expect(wrapper.get('[data-testid="template-editor-window"]').text()).toContain('Header')
@@ -100,7 +119,7 @@ describe('TemplateEditorWindow', () => {
     initial.templateFilePath = null
     const wrapper = mount(TemplateEditorWindow); await flushPromises()
     await wrapper.get('[data-action="add-field"]').trigger('click'); await flushPromises()
-    await wrapper.get('[data-action="close-template-editor"]').trigger('click'); await flushPromises()
+    mocks.closeHandler?.({ preventDefault: vi.fn() }); await flushPromises()
     expect(wrapper.get('[data-action="editor-save"]').attributes('disabled')).toBeDefined()
     mocks.cancelAction = true
     await wrapper.get('[data-action="editor-save-as"]').trigger('click'); await flushPromises()
@@ -112,7 +131,7 @@ describe('TemplateEditorWindow', () => {
   it('closes a view-only editor without changing an already modified template', async () => {
     initial.dirty = true
     const wrapper = mount(TemplateEditorWindow); await flushPromises()
-    await wrapper.get('[data-action="close-template-editor"]').trigger('click'); await flushPromises()
+    mocks.closeHandler?.({ preventDefault: vi.fn() }); await flushPromises()
     expect(wrapper.find('[data-testid="editor-close-prompt"]').exists()).toBe(false)
     expect(mocks.destroy).toHaveBeenCalledOnce()
     wrapper.unmount()
@@ -127,7 +146,7 @@ describe('TemplateEditorWindow', () => {
       dirty: true,
     })
     await flushPromises()
-    await wrapper.get('[data-action="close-template-editor"]').trigger('click'); await flushPromises()
+    mocks.closeHandler?.({ preventDefault: vi.fn() }); await flushPromises()
     expect(wrapper.find('[data-testid="editor-close-prompt"]').exists()).toBe(true)
     expect(mocks.destroy).not.toHaveBeenCalled()
     wrapper.unmount()

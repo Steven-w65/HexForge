@@ -121,10 +121,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="editor-window" data-testid="template-editor-window">
+  <main class="editor-window" data-testid="template-editor-window" @contextmenu.prevent>
     <header class="editor-header">
       <div><strong>Template Editor</strong><small>{{ model.name || 'Untitled' }}<span v-if="snapshot?.dirty" data-testid="template-modified"> · Modified</span></small></div>
-      <button type="button" data-action="close-template-editor" aria-label="Close Template Editor" @click="closeWindow">×</button>
     </header>
     <TemplateEditor v-if="snapshot" :model-value="model" :file-size="fileSize" :results="snapshot.results"
       :can-unload="Boolean(snapshot?.active)"
@@ -145,13 +144,11 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .editor-window { box-sizing: border-box; width: 100vw; height: 100vh; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 12px; color: var(--text); background: var(--bg); overflow: hidden; }
-.editor-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding-bottom: 9px; border-bottom: 1px solid var(--border); }
+.editor-header { padding-bottom: 9px; border-bottom: 1px solid var(--border); }
 .editor-header div { display: grid; gap: 2px; min-width: 0; }
 .editor-header strong { font-size: var(--font-heading); }
 .editor-header small { overflow: hidden; color: var(--muted); font-size: var(--font-support); text-overflow: ellipsis; white-space: nowrap; }
 .editor-header small span { color: var(--modified); }
-.editor-header button { width: 26px; height: 26px; color: var(--muted); background: transparent; border: 0; border-radius: 4px; font: inherit; font-size: 18px; }
-.editor-header button:hover { color: var(--text); background: var(--hover); }
 .connecting { color: var(--muted); font-size: var(--font-body); }
 .close-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 14px; }
 .close-actions button { width: auto; height: 28px; padding: 0 9px; color: var(--text); background: var(--button); font-size: var(--font-body); }
