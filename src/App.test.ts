@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => {
     backend, open: vi.fn(), save: vi.fn(), message: vi.fn(), confirm: vi.fn(),
     closeHandler: undefined as ((event: { preventDefault(): void }) => Promise<void>) | undefined,
     dropHandler: undefined as ((event: { payload: { type: string; paths: string[] } }) => void) | undefined,
-    unlistenClose: vi.fn(), unlistenDrop: vi.fn(), windowClose: vi.fn(), windowSetFocus: vi.fn(),
+    unlistenClose: vi.fn(), unlistenDrop: vi.fn(), windowClose: vi.fn(), windowSetFocus: vi.fn(), windowDestroyEditor: vi.fn(),
     windowOpen: vi.fn(),
     busSent: vi.fn(),
     busHandlers: new Map<string, (payload: unknown) => void | Promise<void>>(),
@@ -29,7 +29,7 @@ vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => ({
 vi.mock('@tauri-apps/api/webview', () => ({ getCurrentWebview: () => ({
   onDragDropEvent: vi.fn(async (handler) => { mocks.dropHandler = handler; return mocks.unlistenDrop }),
 }) }))
-vi.mock('./templateWindow/windowManager', () => ({ templateWindowManager: { openOrFocus: mocks.windowOpen, forget: vi.fn(), close: vi.fn() } }))
+vi.mock('./templateWindow/windowManager', () => ({ templateWindowManager: { openOrFocus: mocks.windowOpen, forget: vi.fn(), close: vi.fn(), destroy: mocks.windowDestroyEditor } }))
 vi.mock('./templateWindow/tauriBus', () => ({ tauriBus: {
   listen: vi.fn(async (event, callback) => { mocks.busHandlers.set(event, callback); return () => { mocks.busHandlers.delete(event) } }),
   send: vi.fn(async (_target, event, payload) => {
@@ -55,7 +55,7 @@ describe('App desktop orchestration', () => {
     Object.values(mocks.backend).forEach((mock) => mock.mockReset())
     mocks.open.mockReset(); mocks.save.mockReset(); mocks.confirm.mockReset(); mocks.message.mockReset()
     mocks.unlistenClose.mockReset(); mocks.unlistenDrop.mockReset(); mocks.windowClose.mockReset(); mocks.windowClose.mockResolvedValue(undefined); mocks.windowSetFocus.mockReset(); mocks.windowSetFocus.mockResolvedValue(undefined); mocks.closeHandler = undefined; mocks.dropHandler = undefined
-    mocks.windowOpen.mockReset(); mocks.windowOpen.mockResolvedValue(undefined); mocks.busHandlers.clear(); mocks.busSent.mockReset(); mocks.lastDraft = null; mocks.failFlush = false
+    mocks.windowOpen.mockReset(); mocks.windowOpen.mockResolvedValue(undefined); mocks.windowDestroyEditor.mockReset(); mocks.windowDestroyEditor.mockResolvedValue(undefined); mocks.busHandlers.clear(); mocks.busSent.mockReset(); mocks.lastDraft = null; mocks.failFlush = false
     mocks.backend.openFile.mockResolvedValue(file); mocks.backend.readPage.mockResolvedValue(page)
     mocks.backend.undoEdit.mockResolvedValue({ dirty: false, revision: '2', undone: true })
     mocks.backend.getDirtyState.mockResolvedValue({ dirty: false, revision: '1' })
@@ -404,6 +404,24 @@ describe('App desktop orchestration', () => {
     wrapper.unmount()
   })
 
+  it('shuts down the Template Editor before allowing a clean main-window close', async () => {
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    await sendEditorDraft(wrapper.findComponent(AppShell).props('template')!, true)
+    let finishEditorClose!: () => void
+    mocks.windowDestroyEditor.mockImplementation(() => new Promise<void>((resolve) => { finishEditorClose = resolve }))
+    const event = { preventDefault: vi.fn() }
+    let mainCloseReady = false
+    const closeAttempt = mocks.closeHandler?.(event).then(() => { mainCloseReady = true })
+    await flushPromises()
+    expect(mocks.windowDestroyEditor).toHaveBeenCalledOnce()
+    expect(mainCloseReady).toBe(false)
+    finishEditorClose()
+    await closeAttempt
+    expect(mainCloseReady).toBe(true)
+    expect(event.preventDefault).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('warns before exit when only a template draft is unsaved', async () => {
     mocks.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
@@ -411,10 +429,12 @@ describe('App desktop orchestration', () => {
     const cancelled = { preventDefault: vi.fn() }
     await mocks.closeHandler?.(cancelled)
     expect(cancelled.preventDefault).toHaveBeenCalledOnce()
+    expect(mocks.windowDestroyEditor).not.toHaveBeenCalled()
     expect(mocks.confirm).toHaveBeenCalledWith(expect.stringContaining('template'), expect.any(Object))
     const approved = { preventDefault: vi.fn() }
     await mocks.closeHandler?.(approved)
     expect(approved.preventDefault).not.toHaveBeenCalled()
+    expect(mocks.windowDestroyEditor).toHaveBeenCalledOnce()
     wrapper.unmount()
   })
 

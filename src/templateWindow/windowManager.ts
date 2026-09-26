@@ -6,6 +6,7 @@ interface WindowHandle {
   unminimize(): Promise<void>
   setFocus(): Promise<void>
   close(): Promise<void>
+  destroy(): Promise<void>
 }
 
 interface WindowFactory { find(): Promise<WindowHandle | null>; create(): Promise<WindowHandle> }
@@ -34,8 +35,15 @@ export function createWindowManager(factory: WindowFactory) {
     current = null
   }
 
+  async function destroy(): Promise<void> {
+    if (opening) await opening.catch(() => undefined)
+    const window = await factory.find()
+    if (window) await window.destroy()
+    current = null
+  }
+
   function forget(): void { current = null }
-  return { openOrFocus, close, forget }
+  return { openOrFocus, close, destroy, forget }
 }
 
 async function createNativeWindow(): Promise<WebviewWindow> {

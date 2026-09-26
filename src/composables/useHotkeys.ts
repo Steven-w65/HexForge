@@ -40,6 +40,7 @@ export async function handleCloseRequest(
   confirmDiscard: () => Promise<boolean>,
   guard: CloseRequestGuard = {},
   releaseBarrier: () => void = () => {},
+  onApproved: () => Promise<void> = async () => {},
 ): Promise<void> {
   if (guard.confirming) { event.preventDefault(); return }
   guard.confirming = true
@@ -48,7 +49,9 @@ export async function handleCloseRequest(
     if (dirty && !await confirmDiscard()) {
       event.preventDefault()
       releaseBarrier()
+      return
     }
+    await onApproved()
   } catch (error) {
     event.preventDefault()
     releaseBarrier()

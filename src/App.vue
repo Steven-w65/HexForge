@@ -382,7 +382,8 @@ onMounted(async () => {
           fileDirty = state.dirty
           templateDraftDirty = templateDirty.value
           return { dirty: fileDirty || templateDraftDirty }
-        }, () => confirmExitDiscard(fileDirty, templateDraftDirty), closeGuard, session.releaseCloseBarrier)
+        }, () => confirmExitDiscard(fileDirty, templateDraftDirty), closeGuard, session.releaseCloseBarrier,
+        () => templateWindowManager.destroy())
       }
       catch (error) { session.presentError(error) }
     })
