@@ -18,12 +18,15 @@ export interface TemplateSnapshot {
   dirty: boolean
   canApply: boolean
   active: boolean
+  templateFilePath: string | null
+  persistenceRevision: number
+  checkpointTemplate: TemplateDefinition
 }
 
 export interface DraftUpdate { sessionId: string; sequence: number; template: TemplateDefinition; valid: boolean }
-export type EditorActionName = 'load' | 'save' | 'apply' | 'unload' | 'navigate' | 'close'
+export type EditorActionName = 'load' | 'save' | 'save-as' | 'apply' | 'unload' | 'navigate' | 'discard' | 'close'
 export interface EditorAction { requestId: number; command: EditorActionName; draft: DraftUpdate; range?: { start: string; end: string } }
-export interface EditorReply { requestId: number; ok: boolean; error?: string; snapshot?: TemplateSnapshot }
+export interface EditorReply { requestId: number; ok: boolean; completed?: boolean; error?: string; snapshot?: TemplateSnapshot }
 
 export interface LocalBus {
   listen(event: string, callback: (payload: unknown) => void | Promise<void>): Promise<() => void>

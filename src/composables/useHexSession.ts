@@ -21,7 +21,9 @@ export interface HexBackend {
   searchBytes(pattern: string, onProgress: ProgressHandler): Promise<SearchResponse>
   applyTemplate(template: TemplateDefinition, onProgress: ProgressHandler): Promise<ParsedField[]>
   loadTemplate(path: string): Promise<TemplateDefinition>
-  saveTemplate(path: string, template: TemplateDefinition): Promise<void>
+  saveTemplate(template: TemplateDefinition, overwriteExternal?: boolean): Promise<void>
+  saveTemplateAs(path: string, template: TemplateDefinition, overwrite?: boolean): Promise<void>
+  unloadTemplateFile(): Promise<void>
   exportResultsCsv(path: string, template: TemplateDefinition, onProgress: ProgressHandler): Promise<void>
 }
 
@@ -49,7 +51,9 @@ export interface HexSession {
   openFile(path: string, discardUnsaved?: boolean): Promise<void>; closeFile(discardUnsaved?: boolean): Promise<void>; goTo(text: string): bigint
   search(text: string): Promise<void>; applyTemplate(): Promise<void>; editSelectedByte(text: string): Promise<void>
   undo(): Promise<void>; saveAs(path: string): Promise<void>; loadTemplate(path: string): Promise<void>
-  saveTemplate(path: string): Promise<void>; exportCsv(path: string): Promise<void>
+  saveTemplate(overwriteExternal?: boolean, definition?: TemplateDefinition): Promise<void>
+  saveTemplateAs(path: string, overwrite?: boolean, definition?: TemplateDefinition): Promise<void>
+  unloadTemplateFile(): Promise<void>; exportCsv(path: string): Promise<void>
   prepareClose(): Promise<DirtyState>; releaseCloseBarrier(): void
   updateTemplate(template: TemplateDefinition): void; unloadTemplate(): void; navigate(range: { start: bigint; end: bigint }): void
   clearSelection(): void; clearError(): void; presentError(error: unknown): void
@@ -322,7 +326,17 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     const result = await run('template', () => api.loadTemplate(path), false, () => loadedTemplate === templateVersion)
     if (result.current) { template.value = result.value; results.value = []; templateApplied.value = false; resultsNeedRefresh.value = false }
   }
-  async function saveTemplate(path: string): Promise<void> { await run('template', () => api.saveTemplate(path, backendTemplate(template.value))) }
+  async function saveTemplate(overwriteExternal = false, definition = template.value): Promise<void> {
+    const payload = backendTemplate(definition)
+    await runMutation(async () => { await run('template', () => api.saveTemplate(payload, overwriteExternal)) })
+  }
+  async function saveTemplateAs(path: string, overwrite = false, definition = template.value): Promise<void> {
+    const payload = backendTemplate(definition)
+    await runMutation(async () => { await run('template', () => api.saveTemplateAs(path, payload, overwrite)) })
+  }
+  async function unloadTemplateFile(): Promise<void> {
+    await run('template', () => api.unloadTemplateFile())
+  }
   async function exportCsv(path: string): Promise<void> { await run('export', (ticket) => api.exportResultsCsv(path, backendTemplate(template.value), (value) => reportProgress(ticket, value)), true) }
 
   function presentError(cause: unknown): void {
@@ -351,7 +365,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   return {
     file, page, selection, sourceIdentity, template, results, templateApplied, resultsNeedRefresh, matches, searchMatchLength, searchTruncated, activity, busy, progress, error, viewportOffset, editMode, canUndo,
     requestPage, openFile, closeFile, goTo, search, applyTemplate, editSelectedByte, undo, saveAs, loadTemplate,
-    saveTemplate, exportCsv, updateTemplate, unloadTemplate, navigate, clearSelection: () => { selection.value = null }, clearError: () => { error.value = null }, presentError,
+    saveTemplate, saveTemplateAs, unloadTemplateFile, exportCsv, updateTemplate, unloadTemplate, navigate, clearSelection: () => { selection.value = null }, clearError: () => { error.value = null }, presentError,
     prepareClose, releaseCloseBarrier,
   }
 }

@@ -17,7 +17,13 @@ export function useHotkeys(actions: HotkeyActions, target: Window = window): () 
       return
     }
     const command = matchMenuShortcut(event)
-    if (!command || !actions.isEnabled(command)) return
+    if (!command) return
+    // Ctrl+S must not fall through to the WebView's Save Page dialog when
+    // an untitled template has no in-place save path yet.
+    if (!actions.isEnabled(command)) {
+      if (command === 'save-template' || command === 'save-template-as') event.preventDefault()
+      return
+    }
     event.preventDefault()
     actions.invoke(command)
   }

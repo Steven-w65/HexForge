@@ -26,6 +26,8 @@ pub fn run() {
             commands::apply_template,
             commands::load_template,
             commands::save_template,
+            commands::save_template_as,
+            commands::unload_template_file,
             commands::export_results_csv,
         ])
         .plugin(tauri_plugin_dialog::init())

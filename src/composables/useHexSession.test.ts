@@ -22,7 +22,7 @@ function fakeBackend(): HexBackend {
     saveAs: vi.fn().mockResolvedValue({ dirty: false, revision: '0', bytesWritten: '8192', destination: 'copy.bin',
       file: { name: 'copy.bin', path: 'copy.bin', size: '8192', revision: '0', dirty: false } }),
     searchBytes: vi.fn().mockResolvedValue({ matches: ['16', '32'], truncated: false }),
-    applyTemplate: vi.fn().mockResolvedValue([]), loadTemplate: vi.fn(), saveTemplate: vi.fn(), exportResultsCsv: vi.fn(),
+    applyTemplate: vi.fn().mockResolvedValue([]), loadTemplate: vi.fn(), saveTemplate: vi.fn(), saveTemplateAs: vi.fn(), unloadTemplateFile: vi.fn(), exportResultsCsv: vi.fn(),
   }
 }
 
@@ -443,10 +443,10 @@ describe('useHexSession', () => {
     session.updateTemplate({ version: 1, name: 'Header', defaultEndianness: 'big', fields: [
       { name: 'magic', offset: '0x20', type: 'u16', endianness: 'big', comment: '' },
     ] })
-    await session.applyTemplate(); await session.saveTemplate('header.json'); await session.exportCsv('header.csv')
+    await session.applyTemplate(); await session.saveTemplate(false); await session.exportCsv('header.csv')
     const expected = expect.objectContaining({ fields: [expect.objectContaining({ offset: '32' })] })
     expect(backend.applyTemplate).toHaveBeenCalledWith(expected, expect.any(Function))
-    expect(backend.saveTemplate).toHaveBeenCalledWith('header.json', expected)
+    expect(backend.saveTemplate).toHaveBeenCalledWith(expected, false)
     expect(backend.exportResultsCsv).toHaveBeenCalledWith('header.csv', expected, expect.any(Function))
   })
 
@@ -463,9 +463,25 @@ describe('useHexSession', () => {
     const template: TemplateDefinition = { version: 1, name: 'Header', defaultEndianness: 'big', fields: [] }
     vi.mocked(backend.loadTemplate).mockResolvedValue(template)
     vi.mocked(backend.applyTemplate).mockResolvedValue([{ name: 'magic', offset: '0', type: 'u8', length: 1, endianness: 'big', value: '42', comment: '' }])
-    await session.loadTemplate('header.json'); await session.saveTemplate('copy.json'); await session.applyTemplate(); await session.exportCsv('result.csv')
+    await session.loadTemplate('header.json'); await session.saveTemplateAs('copy.json', false); await session.applyTemplate(); await session.exportCsv('result.csv')
     expect(session.template.value).toEqual(template); expect(session.results.value).toHaveLength(1)
+    expect(backend.saveTemplateAs).toHaveBeenCalledWith('copy.json', template, false)
     expect(backend.exportResultsCsv).toHaveBeenCalledWith('result.csv', template, expect.any(Function))
+  })
+
+  it('keeps template file actions separate from binary dirty state and parsing', async () => {
+    const backend = fakeBackend(); const session = useHexSession(backend)
+    await session.openFile('input.bin')
+    session.file.value = { ...session.file.value!, dirty: true }
+    session.updateTemplate({ version: 1, name: 'Draft', defaultEndianness: 'little', fields: [] })
+    await session.saveTemplateAs('draft.json', false)
+    await session.saveTemplate(true)
+    await session.unloadTemplateFile()
+    expect(backend.saveTemplateAs).toHaveBeenCalledWith('draft.json', expect.any(Object), false)
+    expect(backend.saveTemplate).toHaveBeenCalledWith(expect.any(Object), true)
+    expect(backend.unloadTemplateFile).toHaveBeenCalledOnce()
+    expect(session.file.value?.dirty).toBe(true)
+    expect(backend.applyTemplate).not.toHaveBeenCalled()
   })
 
   it('records a successful empty parse as applied and invalidates it when the template changes', async () => {

@@ -9,6 +9,7 @@ const readyState = (): MenuState => ({
   canUndo: true,
   templateValid: true,
   templateActive: true,
+  templateHasPath: true,
   templateHasFields: true,
   hasNavigableTemplateFields: true,
   hasParsedResults: true,
@@ -23,7 +24,8 @@ describe('menu commands', () => {
   it.each([
     ['o', { ctrlKey: true }, 'open'],
     ['w', { ctrlKey: true }, 'close-file'],
-    ['s', { ctrlKey: true, shiftKey: true }, 'save-as'],
+    ['s', { ctrlKey: true, altKey: true }, 'save-as'],
+    ['s', { ctrlKey: true, shiftKey: true }, 'save-template-as'],
     ['e', { ctrlKey: true, shiftKey: true }, 'export'],
     ['F4', { altKey: true }, 'exit'],
     ['F2', {}, 'edit-selected'],
@@ -72,7 +74,7 @@ describe('menu commands', () => {
     for (const command of ['close-file', 'save-as', 'export', 'edit-selected', 'toggle-edit', 'undo', 'goto', 'search', 'apply-template'] as const) {
       expect(commandEnabled(command, state), command).toBe(false)
     }
-    for (const command of ['open', 'template-editor', 'load-template', 'save-template', 'theme-toggle', 'row-16', 'row-32', 'toggle-right-panel', 'exit'] as const) {
+    for (const command of ['open', 'template-editor', 'load-template', 'save-template', 'save-template-as', 'theme-toggle', 'row-16', 'row-32', 'toggle-right-panel', 'exit'] as const) {
       expect(commandEnabled(command, state), command).toBe(true)
     }
   })
@@ -86,9 +88,16 @@ describe('menu commands', () => {
     expect(commandEnabled('export', { ...readyState(), hasParsedResults: false })).toBe(false)
     expect(commandEnabled('apply-template', { ...readyState(), templateValid: false })).toBe(false)
     expect(commandEnabled('apply-template', { ...readyState(), templateHasFields: false })).toBe(false)
-    expect(commandEnabled('save-template', { ...readyState(), templateValid: false })).toBe(false)
+    expect(commandEnabled('save-template', { ...readyState(), templateValid: false })).toBe(true)
     expect(commandEnabled('open', { ...readyState(), operationBusy: true })).toBe(false)
     expect(commandEnabled('theme-toggle', { ...readyState(), operationBusy: true })).toBe(true)
     expect(commandEnabled('exit', { ...readyState(), operationBusy: true })).toBe(true)
+  })
+
+  it('requires an associated path for Save but not Save As', () => {
+    const untitled = { ...readyState(), templateHasPath: false }
+    expect(commandEnabled('save-template', untitled)).toBe(false)
+    expect(commandEnabled('save-template-as', untitled)).toBe(true)
+    expect(commandEnabled('save-template-as', { ...untitled, templateActive: false })).toBe(false)
   })
 })

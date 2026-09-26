@@ -8,10 +8,12 @@ const props = withDefaults(defineProps<{
   results?: ParsedField[]
   canApply?: boolean
   canUnload?: boolean
-}>(), { fileSize: null, results: () => [], canApply: false, canUnload: false })
+  canSave?: boolean
+  canSaveAs?: boolean
+}>(), { fileSize: null, results: () => [], canApply: false, canUnload: false, canSave: false, canSaveAs: false })
 const emit = defineEmits<{
   'update:modelValue': [value: TemplateDefinition]
-  save: []; load: []; unload: []; apply: []; navigate: [range: { start: bigint; end: bigint }]; validity: [valid: boolean]
+  save: []; 'save-as': []; load: []; unload: []; apply: []; navigate: [range: { start: bigint; end: bigint }]; validity: [valid: boolean]
 }>()
 
 const types: FieldType[] = ['u8', 'u16', 'u32', 'i8', 'i16', 'i32', 'f32', 'f64', 'string', 'bytes']
@@ -236,7 +238,8 @@ function navigate(field: TemplateField): void {
       <div><button type="button" data-action="add-field" @click="addField">+ Field</button>
         <button type="button" data-action="load-template" @click="emit('load')">Load…</button>
         <button type="button" data-action="unload-template" :disabled="!canUnload" @click="emit('unload')">Unload</button>
-        <button type="button" data-action="save-template" :disabled="Object.keys(validationErrors).length > 0" @click="emit('save')">Save As…</button>
+        <button type="button" data-action="save-template" :disabled="!canSave" @click="emit('save')">Save</button>
+        <button type="button" data-action="save-template-as" :disabled="!canSaveAs" @click="emit('save-as')">Save As…</button>
       </div>
       <button type="button" class="primary" data-action="apply-template" :disabled="!canApply || Object.keys(validationErrors).length > 0" @click="emit('apply')">Apply Template</button>
     </div>

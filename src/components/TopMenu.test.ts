@@ -7,6 +7,7 @@ import TopMenu from './TopMenu.vue'
 const state = (patch: Partial<MenuState> = {}): MenuState => ({
   hasFile: true, hasBytes: true, singleByteSelected: true, editMode: true, canUndo: true,
   templateValid: true, templateActive: true, templateHasFields: true, hasNavigableTemplateFields: true,
+  templateHasPath: true,
   hasParsedResults: true, operationBusy: false, ...patch,
 })
 
@@ -44,7 +45,7 @@ describe('TopMenu', () => {
       file: ['open', 'close-file', 'save-as', 'export', 'exit'],
       edit: ['edit-selected', 'toggle-edit', 'undo'],
       navigate: ['goto', 'search'],
-      template: ['template-editor', 'apply-template', 'load-template', 'unload-template', 'save-template'],
+      template: ['template-editor', 'apply-template', 'load-template', 'unload-template', 'save-template', 'save-template-as'],
       view: ['theme-toggle', 'row-16', 'row-32'],
     }
     for (const [menu, commands] of Object.entries(expected)) {
@@ -61,6 +62,14 @@ describe('TopMenu', () => {
     expect(editor.get('kbd').text()).toBe('Ctrl+Shift+T')
     await editor.trigger('click')
     expect(wrapper.emitted('command')).toEqual([['template-editor']])
+  })
+
+  it('disables in-place template Save without a path while keeping Save As accessible', async () => {
+    const wrapper = mountMenu(state({ templateHasPath: false }))
+    await wrapper.get('[data-menu="template"]').trigger('click')
+    expect(wrapper.get('[data-menu-command="save-template"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-menu-command="save-template-as"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-menu-command="save-template-as"] kbd').text()).toBe('Ctrl+Shift+S')
   })
 
   it('emits enabled commands and leaves disabled commands inert', async () => {

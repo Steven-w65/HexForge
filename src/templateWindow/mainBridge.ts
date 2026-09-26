@@ -3,7 +3,8 @@ import { EDITOR_LABEL, events, errorMessage, type DraftUpdate, type EditorAction
 interface MainCallbacks {
   snapshot(): Omit<TemplateSnapshot, 'revision' | 'ackSequence'>
   onDraft(draft: DraftUpdate): void | Promise<void>
-  onAction(action: EditorAction): Promise<void>
+  onAction(action: EditorAction): Promise<boolean | void>
+  onReady?(): void
   onError?(error: unknown): void
   onClosed?(): void
 }
@@ -43,6 +44,7 @@ export function createMainBridge(bus: LocalBus, callbacks: MainCallbacks) {
         const id = (payload as { sessionId?: unknown })?.sessionId
         if (typeof id !== 'string') return
         sessionId = id; lastSequence = 0; revision = 0
+        callbacks.onReady?.()
         try { await publish() } catch (error) { callbacks.onError?.(error) }
       }))
       disposers.push(await bus.listen(events.draft, async (payload) => {
@@ -55,7 +57,7 @@ export function createMainBridge(bus: LocalBus, callbacks: MainCallbacks) {
         try {
           requireCurrentDraft(action.draft)
           await accept(action.draft)
-          await callbacks.onAction(action)
+          reply.completed = await callbacks.onAction(action) !== false
           reply.snapshot = snapshot()
         } catch (error) { reply = { requestId: action.requestId, ok: false, error: errorMessage(error) } }
         try { await bus.send(EDITOR_LABEL, events.reply, reply); await publish() } catch (error) { callbacks.onError?.(error) }

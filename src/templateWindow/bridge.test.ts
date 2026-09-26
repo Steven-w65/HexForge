@@ -15,7 +15,7 @@ function bus(): LocalBus {
 }
 
 function snapshot(): Omit<TemplateSnapshot, 'revision' | 'ackSequence'> {
-  return { template: empty, results: [], fileSize: null, theme: 'dark', dirty: false, canApply: false, active: false }
+  return { template: empty, checkpointTemplate: empty, results: [], fileSize: null, theme: 'dark', dirty: false, canApply: false, active: false, templateFilePath: null, persistenceRevision: 0 }
 }
 
 describe('local template-window bridge', () => {
@@ -63,5 +63,33 @@ describe('local template-window bridge', () => {
     expect(editor.state()?.template.name).toBe('Preserved')
     expect(onError).toHaveBeenCalledOnce()
     main.dispose(); editor.dispose()
+  })
+
+  it('reports a cancelled Save As action so the editor stays open', async () => {
+    const transport = bus(); const onReady = vi.fn()
+    const main = createMainBridge(transport, { snapshot, onDraft: vi.fn(), onAction: vi.fn().mockResolvedValue(false), onReady })
+    const editor = createEditorBridge(transport, { onSnapshot: vi.fn(), onError: vi.fn() })
+    await main.start(); await editor.start()
+    expect(onReady).toHaveBeenCalledOnce()
+    await expect(editor.requestAction('save-as')).resolves.toBe(false)
+    main.dispose(); editor.dispose()
+  })
+
+  it('waits beyond five seconds while a native Save As picker is still open', async () => {
+    vi.useFakeTimers()
+    const transport = bus()
+    let finish!: () => void
+    const picker = new Promise<void>((resolve) => { finish = resolve })
+    const main = createMainBridge(transport, { snapshot, onDraft: vi.fn(), onAction: () => picker })
+    const editor = createEditorBridge(transport, { onSnapshot: vi.fn(), onError: vi.fn() })
+    try {
+      await main.start(); await editor.start()
+      const outcome = editor.requestAction('save-as').then((value) => value, (error) => error)
+      await vi.advanceTimersByTimeAsync(6000)
+      finish()
+      expect(await outcome).toBe(true)
+    } finally {
+      main.dispose(); editor.dispose(); vi.useRealTimers()
+    }
   })
 })

@@ -27,7 +27,7 @@ const props = withDefaults(defineProps<{
   dialogTitle: '', dialogMessage: '',
   matchLength: 1, busyLabel: '', progressText: '', searchTruncated: false,
   templateValid: true, templateSource: 'none', templateDisplayName: '', templateApplied: false,
-  menuState: () => ({ hasFile: false, hasBytes: false, singleByteSelected: false, editMode: false, canUndo: false, templateValid: true, templateActive: false, templateHasFields: false, hasNavigableTemplateFields: false, hasParsedResults: false, operationBusy: false }),
+  menuState: () => ({ hasFile: false, hasBytes: false, singleByteSelected: false, editMode: false, canUndo: false, templateValid: true, templateActive: false, templateHasPath: false, templateHasFields: false, hasNavigableTemplateFields: false, hasParsedResults: false, operationBusy: false }),
   theme: 'dark', rightCollapsed: false,
 })
 

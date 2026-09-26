@@ -34,7 +34,11 @@ describe('backend IPC contract', () => {
     await backend.undoEdit()
     await backend.getDirtyState()
     await backend.loadTemplate('header.json')
-    await backend.saveTemplate('copy.json', template)
+    await backend.saveTemplate(template, false)
+    await backend.saveTemplate(template, true)
+    await backend.saveTemplateAs('copy.json', template, false)
+    await backend.saveTemplateAs('existing.json', template, true)
+    await backend.unloadTemplateFile()
     expect(invoke.mock.calls).toEqual([
       ['open_file', { path: 'input.bin', discardUnsaved: false }],
       ['open_file', { path: 'replacement.bin', discardUnsaved: true }],
@@ -45,7 +49,11 @@ describe('backend IPC contract', () => {
       ['undo_edit', {}],
       ['get_dirty_state', {}],
       ['load_template', { path: 'header.json' }],
-      ['save_template', { path: 'copy.json', template }],
+      ['save_template', { template, overwriteExternal: false }],
+      ['save_template', { template, overwriteExternal: true }],
+      ['save_template_as', { path: 'copy.json', template, overwrite: false }],
+      ['save_template_as', { path: 'existing.json', template, overwrite: true }],
+      ['unload_template_file', {}],
     ])
     expect(() => JSON.stringify(invoke.mock.calls)).not.toThrow()
   })

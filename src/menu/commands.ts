@@ -2,7 +2,7 @@ export type MenuCommand =
   | 'open' | 'close-file' | 'save-as' | 'export' | 'exit'
   | 'edit-selected' | 'toggle-edit' | 'undo'
   | 'goto' | 'search'
-  | 'template-editor' | 'apply-template' | 'load-template' | 'unload-template' | 'save-template'
+  | 'template-editor' | 'apply-template' | 'load-template' | 'unload-template' | 'save-template' | 'save-template-as'
   | 'theme-toggle'
   | 'row-16' | 'row-32' | 'toggle-right-panel'
 
@@ -14,6 +14,7 @@ export interface MenuState {
   canUndo: boolean
   templateValid: boolean
   templateActive: boolean
+  templateHasPath: boolean
   templateHasFields: boolean
   hasNavigableTemplateFields: boolean
   hasParsedResults: boolean
@@ -31,7 +32,7 @@ interface Shortcut {
 const shortcuts: Shortcut[] = [
   { command: 'open', key: 'o', ctrl: true },
   { command: 'close-file', key: 'w', ctrl: true },
-  { command: 'save-as', key: 's', ctrl: true, shift: true },
+  { command: 'save-as', key: 's', ctrl: true, alt: true },
   { command: 'export', key: 'e', ctrl: true, shift: true },
   { command: 'exit', key: 'f4', alt: true },
   { command: 'edit-selected', key: 'f2' },
@@ -44,6 +45,7 @@ const shortcuts: Shortcut[] = [
   { command: 'load-template', key: 'o', ctrl: true, alt: true },
   { command: 'unload-template', key: 'u', ctrl: true, alt: true },
   { command: 'save-template', key: 's', ctrl: true },
+  { command: 'save-template-as', key: 's', ctrl: true, shift: true },
   { command: 'theme-toggle', key: 't', ctrl: true, alt: true },
   { command: 'row-16', key: '1', ctrl: true },
   { command: 'row-32', key: '2', ctrl: true },
@@ -73,7 +75,9 @@ export function commandEnabled(command: MenuCommand, state: MenuState): boolean 
     case 'load-template':
       return true
     case 'save-template':
-      return state.templateValid
+      return state.templateActive && state.templateHasPath
+    case 'save-template-as':
+      return state.templateActive
     case 'unload-template':
       return state.templateActive
     case 'close-file':

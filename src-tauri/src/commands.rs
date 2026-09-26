@@ -2,7 +2,7 @@ use crate::error::{AppError, ErrorCode};
 use crate::export;
 use crate::search::{self, SearchResult};
 use crate::session::{FileInfo, FileSession, PageData};
-use crate::template::{self, ParsedField, TemplateDefinition};
+use crate::template::{self, ParsedField, TemplateDefinition, TemplateFileSession};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::{
@@ -18,6 +18,7 @@ const SEARCH_LIMIT: usize = 100_000;
 #[derive(Default)]
 pub struct AppState {
     pub session: Arc<Mutex<Option<FileSession>>>,
+    pub template_file: Arc<Mutex<TemplateFileSession>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -431,13 +432,77 @@ pub async fn apply_template(
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn load_template(path: String) -> Result<TemplateDefinition, AppError> {
-    blocking(move || template::load_template_file(&PathBuf::from(path))).await
+pub async fn load_template(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<TemplateDefinition, AppError> {
+    let files = Arc::clone(&state.template_file);
+    blocking(move || {
+        files
+            .lock()
+            .map_err(|_| operation_failed())?
+            .load(&PathBuf::from(path))
+    })
+    .await
+}
+
+fn active_binary_source(
+    shared: &Arc<Mutex<Option<FileSession>>>,
+) -> Result<Option<PathBuf>, AppError> {
+    let guard = shared.lock().map_err(|_| operation_failed())?;
+    Ok(guard
+        .as_ref()
+        .map(|session| session.source_path().to_path_buf()))
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn save_template(path: String, template: TemplateDefinition) -> Result<(), AppError> {
-    blocking(move || template::save_template_file_create_new(&PathBuf::from(path), &template)).await
+pub async fn save_template(
+    state: State<'_, AppState>,
+    template: TemplateDefinition,
+    overwrite_external: bool,
+) -> Result<(), AppError> {
+    let files = Arc::clone(&state.template_file);
+    let session = Arc::clone(&state.session);
+    blocking(move || {
+        let source = active_binary_source(&session)?;
+        files.lock().map_err(|_| operation_failed())?.save(
+            &template,
+            overwrite_external,
+            source.as_deref(),
+        )
+    })
+    .await
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn save_template_as(
+    state: State<'_, AppState>,
+    path: String,
+    template: TemplateDefinition,
+    overwrite: bool,
+) -> Result<(), AppError> {
+    let files = Arc::clone(&state.template_file);
+    let session = Arc::clone(&state.session);
+    blocking(move || {
+        let source = active_binary_source(&session)?;
+        files.lock().map_err(|_| operation_failed())?.save_as(
+            &PathBuf::from(path),
+            &template,
+            overwrite,
+            source.as_deref(),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn unload_template_file(state: State<'_, AppState>) -> Result<(), AppError> {
+    let files = Arc::clone(&state.template_file);
+    blocking(move || {
+        files.lock().map_err(|_| operation_failed())?.clear();
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command(rename_all = "camelCase")]

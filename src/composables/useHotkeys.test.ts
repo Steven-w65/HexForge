@@ -28,7 +28,7 @@ describe('useHotkeys', () => {
 
   it.each([
     ['o', { ctrlKey: true }, 'open'], ['w', { ctrlKey: true }, 'close-file'],
-    ['s', { ctrlKey: true, shiftKey: true }, 'save-as'], ['e', { ctrlKey: true, shiftKey: true }, 'export'],
+    ['s', { ctrlKey: true, altKey: true }, 'save-as'], ['s', { ctrlKey: true, shiftKey: true }, 'save-template-as'], ['e', { ctrlKey: true, shiftKey: true }, 'export'],
     ['F4', { altKey: true }, 'exit'], ['F2', {}, 'edit-selected'],
     ['e', { ctrlKey: true, altKey: true }, 'toggle-edit'], ['z', { ctrlKey: true }, 'undo'],
     ['g', { ctrlKey: true }, 'goto'], ['f', { ctrlKey: true }, 'search'],
@@ -56,6 +56,20 @@ describe('useHotkeys', () => {
     const target = actions(); vi.mocked(target.isEnabled).mockReturnValue(false); cleanups.push(useHotkeys(target))
     const event = keydown('g', { ctrlKey: true })
     expect(target.invoke).not.toHaveBeenCalled(); expect(event.defaultPrevented).toBe(false)
+  })
+
+  it('does not open the browser save dialog when template Save is disabled', () => {
+    const target = actions(); vi.mocked(target.isEnabled).mockReturnValue(false); cleanups.push(useHotkeys(target))
+    const event = keydown('s', { ctrlKey: true })
+    expect(target.invoke).not.toHaveBeenCalled()
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('does not open the browser Save As dialog when no template is active', () => {
+    const target = actions(); vi.mocked(target.isEnabled).mockReturnValue(false); cleanups.push(useHotkeys(target))
+    const event = keydown('s', { ctrlKey: true, shiftKey: true })
+    expect(target.invoke).not.toHaveBeenCalled()
+    expect(event.defaultPrevented).toBe(true)
   })
 
   it('does not consume removed theme-selection or panel-visibility shortcuts', () => {

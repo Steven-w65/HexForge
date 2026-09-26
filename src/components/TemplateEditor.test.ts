@@ -35,18 +35,30 @@ describe('TemplateEditor', () => {
     expect(Object.keys(updated.fields[0]!)).not.toContain('id')
   })
 
-  it('offers every supported type and emits save, load, and exact field navigation', async () => {
+  it('offers every supported type and emits distinct Save, Save As, load, and field navigation', async () => {
     const value = { ...emptyTemplate(), fields: [{ name: 'data', offset: '16', type: 'u32' as const, endianness: 'big' as const, comment: '' }] }
-    const wrapper = mount(TemplateEditor, { props: { modelValue: value } })
+    const wrapper = mount(TemplateEditor, { props: { modelValue: value, canSave: true, canSaveAs: true } })
     expect(wrapper.findAll('select[data-field="type"] option').map((option) => option.attributes('value'))).toEqual([
       'u8', 'u16', 'u32', 'i8', 'i16', 'i32', 'f32', 'f64', 'string', 'bytes',
     ])
     await wrapper.get('[data-action="save-template"]').trigger('click')
+    await wrapper.get('[data-action="save-template-as"]').trigger('click')
     await wrapper.get('[data-action="load-template"]').trigger('click')
     await wrapper.get('[data-action="navigate-field"]').trigger('click')
     expect(wrapper.emitted('save')).toHaveLength(1)
+    expect(wrapper.emitted('save-as')).toHaveLength(1)
     expect(wrapper.emitted('load')).toHaveLength(1)
     expect(wrapper.emitted('navigate')).toEqual([[{ start: 16n, end: 19n }]])
+  })
+
+  it('keeps Save disabled without a file path while Save As remains available for a draft', async () => {
+    const wrapper = mount(TemplateEditor, { props: { modelValue: emptyTemplate(), canSave: false, canSaveAs: true } })
+    expect(wrapper.get('[data-action="save-template"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-action="save-template-as"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('[data-action="save-template"]').trigger('click')
+    await wrapper.get('[data-action="save-template-as"]').trigger('click')
+    expect(wrapper.emitted('save')).toBeUndefined()
+    expect(wrapper.emitted('save-as')).toHaveLength(1)
   })
 
   it.each([
@@ -70,7 +82,7 @@ describe('TemplateEditor', () => {
     expect(input.element.value).toBe('4')
     expect(input.attributes('aria-invalid')).toBe('true')
     expect(wrapper.get('[role="alert"]').text()).toContain('positive whole number')
-    expect(wrapper.get('[data-action="save-template"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-action="apply-template"]').attributes('disabled')).toBeDefined()
   })
 
   it('restores an invalid partial offset while clearly marking the rejected draft', async () => {
@@ -100,11 +112,11 @@ describe('TemplateEditor', () => {
 
   it('clears a stale length error when switching to a fixed-width type', async () => {
     const value = { ...emptyTemplate(), fields: [{ name: 'data', offset: '16', type: 'bytes' as const, length: 4, endianness: 'little' as const, comment: '' }] }
-    const wrapper = mount(TemplateEditor, { props: { modelValue: value } })
+    const wrapper = mount(TemplateEditor, { props: { modelValue: value, canApply: true } })
     await wrapper.get('input[data-field="length"]').setValue('0')
     await wrapper.get('select[data-field="type"]').setValue('u8')
     expect(wrapper.find('[role="alert"]').exists()).toBe(false)
-    expect(wrapper.get('[data-action="save-template"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-action="apply-template"]').attributes('disabled')).toBeUndefined()
   })
 
   it('reports validity and clears rejected drafts when an external same-size template replaces the model', async () => {
@@ -125,7 +137,7 @@ describe('TemplateEditor', () => {
     expect(wrapper.emitted('validity')?.at(-1)).toEqual([false])
     await wrapper.get('[title="Remove field"]').trigger('click')
     expect(wrapper.emitted('validity')?.at(-1)).toEqual([true])
-    expect(wrapper.get('[data-action="save-template"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-action="apply-template"]').attributes('disabled')).toBeDefined()
   })
 
   it('normalizes a hexadecimal offset and inherits the template default endianness', async () => {

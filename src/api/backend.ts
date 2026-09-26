@@ -41,6 +41,8 @@ export const backend = {
   searchBytes: (pattern: string, onProgress: ProgressHandler) => withProgress<SearchResponse>('search_bytes', { pattern }, onProgress),
   applyTemplate: (template: TemplateDefinition, onProgress: ProgressHandler) => withProgress<ParsedField[]>('apply_template', { template }, onProgress),
   loadTemplate: (path: string) => call<TemplateDefinition>('load_template', { path }),
-  saveTemplate: (path: string, template: TemplateDefinition) => call<void>('save_template', { path, template }),
+  saveTemplate: (template: TemplateDefinition, overwriteExternal = false) => call<void>('save_template', { template, overwriteExternal }),
+  saveTemplateAs: (path: string, template: TemplateDefinition, overwrite = false) => call<void>('save_template_as', { path, template, overwrite }),
+  unloadTemplateFile: () => call<void>('unload_template_file'),
   exportResultsCsv: (path: string, template: TemplateDefinition, onProgress: ProgressHandler) => withProgress<void>('export_results_csv', { path, template }, onProgress),
 }

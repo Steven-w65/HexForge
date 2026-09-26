@@ -46,7 +46,7 @@ describe('AppShell', () => {
     const wrapper = mount(AppShell, {
       props: {
         file: { name: 'firmware.bin', path: 'C:/projects/very/long/path/firmware.bin', size: '45103137', revision: '1', dirty: true },
-        menuState: { hasFile: true, hasBytes: true, singleByteSelected: true, editMode: false, canUndo: true, templateValid: true, templateActive: true, templateHasFields: true, hasNavigableTemplateFields: true, hasParsedResults: true, operationBusy: false },
+        menuState: { hasFile: true, hasBytes: true, singleByteSelected: true, editMode: false, canUndo: true, templateValid: true, templateActive: true, templateHasPath: true, templateHasFields: true, hasNavigableTemplateFields: true, hasParsedResults: true, operationBusy: false },
         template: { version: 1, name: 'T', defaultEndianness: 'little', fields: [{ name: 'x', offset: '0', type: 'u8', comment: '' }] },
         results: [{ name: 'x', offset: '0', type: 'u8', length: 1, endianness: 'little', value: '41', comment: '' }],
       },
@@ -104,7 +104,7 @@ describe('AppShell', () => {
     const wrapper = mount(AppShell, {
       props: {
         file: { name: 'firmware.bin', path: 'C:/firmware.bin', size: '32', revision: '1', dirty: false }, template,
-        menuState: { hasFile: true, hasBytes: true, singleByteSelected: false, editMode: false, canUndo: false, templateValid: true, templateActive: true, templateHasFields: true, hasNavigableTemplateFields: true, hasParsedResults: false, operationBusy: false },
+        menuState: { hasFile: true, hasBytes: true, singleByteSelected: false, editMode: false, canUndo: false, templateValid: true, templateActive: true, templateHasPath: true, templateHasFields: true, hasNavigableTemplateFields: true, hasParsedResults: false, operationBusy: false },
       },
       global: { stubs: { HexCanvas: true } },
     })
@@ -117,14 +117,14 @@ describe('AppShell', () => {
     expect(wrapper.emitted('navigate')).toEqual([[{ start: 4n, end: 5n }]])
   })
 
-  it('blocks Apply and template Save when the companion editor reports invalid input', async () => {
+  it('blocks Apply while keeping path-backed Save reachable when the editor reports invalid input', async () => {
     const template = { version: 1 as const, name: 'T', defaultEndianness: 'little' as const, fields: [{ name: 'x', offset: '0', type: 'u8' as const, endianness: 'little' as const, comment: '' }] }
     const wrapper = mount(AppShell, { props: { file: { name: 'x', path: 'x', size: '1', revision: '1', dirty: false }, template,
-      templateValid: false, menuState: { hasFile: true, hasBytes: true, singleByteSelected: false, editMode: false, canUndo: false, templateValid: false, templateActive: true, templateHasFields: true, hasNavigableTemplateFields: true, hasParsedResults: false, operationBusy: false },
+      templateValid: false, menuState: { hasFile: true, hasBytes: true, singleByteSelected: false, editMode: false, canUndo: false, templateValid: false, templateActive: true, templateHasPath: true, templateHasFields: true, hasNavigableTemplateFields: true, hasParsedResults: false, operationBusy: false },
     }, global: { stubs: { HexCanvas: true } } })
     await wrapper.get('[data-menu="template"]').trigger('click')
     expect(wrapper.get('[data-menu-command="apply-template"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('[data-menu-command="save-template"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-menu-command="save-template"]').attributes('disabled')).toBeUndefined()
     await wrapper.get('[data-menu-command="apply-template"]').trigger('click')
     expect(wrapper.emitted('command')).toBeUndefined()
   })
@@ -133,7 +133,7 @@ describe('AppShell', () => {
     const template = { version: 1 as const, name: 'T', defaultEndianness: 'little' as const, fields: [{ name: 'x', offset: '0', type: 'u8' as const, comment: '' }] }
     const wrapper = mount(AppShell, { props: {
       file: { name: 'x.bin', path: 'C:/x.bin', size: '1', revision: '1', dirty: false }, template,
-      menuState: { hasFile: true, hasBytes: true, singleByteSelected: false, editMode: false, canUndo: false, templateValid: true, templateActive: true, templateHasFields: true, hasNavigableTemplateFields: true, hasParsedResults: false, operationBusy: false },
+      menuState: { hasFile: true, hasBytes: true, singleByteSelected: false, editMode: false, canUndo: false, templateValid: true, templateActive: true, templateHasPath: true, templateHasFields: true, hasNavigableTemplateFields: true, hasParsedResults: false, operationBusy: false },
     }, global: { stubs: { HexCanvas: true } } })
     expect(wrapper.find('[data-testid="template-modified"]').exists()).toBe(false)
     await wrapper.get('[data-menu="template"]').trigger('click')
@@ -146,7 +146,7 @@ describe('AppShell', () => {
     const wrapper = mount(AppShell, { props: {
       file: { name: 'x.bin', path: 'C:/x.bin', size: '1', revision: '1', dirty: false }, template,
       templateSource: 'file', templateDisplayName: 'header.json', templateApplied: false,
-      menuState: { hasFile: true, hasBytes: true, singleByteSelected: false, editMode: false, canUndo: false, templateValid: true, templateActive: true, templateHasFields: true, hasNavigableTemplateFields: true, hasParsedResults: false, operationBusy: false },
+      menuState: { hasFile: true, hasBytes: true, singleByteSelected: false, editMode: false, canUndo: false, templateValid: true, templateActive: true, templateHasPath: true, templateHasFields: true, hasNavigableTemplateFields: true, hasParsedResults: false, operationBusy: false },
     }, global: { stubs: { HexCanvas: true } } })
     expect(wrapper.get('[data-testid="results-empty"] p').text()).toBe('Template: "header.json" loaded, pending apply.')
     await wrapper.get('[data-action="results-apply-template"]').trigger('click')

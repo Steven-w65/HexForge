@@ -40,16 +40,37 @@ const disposers: Array<() => void> = []
 let disposed = false
 
 function templateSnapshot(value: TemplateDefinition): string { return JSON.stringify(value) }
+function copyTemplate(value: TemplateDefinition): TemplateDefinition { return JSON.parse(templateSnapshot(value)) as TemplateDefinition }
 const templateBaseline = ref(templateSnapshot(session.template.value))
 const templateDirty = computed(() => templateSnapshot(session.template.value) !== templateBaseline.value)
 const templateActive = ref(false)
-const templateFilename = ref<string | null>(null)
-const templateSource = computed(() => !templateActive.value ? 'none' : templateFilename.value ? 'file' : 'draft')
-const templateDisplayName = computed(() => templateFilename.value ?? session.template.value.name)
+const templateFilePath = ref<string | null>(null)
+const templatePersistenceRevision = ref(0)
+let editorCheckpoint: { template: TemplateDefinition; baseline: string; active: boolean; path: string | null } | null = null
+const templateSource = computed(() => !templateActive.value ? 'none' : templateFilePath.value ? 'file' : 'draft')
+const templateDisplayName = computed(() => templateFilePath.value ? filenameFromPath(templateFilePath.value) : session.template.value.name)
 
 function filenameFromPath(path: string): string { return path.split(/[\\/]/).pop() || path }
 
-async function reportFailure(operation: () => Promise<void>): Promise<boolean> {
+function checkpointEditor(template = session.template.value): void {
+  if (!bridge.isReady()) return
+  editorCheckpoint = { template: copyTemplate(template), baseline: templateBaseline.value, active: templateActive.value, path: templateFilePath.value }
+}
+
+function discardEditorChanges(): void {
+  if (!editorCheckpoint) throw { code: 'operation_failed', message: 'The Template Editor has no draft to restore.' }
+  const previous = editorCheckpoint
+  session.updateTemplate(copyTemplate(previous.template))
+  templateBaseline.value = previous.baseline
+  templateActive.value = previous.active
+  templateFilePath.value = previous.path
+  templateValid.value = true
+  clearTemplateHighlight()
+  templatePersistenceRevision.value += 1
+  checkpointEditor()
+}
+
+async function reportFailure(operation: () => Promise<unknown>): Promise<boolean> {
   try { await operation(); return true }
   catch (error) { session.presentError(error); return false }
 }
@@ -127,20 +148,57 @@ async function chooseTemplateLoad(flushDraft = true): Promise<void> {
     clearTemplateHighlight()
     templateBaseline.value = templateSnapshot(session.template.value)
     templateActive.value = true
-    templateFilename.value = filenameFromPath(path)
+    templateFilePath.value = path
+    templatePersistenceRevision.value += 1
+    checkpointEditor()
   })
 }
 
-async function chooseTemplateSave(flushDraft = true): Promise<void> {
+function isErrorCode(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === code
+}
+
+async function chooseTemplateSave(flushDraft = true): Promise<boolean> {
   if (flushDraft) await bridge.flush()
+  if (!templateActive.value || !templateFilePath.value) return false
   if (!templateValid.value) { throw { code: 'invalid_template', message: 'Correct the highlighted template field before saving.' } }
-  await inTemplateDialog(!flushDraft, async () => {
+  const definition = copyTemplate(session.template.value)
+  const savedSnapshot = templateSnapshot(definition)
+  try { await session.saveTemplate(false, definition) }
+  catch (error) {
+    if (!isErrorCode(error, 'external_modification')) throw error
+    session.clearError()
+    const approved = await inTemplateDialog(!flushDraft, () => confirm('The file has been modified by another program. Overwrite?', { title: 'HexForge', kind: 'warning' }))
+    if (!approved) return false
+    await session.saveTemplate(true, definition)
+  }
+  templateBaseline.value = savedSnapshot
+  templatePersistenceRevision.value += 1
+  checkpointEditor(definition)
+  return true
+}
+
+async function chooseTemplateSaveAs(flushDraft = true): Promise<boolean> {
+  if (flushDraft) await bridge.flush()
+  if (!templateActive.value) return false
+  if (!templateValid.value) { throw { code: 'invalid_template', message: 'Correct the highlighted template field before saving.' } }
+  return inTemplateDialog(!flushDraft, async () => {
     const path = await save({ title: 'Save parsing template', defaultPath: `${session.template.value.name || 'template'}.json`, filters: [{ name: 'JSON template', extensions: ['json'] }] })
-    if (!path) return
-    await session.saveTemplate(path)
-    templateBaseline.value = templateSnapshot(session.template.value)
-    templateActive.value = true
-    templateFilename.value = filenameFromPath(path)
+    if (!path) return false
+    const definition = copyTemplate(session.template.value)
+    const savedSnapshot = templateSnapshot(definition)
+    try { await session.saveTemplateAs(path, false, definition) }
+    catch (error) {
+      if (!isErrorCode(error, 'destination_exists')) throw error
+      session.clearError()
+      if (!await confirm('File already exists. Overwrite?', { title: 'HexForge', kind: 'warning' })) return false
+      await session.saveTemplateAs(path, true, definition)
+    }
+    templateBaseline.value = savedSnapshot
+    templateFilePath.value = path
+    templatePersistenceRevision.value += 1
+    checkpointEditor(definition)
+    return true
   })
 }
 
@@ -191,10 +249,13 @@ async function unloadTemplate(flushDraft = true): Promise<void> {
     const discard = await inTemplateDialog(!flushDraft, () => confirm('This template has unsaved changes. Discard them and unload it?', { title: 'HexForge', kind: 'warning' }))
     if (discard !== true) return
   }
+  await session.unloadTemplateFile()
   session.unloadTemplate()
   templateBaseline.value = templateSnapshot(session.template.value)
   templateActive.value = false
-  templateFilename.value = null
+  templateFilePath.value = null
+  templatePersistenceRevision.value += 1
+  checkpointEditor()
   clearTemplateHighlight()
   templateValid.value = true
 }
@@ -229,6 +290,7 @@ const menuState = computed<MenuState>(() => ({
   canUndo: session.canUndo.value,
   templateValid: templateValid.value,
   templateActive: templateActive.value,
+  templateHasPath: templateFilePath.value !== null,
   templateHasFields: session.template.value.fields.length > 0,
   hasNavigableTemplateFields: session.template.value.fields.length > 0,
   hasParsedResults: session.results.value.length > 0,
@@ -239,7 +301,10 @@ const bridge = createMainBridge(tauriBus, {
   snapshot: () => ({
     template: session.template.value, results: session.results.value, fileSize: session.file.value?.size ?? null,
     theme: theme.value.value, dirty: templateDirty.value, canApply: commandEnabled('apply-template', menuState.value), active: templateActive.value,
+    templateFilePath: templateFilePath.value, persistenceRevision: templatePersistenceRevision.value,
+    checkpointTemplate: editorCheckpoint?.template ?? session.template.value,
   }),
+  onReady: checkpointEditor,
   onDraft: (draft) => {
     if (templateSnapshot(session.template.value) !== templateSnapshot(draft.template)) updateTemplate(draft.template)
     templateValid.value = draft.valid
@@ -247,19 +312,21 @@ const bridge = createMainBridge(tauriBus, {
   onAction: async (action: EditorAction) => {
     switch (action.command) {
       case 'load': await chooseTemplateLoad(false); break
-      case 'save': await chooseTemplateSave(false); break
+      case 'save': return await chooseTemplateSave(false)
+      case 'save-as': return await chooseTemplateSaveAs(false)
       case 'apply': await applyValidTemplate(false); break
       case 'unload': await unloadTemplate(false); break
       case 'navigate': if (action.range) navigateTemplate({ start: BigInt(action.range.start), end: BigInt(action.range.end) }); break
+      case 'discard': discardEditorChanges(); break
       case 'close': break // The accepted draft remains in the authoritative main session.
     }
   },
   onError: (error) => session.presentError(error),
-  onClosed: () => templateWindowManager.forget(),
+  onClosed: () => { editorCheckpoint = null; templateWindowManager.forget() },
 })
 
 watch(() => [session.template.value, session.results.value, session.file.value?.size, theme.value.value,
-  templateDirty.value, templateActive.value, templateValid.value, menuState.value.operationBusy],
+  templateDirty.value, templateActive.value, templateValid.value, templateFilePath.value, templatePersistenceRevision.value, menuState.value.operationBusy],
   () => { void bridge.publish().catch((error) => session.presentError(error)) }, { flush: 'post' })
 
 async function openTemplateEditor(): Promise<void> {
@@ -289,6 +356,7 @@ function executeCommand(command: MenuCommand): void {
     case 'load-template': void reportFailure(chooseTemplateLoad); break
     case 'unload-template': void reportFailure(unloadTemplate); break
     case 'save-template': void reportFailure(chooseTemplateSave); break
+    case 'save-template-as': void reportFailure(chooseTemplateSaveAs); break
     case 'theme-toggle': theme.toggle(); break
     case 'row-16': bytesPerRow.value = 16; break
     case 'row-32': bytesPerRow.value = 32; break

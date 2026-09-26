@@ -5,7 +5,7 @@ interface EditorCallbacks { onSnapshot(snapshot: TemplateSnapshot): void; onErro
 export function createEditorBridge(bus: LocalBus, callbacks: EditorCallbacks) {
   const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
   const disposers: Array<() => void> = []
-  const waiting = new Map<number, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>()
+  const waiting = new Map<number, { resolve: (completed: boolean) => void; reject: (error: Error) => void }>()
   let current: TemplateSnapshot | null = null
   let valid = true
   let sequence = 0
@@ -37,9 +37,9 @@ export function createEditorBridge(bus: LocalBus, callbacks: EditorCallbacks) {
         const reply = payload as EditorReply
         const pending = waiting.get(reply?.requestId)
         if (!pending) return
-        clearTimeout(pending.timer); waiting.delete(reply.requestId)
+        waiting.delete(reply.requestId)
         if (reply.snapshot) applySnapshot(reply.snapshot)
-        if (reply.ok) pending.resolve(); else pending.reject(new Error(reply.error ?? 'Template action failed.'))
+        if (reply.ok) pending.resolve(reply.completed !== false); else pending.reject(new Error(reply.error ?? 'Template action failed.'))
       }))
       disposers.push(await bus.listen(events.flush, async (payload) => {
         const request = payload as { requestId: number }
@@ -57,20 +57,21 @@ export function createEditorBridge(bus: LocalBus, callbacks: EditorCallbacks) {
     catch (error) { callbacks.onError(error); throw error }
   }
 
-  async function requestAction(command: EditorActionName, range?: { start: string; end: string }): Promise<void> {
+  async function requestAction(command: EditorActionName, range?: { start: string; end: string }): Promise<boolean> {
     const id = ++requestId
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => { waiting.delete(id); reject(new Error('Template action timed out. Your draft is preserved.')) }, 5000)
-      waiting.set(id, { resolve, reject, timer })
+    return await new Promise<boolean>((resolve, reject) => {
+      // A native picker or a large-file operation can remain open for an arbitrary
+      // time. Wait for its reply (or window disposal) instead of timing it out.
+      waiting.set(id, { resolve, reject })
       void bus.send(MAIN_LABEL, events.action, { requestId: id, command, draft: draft(), range }).catch((error) => {
-        clearTimeout(timer); waiting.delete(id); reject(error)
+        waiting.delete(id); reject(error)
       })
     })
   }
 
   function dispose(): void {
     disposers.splice(0).forEach((dispose) => dispose())
-    for (const pending of waiting.values()) { clearTimeout(pending.timer); pending.reject(new Error('Template Editor closed.')) }
+    for (const pending of waiting.values()) pending.reject(new Error('Template Editor closed.'))
     waiting.clear()
     void bus.send(MAIN_LABEL, events.closed, { sessionId }).catch(() => undefined)
   }
