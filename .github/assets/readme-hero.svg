@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" role="img" aria-labelledby="title description">
+  <title id="title">HexForge binary workbench illustration</title>
+  <desc id="description">A dark, stylized hex view with address, hexadecimal, and ASCII columns. Blue marks a selection and orange marks an edited byte.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#10141b"/>
+      <stop offset="0.58" stop-color="#111822"/>
+      <stop offset="1" stop-color="#172234"/>
+    </linearGradient>
+    <radialGradient id="blue-glow">
+      <stop stop-color="#1f6feb" stop-opacity=".27"/>
+      <stop offset="1" stop-color="#1f6feb" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="orange-glow">
+      <stop stop-color="#f0883e" stop-opacity=".15"/>
+      <stop offset="1" stop-color="#f0883e" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#8b949e" stroke-opacity=".07"/>
+    </pattern>
+    <clipPath id="frame-clip"><rect width="1280" height="400" rx="28"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#frame-clip)">
+    <rect width="1280" height="400" fill="url(#background)"/>
+    <rect width="1280" height="400" fill="url(#grid)"/>
+    <ellipse cx="1028" cy="90" rx="370" ry="285" fill="url(#blue-glow)"/>
+    <ellipse cx="227" cy="378" rx="270" ry="225" fill="url(#orange-glow)"/>
+    <path d="M0 347H1280" stroke="#8b949e" stroke-opacity=".1"/>
+
+    <rect x="68" y="72" width="54" height="54" rx="14" fill="#1d2633" stroke="#384559"/>
+    <path d="M84 85v28m22-28v28M84 99h22" fill="none" stroke="#58a6ff" stroke-linecap="round" stroke-width="5"/>
+    <circle cx="84" cy="85" r="3" fill="#f0883e"/>
+    <circle cx="106" cy="113" r="3" fill="#f0883e"/>
+
+    <text x="68" y="165" fill="#8b949e" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="14" letter-spacing="2.3">LOCAL-FIRST BINARY WORKBENCH</text>
+    <text x="65" y="226" fill="#f0f3f7" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="53" font-weight="700" letter-spacing="-2">HEXFORGE</text>
+    <text x="68" y="263" fill="#c9d1d9" font-family="ui-sans-serif, Segoe UI, Arial, sans-serif" font-size="19">Inspect every byte. Keep the original intact.</text>
+
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12" font-weight="600" letter-spacing="1">
+      <rect x="68" y="297" width="99" height="29" rx="7" fill="#1b2838" stroke="#385472"/>
+      <text x="85" y="316" fill="#79b8ff">OFFLINE</text>
+      <rect x="178" y="297" width="112" height="29" rx="7" fill="#1b2838" stroke="#385472"/>
+      <text x="195" y="316" fill="#79b8ff">PAGED I/O</text>
+      <rect x="301" y="297" width="112" height="29" rx="7" fill="#34251e" stroke="#7a4b2b"/>
+      <text x="318" y="316" fill="#f3a66e">SAFE EDITS</text>
+    </g>
+
+    <rect x="610" y="47" width="604" height="306" rx="14" fill="#0d1117" stroke="#394655" stroke-width="2"/>
+    <path d="M624 48h576a14 14 0 0 1 14 14v35H610V62a14 14 0 0 1 14-14Z" fill="#1a222e"/>
+    <circle cx="635" cy="73" r="4" fill="#f0883e"/>
+    <circle cx="651" cy="73" r="4" fill="#8b949e" opacity=".65"/>
+    <circle cx="667" cy="73" r="4" fill="#8b949e" opacity=".42"/>
+    <text x="694" y="79" fill="#c9d1d9" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="14">firmware.bin</text>
+    <text x="1158" y="79" fill="#8b949e" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12">43.01 MiB</text>
+
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace">
+      <text x="635" y="126" fill="#8b949e" font-size="12" letter-spacing="1.4">OFFSET</text>
+      <text x="760" y="126" fill="#8b949e" font-size="12" letter-spacing="1.4">HEX BYTES</text>
+      <text x="1063" y="126" fill="#8b949e" font-size="12" letter-spacing="1.4">ASCII</text>
+      <path d="M626 138h572" stroke="#30363d"/>
+      <path d="M741 111v194M1046 111v194" stroke="#30363d"/>
+
+      <rect x="755" y="144" width="85" height="25" rx="4" fill="#1f6feb" opacity=".72"/>
+      <rect x="870" y="183" width="22" height="25" rx="4" fill="#f0883e" opacity=".68"/>
+
+      <g font-size="16">
+        <text x="635" y="163" fill="#8b949e">00000000</text>
+        <text x="760" y="163" fill="#e6edf3">48 45 58 46 4F 52 47 45</text>
+        <text x="1063" y="163" fill="#c9d1d9">HEXFORGE</text>
+
+        <text x="635" y="202" fill="#8b949e">00000008</text>
+        <text x="760" y="202" fill="#e6edf3">01 00 20 00 A7 19 3C 00</text>
+        <text x="1063" y="202" fill="#c9d1d9">.. ...&lt;.</text>
+
+        <text x="635" y="241" fill="#8b949e">00000010</text>
+        <text x="760" y="241" fill="#e6edf3">89 50 4E 47 0D 0A 1A 0A</text>
+        <text x="1063" y="241" fill="#c9d1d9">.PNG....</text>
+
+        <text x="635" y="280" fill="#8b949e">00000018</text>
+        <text x="760" y="280" fill="#e6edf3">00 00 00 0D 49 48 44 52</text>
+        <text x="1063" y="280" fill="#c9d1d9">....IHDR</text>
+      </g>
+    </g>
+
+    <path d="M610 307h604" stroke="#30363d"/>
+    <text x="635" y="334" fill="#8b949e" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12">OFFSET 0x00000000</text>
+    <text x="1006" y="334" fill="#f3a66e" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12">● MODIFIED</text>
+    <text x="1160" y="334" fill="#8b949e" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12">LE</text>
+  </g>
+</svg>

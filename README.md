@@ -1,88 +1,79 @@
-<p align="center">
-  <img src="src-tauri/icons/hexforge.svg" width="96" alt="HexForge logo" />
-</p>
-
 <h1 align="center">HexForge</h1>
 
-<p align="center"><strong>See every byte. Keep the original intact.</strong></p>
+<p align="center"><strong>A modern, local-first hex viewer for understanding binary files.</strong></p>
+
+<p align="center">🔒 Fully offline &nbsp;·&nbsp; ⚡ Paginated for large files &nbsp;·&nbsp; 🛡️ Original-safe editing</p>
 
 <p align="center">
-  A focused, offline hex viewer and binary analysis tool for developers, firmware debuggers,
-  reverse engineers, and game asset analysts.
+  <img src=".github/assets/readme-hero.svg" width="100%" alt="Illustration of HexForge showing a three-column hex view, blue selection, and an orange edited byte" />
 </p>
 
-<p align="center"><code>Tauri 2</code> · <code>Vue 3</code> · <code>TypeScript</code> · <code>Rust</code> · <code>Canvas</code></p>
+<p align="center"><sub>Illustrated preview · Tauri 2 + Vue 3 + TypeScript + Rust + a hand-drawn Canvas hex view</sub></p>
 
-<p align="center">
-  <a href="#what-you-can-do">Features</a> ·
-  <a href="#get-started">Get started</a> ·
-  <a href="#parsing-templates">Templates</a> ·
-  <a href="#keyboard-shortcuts">Shortcuts</a>
-</p>
+## ✨ Why HexForge
 
----
-
-## What you can do
-
-| Capability | What it gives you |
+| Capability | Why it helps |
 | --- | --- |
-| **Inspect large binaries** | Open any local binary file, including `.bin`, `.rom`, and `.raw`. Rust reads bounded pages near the viewport instead of loading even a multi-gigabyte file at once. A self-drawn, layered Canvas view shows offsets, hex bytes, and ASCII. |
-| **Find your place** | Switch between 16 and 32 bytes per row, select a byte or range, jump to decimal or `0x` offsets, and highlight matches for hex searches such as `41 42 43`. Non-printable ASCII appears as `.`. |
-| **Edit safely** | Enable edit mode, change a byte using a validated `00`–`FF` value, and undo the latest edits. Orange marks in-memory modifications. Save As creates a new binary file; it never overwrites the original. |
-| **Understand structure** | Load or create a flat JSON template in a separate Template Editor window. Apply it when ready, inspect results below the hex view, jump to a field's byte range, and export parsed results to CSV. |
+| **🔍 Inspect at scale** | Open any local binary, including `.bin`, `.rom`, and `.raw`. Rust loads bounded pages near the visible viewport, not the whole multi-gigabyte file. The Canvas view shows offsets, hex bytes, and printable ASCII; other bytes appear as `.`. |
+| **🎯 Find the bytes that matter** | Select a byte or drag a range, jump to decimal or `0x` offsets, search patterns such as `41 42 43`, and switch between 16 and 32 bytes per row. |
+| **🛡️ Edit without risk to the source** | Change validated `00`–`FF` values in an in-memory buffer. Orange marks edited bytes; Undo rolls changes back. Binary Save As writes a new file—never over the original. |
+| **🧩 Turn bytes into fields** | Create or load local JSON templates, parse them in either byte order, and inspect results below the hex view. Click a result to highlight its bytes, or export the table as CSV. |
 
-Long-running search, parsing, Save As, and export operations report progress without freezing the interface. Dark mode is the default; light mode is one toggle away, and JetBrains Mono is bundled locally. The application has no telemetry, updater, or file-upload path: files, paths, templates, and parsed results stay on your computer.
+Search, parsing, Save As, and export run without blocking the interface and report progress. HexForge starts in a dark theme, offers a light theme, and bundles JetBrains Mono locally.
 
-## Get started
+> [!NOTE]
+> HexForge does not upload your files, bytes, paths, templates, or parsed results. The desktop app has no telemetry, updater, or runtime network client.
 
-### Portable Windows app
+## 🚀 Get started
 
-The [Windows build workflow](.github/workflows/build.yaml) produces a portable `hexforge.exe` and uploads it as the `HexForge-windows-x64-portable` artifact after a successful run. In [GitHub Actions](https://github.com/Steven-w65/HexForge/actions), open a successful **Build Portable Windows EXE** run, download its artifact, extract it, and launch the executable. There is no HexForge installer. Windows still needs the Microsoft Edge WebView2 runtime used by Tauri.
+### Windows portable build
 
-### Run or build from source
+The [build workflow](.github/workflows/build.yaml) uploads a `HexForge-windows-x64-portable` artifact after a successful run. In [GitHub Actions](https://github.com/Steven-w65/HexForge/actions), open a successful **Build Portable Windows EXE** run, download and extract the artifact, then launch `hexforge.exe`. There is no HexForge installer; Windows still needs the WebView2 runtime used by Tauri.
 
-You will need a compatible Node.js version (`^20.19.0` or `>=22.12.0`), npm (the project specifies `11.6.3`), stable Rust, and the [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/). On Windows, development also requires Microsoft C++ Build Tools and WebView2.
+### Run from source
+
+Install a compatible Node.js version (`^20.19.0` or `>=22.12.0`), npm (the project specifies `11.6.3`), stable Rust, and the [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/). Windows development also requires Microsoft C++ Build Tools and WebView2.
 
 ```sh
 npm ci
 npm run tauri -- dev
 ```
 
-To build the portable executable without an installer:
+To build the portable Windows executable yourself:
 
 ```sh
 npm run tauri -- build --no-bundle
 ```
 
-On Windows, the output is `src-tauri/target/release/hexforge.exe`. The repository's GitHub Actions workflow runs the same portable build.
+The result is `src-tauri/target/release/hexforge.exe`.
 
-## A safe editing model
+## 🛡️ Original-safe by design
 
-HexForge opens the current binary source **read-only**. Byte edits live in a sparse in-memory buffer, and the source file is never saved over in place. `File → Save As…` writes a **new** file containing the source bytes plus your edits, then keeps that saved copy visible in the viewer. HexForge refuses the original path and an already-existing binary destination.
+> [!IMPORTANT]
+> The active binary is opened read-only. **Save As is the only binary save operation**: it writes the source plus in-memory edits to a brand-new path and refuses both the original path and an existing destination.
 
-The status bar shows the selected offset and byte, row width, mode, endianness, and whether there are unsaved binary changes. Closing with unsaved edits asks for confirmation. Undo is available; Redo is not part of this MVP.
+The new copy stays open after Save As, so the saved bytes remain visible. The status bar shows your selected offset and byte, selection size, row width, edit mode, endianness, and modified state. Closing with unsaved changes asks for confirmation. HexForge has Undo, but no Redo.
 
-## Parsing templates
+## 🧩 Parsing templates
 
-Template files are local JSON, separate from binary files. Loading a template does **not** open a binary or parse it automatically.
+Templates are independent local JSON files. **Loading a template does not open a binary or apply the template.** You choose when to parse.
 
-1. Open a binary with `File → Open File…` or drag and drop it into HexForge.
-2. Use `Template → Load Template…`, or open `Template → Template Editor…` to create an Untitled template. The editor lives in its own window.
-3. Add or edit fields in the editor, then choose **Apply Template**. An unsaved draft can be applied directly; saving the JSON first is optional.
-4. Read the parsed results below the hex view. Click a result to navigate to and highlight its source bytes.
+1. Open a binary with **File → Open File…** or drag and drop it into HexForge.
+2. Choose **Template → Load Template…**, or open the separate **Template Editor…** window to create an Untitled template.
+3. Add fields and choose **Apply Template**. You can apply an unsaved editor draft without first writing a JSON file.
+4. Inspect results below the hex view. Click a row to navigate to and highlight its byte range.
 
-The editor can save an existing path-backed template with **Save Template** or choose a path with **Save Template As…**. Neither action automatically applies the template. **Unload Template** clears the active template. Unsaved editor changes are checked when you close the editor or main window.
+The editor's **Save Template** updates a path-backed JSON file; **Save Template As…** chooses a path. Saving does not auto-apply. **Unload Template** clears the active template, and unsaved drafts are protected on close.
 
-Supported field types: `u8`, `u16`, `u32`, `i8`, `i16`, `i32`, `f32`, `f64`, fixed-length `string`, and fixed-length `bytes`. Numeric fields support little- or big-endian parsing. Offsets accept decimal or `0x`-prefixed hex input; `string` and `bytes` fields require a positive length. Templates are intentionally flat—no nested structures or conditional logic.
+| Numeric | Fixed-length |
+| --- | --- |
+| `u8` · `u16` · `u32` · `i8` · `i16` · `i32` · `f32` · `f64` | `string` · `bytes` |
 
-Start with a sample:
+Fields support decimal or `0x`-prefixed offsets; numeric fields support little- and big-endian decoding. Templates are flat by design—there are no nested structures or conditional rules. Parsing is capped at 4,096 fields and a 16 MiB aggregate decoded-data budget.
 
-- [PNG header / IHDR template](templates/png-header.json) — a recognizable real-world format with big-endian fields.
-- [Firmware header template](templates/firmware-header.json) — a compact example of little-endian fields.
+**Try a sample:** [PNG / IHDR header](templates/png-header.json) · [Firmware header](templates/firmware-header.json)
 
-For predictable memory use, template parsing is limited to 4,096 fields and a 16 MiB aggregate decoded-data budget.
-
-## Keyboard shortcuts
+## ⌨️ Keyboard shortcuts
 
 | Action | Shortcut |
 | --- | --- |
@@ -99,11 +90,11 @@ For predictable memory use, template parsing is limited to 4,096 fields and a 16
 | Close a popup, or clear selection | `Esc` |
 | Exit | `Alt+F4` |
 
-`Ctrl+S` is for the **template JSON**. It is not an in-place save command for a binary file.
+`Ctrl+S` saves the **template JSON**, not the binary. For binary output, use Save As.
 
-## For contributors
+## 🛠️ For contributors
 
-Vue and TypeScript handle the interface, interactions, and Canvas rendering. Tauri commands call the Rust backend for paginated I/O, searching, template parsing, exports, and the in-memory edit buffer. No third-party hex-view component is used.
+Vue and TypeScript own the interface and layered Canvas renderer. Tauri commands connect it to Rust's paginated I/O, search, template parser, CSV export, and sparse edit buffer. No third-party hex-view component is used.
 
 ```sh
 npm test
@@ -112,4 +103,4 @@ npm run build
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-Dependencies are locked in `package-lock.json`; use `npm ci` for a fresh checkout and `npm install` only when intentionally updating dependencies.
+Dependencies are locked in `package-lock.json`. Use `npm ci` for a fresh checkout and `npm install` only when intentionally updating them.
