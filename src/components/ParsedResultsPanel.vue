@@ -4,17 +4,30 @@ import type { ByteSelection } from '../hex/selection'
 import type { ParsedField } from '../types'
 
 const props = withDefaults(defineProps<{
-  results: ParsedField[]; collapsed: boolean; hasFile?: boolean; templateHasFields?: boolean; templateRange?: ByteSelection | null
-}>(), { hasFile: false, templateHasFields: false, templateRange: null })
+  results: ParsedField[]; collapsed: boolean; hasFile?: boolean; templateActive?: boolean; templateName?: string
+  templateHasFields?: boolean; resultsNeedRefresh?: boolean; templateRange?: ByteSelection | null
+}>(), { hasFile: false, templateActive: false, templateName: '', templateHasFields: false, resultsNeedRefresh: false, templateRange: null })
 const emit = defineEmits<{
   'toggle-collapse': []; navigate: [range: { start: bigint; end: bigint }]
-  'empty-action': [command: 'open' | 'template-editor' | 'apply-template']
+  'empty-action': [command: 'load-template' | 'open' | 'template-editor' | 'apply-template']
 }>()
 
+const activeName = computed(() => props.templateName.trim() || 'Untitled')
+const templateState = computed(() => {
+  if (props.results.length) return 'Applied'
+  if (!props.templateActive) return 'No template'
+  if (!props.hasFile) return 'Waiting for file'
+  if (!props.templateHasFields) return 'No fields'
+  return props.resultsNeedRefresh ? 'Apply again' : 'Ready to apply'
+})
+
 const emptyState = computed(() => {
-  if (!props.hasFile) return { message: 'Open a binary file to inspect parsed fields.', action: 'Open File', command: 'open' as const }
-  if (!props.templateHasFields) return { message: 'Create or load a parsing template.', action: 'Template Editor', command: 'template-editor' as const }
-  return { message: 'The template is ready to apply.', action: 'Apply Template', command: 'apply-template' as const }
+  if (!props.hasFile && props.templateActive) return { message: `Template “${activeName.value}” is ready. Open a binary file to inspect fields.`, action: 'Open File', command: 'open' as const }
+  if (!props.hasFile) return { message: 'Load a template, then open a binary file to inspect parsed fields.', action: 'Load Template', command: 'load-template' as const }
+  if (!props.templateActive) return { message: 'Create or load a parsing template.', action: 'Template Editor', command: 'template-editor' as const }
+  if (!props.templateHasFields) return { message: `Template “${activeName.value}” has no fields yet.`, action: 'Template Editor', command: 'template-editor' as const }
+  if (props.resultsNeedRefresh) return { message: `Template or file bytes changed. Apply “${activeName.value}” again.`, action: 'Apply Template', command: 'apply-template' as const }
+  return { message: `Template “${activeName.value}” is ready to apply.`, action: 'Apply Template', command: 'apply-template' as const }
 })
 
 function navigate(field: ParsedField): void {
@@ -37,6 +50,7 @@ function isActive(field: ParsedField): boolean {
   <aside class="results-panel" :class="{ collapsed }">
     <header class="results-header">
       <span class="panel-heading">PARSED RESULTS <span v-if="results.length" class="result-count">{{ results.length }}</span></span>
+      <span data-testid="template-state" class="template-state" :title="templateActive ? `${activeName} · ${templateState}` : templateState">{{ templateActive ? `${activeName} · ${templateState}` : templateState }}</span>
       <button type="button" class="collapse" data-action="collapse-results" :title="collapsed ? 'Expand results' : 'Collapse results'" :aria-label="collapsed ? 'Expand parsed results' : 'Collapse parsed results'" @click="emit('toggle-collapse')">{{ collapsed ? '⌃' : '⌄' }}</button>
     </header>
     <div v-if="!collapsed" class="results-content">
@@ -62,12 +76,13 @@ function isActive(field: ParsedField): boolean {
 
 <style scoped>
 .results-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--panel); border-top: 1px solid var(--border); }
-.results-header { box-sizing: border-box; height: 28px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 12px; border-bottom: 1px solid var(--border); }
+.results-header { box-sizing: border-box; height: 28px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--border); }
 .results-panel.collapsed .results-header { border-bottom: 0; }
 .collapse { width: 22px; height: 22px; color: var(--muted); background: transparent; border: 0; border-radius: 3px; font-size: 16px; line-height: 1; }
 .collapse:hover { color: var(--text); background: var(--hover); }
 .results-content { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .panel-heading { color: var(--muted); font-size: var(--font-support); letter-spacing: .08em; }
+.template-state { min-width: 0; margin-left: auto; overflow: hidden; color: var(--address); font-size: var(--font-support); text-overflow: ellipsis; white-space: nowrap; }
 .result-count { margin-left: 5px; color: var(--address); letter-spacing: 0; }
 .result-list { flex: 1; min-height: 0; overflow: auto; }
 .result-columns, .result-row { box-sizing: border-box; width: 100%; min-width: 620px; display: grid; grid-template-columns: minmax(120px, 1.2fr) minmax(160px, 1.7fr) 130px 70px 100px; align-items: center; gap: 8px; padding: 4px 10px; }

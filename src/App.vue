@@ -2,7 +2,7 @@
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { confirm, message, open, save } from '@tauri-apps/plugin-dialog'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppShell from './components/AppShell.vue'
 import { useHexSession } from './composables/useHexSession'
 import { handleCloseRequest, useHotkeys } from './composables/useHotkeys'
@@ -11,6 +11,10 @@ import type { BytesPerRow } from './hex/layout'
 import { commandEnabled, type MenuCommand, type MenuState } from './menu/commands'
 import type { TemplateDefinition, TemplateField } from './types'
 import { normalizeSelection, type ByteSelection } from './hex/selection'
+import { createMainBridge } from './templateWindow/mainBridge'
+import { tauriBus } from './templateWindow/tauriBus'
+import { templateWindowManager } from './templateWindow/windowManager'
+import type { EditorAction } from './templateWindow/protocol'
 
 type PromptKind = 'goto' | 'search' | 'edit'
 const session = useHexSession()
@@ -27,7 +31,6 @@ function storePanelPreference(key: string, value: boolean): void {
 }
 
 const rightCollapsed = ref(readPanelPreference(RIGHT_PANEL_KEY, false))
-const templateEditorOpen = ref(false)
 const theme = useTheme()
 const popup = ref<{ kind: PromptKind; title: string; value: string } | null>(null)
 const templateRange = ref<ByteSelection | null>(null)
@@ -39,10 +42,11 @@ let disposed = false
 function templateSnapshot(value: TemplateDefinition): string { return JSON.stringify(value) }
 const templateBaseline = ref(templateSnapshot(session.template.value))
 const templateDirty = computed(() => templateSnapshot(session.template.value) !== templateBaseline.value)
+const templateActive = ref(false)
 
 async function reportFailure(operation: () => Promise<void>): Promise<boolean> {
   try { await operation(); return true }
-  catch { return false /* useHexSession exposes the normalized failure through AppDialog */ }
+  catch (error) { session.presentError(error); return false }
 }
 
 async function nativeCall<T>(operation: () => Promise<T>): Promise<T | undefined> {
@@ -69,7 +73,7 @@ async function openPath(path: string): Promise<void> {
     discard = await confirmDiscard()
     if (!discard) return
   }
-  await reportFailure(() => session.openFile(path, discard))
+  if (await reportFailure(() => session.openFile(path, discard))) clearTemplateHighlight()
 }
 
 async function chooseFile(): Promise<void> {
@@ -90,25 +94,48 @@ async function closeCurrentFile(): Promise<void> {
     if (!discard) return
   }
   await reportFailure(() => session.closeFile(discard))
-  if (!session.file.value) templateRange.value = null
+  if (!session.file.value) clearTemplateHighlight()
 }
 
 async function exitApplication(): Promise<void> {
   await nativeCall(() => getCurrentWindow().close())
 }
 
-async function chooseTemplateLoad(): Promise<void> {
-  const path = await nativeCall(() => open({ multiple: false, directory: false, title: 'Load parsing template', filters: [{ name: 'JSON template', extensions: ['json'] }] }))
-  if (typeof path === 'string') {
-    templateEditorOpen.value = true
-    if (await reportFailure(() => session.loadTemplate(path))) templateBaseline.value = templateSnapshot(session.template.value)
+async function inTemplateDialog<T>(fromEditor: boolean, operation: () => Promise<T>): Promise<T> {
+  if (!fromEditor) return operation()
+  // Native dialogs belong to the main window; bring it forward when the companion requested one.
+  await getCurrentWindow().setFocus()
+  try { return await operation() }
+  finally {
+    try { if (bridge.isReady()) await templateWindowManager.openOrFocus() }
+    catch (error) { session.presentError(error) }
   }
 }
 
-async function chooseTemplateSave(): Promise<void> {
-  if (!templateValid.value) { session.presentError({ code: 'invalid_template', message: 'Correct the highlighted template field before saving.' }); return }
-  const path = await nativeCall(() => save({ title: 'Save parsing template', defaultPath: `${session.template.value.name || 'template'}.json`, filters: [{ name: 'JSON template', extensions: ['json'] }] }))
-  if (path && await reportFailure(() => session.saveTemplate(path))) templateBaseline.value = templateSnapshot(session.template.value)
+async function chooseTemplateLoad(flushDraft = true): Promise<void> {
+  if (flushDraft) await bridge.flush()
+  await inTemplateDialog(!flushDraft, async () => {
+    const path = await open({ multiple: false, directory: false, title: 'Load parsing template', filters: [{ name: 'JSON template', extensions: ['json'] }] })
+    if (typeof path !== 'string') return
+    if (templateDirty.value && !await confirm('This template has unsaved changes. Discard them and load another template?', { title: 'HexForge', kind: 'warning' })) return
+    await session.loadTemplate(path)
+    clearTemplateHighlight()
+    templateBaseline.value = templateSnapshot(session.template.value)
+    templateActive.value = true
+    if (!bridge.isReady()) await openTemplateEditor()
+  })
+}
+
+async function chooseTemplateSave(flushDraft = true): Promise<void> {
+  if (flushDraft) await bridge.flush()
+  if (!templateValid.value) { throw { code: 'invalid_template', message: 'Correct the highlighted template field before saving.' } }
+  await inTemplateDialog(!flushDraft, async () => {
+    const path = await save({ title: 'Save parsing template', defaultPath: `${session.template.value.name || 'template'}.json`, filters: [{ name: 'JSON template', extensions: ['json'] }] })
+    if (!path) return
+    await session.saveTemplate(path)
+    templateBaseline.value = templateSnapshot(session.template.value)
+    templateActive.value = true
+  })
 }
 
 async function chooseCsvExport(): Promise<void> {
@@ -120,7 +147,6 @@ function showPrompt(kind: PromptKind, title: string, value = ''): void { popup.v
 function closePopup(): void { popup.value = null; session.clearError() }
 function closeTopLayer(): void {
   if (popup.value !== null || session.error.value !== null) closePopup()
-  else templateEditorOpen.value = false
 }
 
 async function submitPrompt(): Promise<void> {
@@ -139,7 +165,32 @@ function beginEdit(offset: bigint): void {
   showPrompt('edit', 'Edit byte', '')
 }
 
-function updateTemplate(value: TemplateDefinition): void { session.updateTemplate(value) }
+function clearTemplateHighlight(): void {
+  const range = templateRange.value
+  if (!range) return
+  const selection = session.selection.value
+  if (selection?.start === range.start && selection.end === range.end) session.clearSelection()
+  templateRange.value = null
+}
+
+function updateTemplate(value: TemplateDefinition): void {
+  session.updateTemplate(value)
+  clearTemplateHighlight()
+  templateActive.value = true
+}
+
+async function unloadTemplate(flushDraft = true): Promise<void> {
+  if (flushDraft) await bridge.flush()
+  if (templateDirty.value) {
+    const discard = await inTemplateDialog(!flushDraft, () => confirm('This template has unsaved changes. Discard them and unload it?', { title: 'HexForge', kind: 'warning' }))
+    if (discard !== true) return
+  }
+  session.unloadTemplate()
+  templateBaseline.value = templateSnapshot(session.template.value)
+  templateActive.value = false
+  clearTemplateHighlight()
+  templateValid.value = true
+}
 function templateFieldLength(field: TemplateField): bigint {
   if (field.type === 'string' || field.type === 'bytes') return BigInt(field.length ?? 1)
   if (field.type.endsWith('8')) return 1n
@@ -159,15 +210,16 @@ function nextTemplateOffset(): string {
   return next.toString()
 }
 function addTemplateField(): void {
-  templateEditorOpen.value = true
   const fields = session.template.value.fields
-  session.updateTemplate({ ...session.template.value, fields: [...fields, {
+  updateTemplate({ ...session.template.value, fields: [...fields, {
     name: `field${fields.length + 1}`, offset: nextTemplateOffset(), type: 'u8', endianness: session.template.value.defaultEndianness, comment: '',
   }] })
+  void openTemplateEditor()
 }
-function applyValidTemplate(): void {
-  if (!templateValid.value) { session.presentError({ code: 'invalid_template', message: 'Correct the highlighted template field before applying.' }); return }
-  void reportFailure(session.applyTemplate)
+async function applyValidTemplate(flushDraft = true): Promise<void> {
+  if (flushDraft) await bridge.flush()
+  if (!templateValid.value) { throw { code: 'invalid_template', message: 'Correct the highlighted template field before applying.' } }
+  await session.applyTemplate()
 }
 function navigateTemplate(range: { start: bigint; end: bigint }): void {
   templateRange.value = normalizeSelection(range.start, range.end)
@@ -194,11 +246,44 @@ const menuState = computed<MenuState>(() => ({
   editMode: session.editMode.value,
   canUndo: session.canUndo.value,
   templateValid: templateValid.value,
+  templateActive: templateActive.value,
   templateHasFields: session.template.value.fields.length > 0,
   hasNavigableTemplateFields: session.template.value.fields.length > 0,
   hasParsedResults: session.results.value.length > 0,
   operationBusy: session.activity.value !== null,
 }))
+
+const bridge = createMainBridge(tauriBus, {
+  snapshot: () => ({
+    template: session.template.value, results: session.results.value, fileSize: session.file.value?.size ?? null,
+    theme: theme.value.value, dirty: templateDirty.value, canApply: commandEnabled('apply-template', menuState.value), active: templateActive.value,
+  }),
+  onDraft: (draft) => {
+    if (templateSnapshot(session.template.value) !== templateSnapshot(draft.template)) updateTemplate(draft.template)
+    templateValid.value = draft.valid
+  },
+  onAction: async (action: EditorAction) => {
+    switch (action.command) {
+      case 'load': await chooseTemplateLoad(false); break
+      case 'save': await chooseTemplateSave(false); break
+      case 'apply': await applyValidTemplate(false); break
+      case 'unload': await unloadTemplate(false); break
+      case 'navigate': if (action.range) navigateTemplate({ start: BigInt(action.range.start), end: BigInt(action.range.end) }); break
+      case 'close': break // The accepted draft remains in the authoritative main session.
+    }
+  },
+  onError: (error) => session.presentError(error),
+  onClosed: () => templateWindowManager.forget(),
+})
+
+watch(() => [session.template.value, session.results.value, session.file.value?.size, theme.value.value,
+  templateDirty.value, templateActive.value, templateValid.value, menuState.value.operationBusy],
+  () => { void bridge.publish().catch((error) => session.presentError(error)) }, { flush: 'post' })
+
+async function openTemplateEditor(): Promise<void> {
+  try { await bridge.start(); await templateWindowManager.openOrFocus() }
+  catch (error) { session.presentError(error) }
+}
 
 function executeCommand(command: MenuCommand): void {
   if (!commandEnabled(command, menuState.value)) return
@@ -217,10 +302,11 @@ function executeCommand(command: MenuCommand): void {
     case 'undo': void reportFailure(session.undo); break
     case 'goto': showPrompt('goto', 'Go to offset'); break
     case 'search': showPrompt('search', 'Search bytes'); break
-    case 'template-editor': templateEditorOpen.value = !templateEditorOpen.value; break
-    case 'apply-template': applyValidTemplate(); break
-    case 'load-template': void chooseTemplateLoad(); break
-    case 'save-template': void chooseTemplateSave(); break
+    case 'template-editor': void openTemplateEditor(); break
+    case 'apply-template': void reportFailure(applyValidTemplate); break
+    case 'load-template': void reportFailure(chooseTemplateLoad); break
+    case 'unload-template': void reportFailure(unloadTemplate); break
+    case 'save-template': void reportFailure(chooseTemplateSave); break
     case 'add-field': addTemplateField(); break
     case 'theme-toggle': theme.toggle(); break
     case 'row-16': bytesPerRow.value = 16; break
@@ -230,9 +316,10 @@ function executeCommand(command: MenuCommand): void {
 }
 
 onMounted(async () => {
+  try { await bridge.start() } catch (error) { session.presentError(error) }
   disposers.push(useHotkeys({
     invoke: executeCommand, isEnabled: (command) => commandEnabled(command, menuState.value),
-    isPopupOpen: () => popup.value !== null || session.error.value !== null || templateEditorOpen.value,
+    isPopupOpen: () => popup.value !== null || session.error.value !== null,
     closePopup: closeTopLayer, clearSelection: session.clearSelection,
   }))
   try {
@@ -241,6 +328,7 @@ onMounted(async () => {
       let templateDraftDirty = false
       try {
         await handleCloseRequest(event, async () => {
+          await bridge.flush()
           const state = await session.prepareClose()
           fileDirty = state.dirty
           templateDraftDirty = templateDirty.value
@@ -261,7 +349,7 @@ onMounted(async () => {
   }
 })
 
-onBeforeUnmount(() => { disposed = true; disposers.splice(0).forEach((dispose) => dispose()) })
+onBeforeUnmount(() => { disposed = true; bridge.dispose(); disposers.splice(0).forEach((dispose) => dispose()) })
 </script>
 
 <template>
@@ -270,17 +358,14 @@ onBeforeUnmount(() => { disposed = true; disposers.splice(0).forEach((dispose) =
     :template="session.template.value" :results="session.results.value" :matches="session.matches.value"
     :match-length="session.searchMatchLength.value" :search-truncated="session.searchTruncated.value" :template-range="templateRange"
     :busy-label="activeBusy" :progress-text="progressText"
-    :template-valid="templateValid" :template-editor-open="templateEditorOpen" :template-dirty="templateDirty"
+    :template-valid="templateValid" :results-need-refresh="session.resultsNeedRefresh.value"
     :menu-state="menuState" :theme="theme.value.value" :right-collapsed="rightCollapsed"
     :bytes-per-row="bytesPerRow" :edit-mode="session.editMode.value" :endianness="session.template.value.defaultEndianness"
     :navigation-offset="session.viewportOffset.value" :dialog-open="popup !== null || session.error.value !== null"
     :dialog-title="popup?.title ?? (session.error.value ? 'Operation failed' : '')" :dialog-message="session.error.value?.message ?? ''"
-    @command="executeCommand" @update:bytes-per-row="bytesPerRow = $event" @update:template="updateTemplate"
-    @template-validity="templateValid = $event"
-    @save-template="chooseTemplateSave" @load-template="chooseTemplateLoad" @navigate="navigateTemplate"
+    @command="executeCommand" @update:bytes-per-row="bytesPerRow = $event" @navigate="navigateTemplate"
     @request-page="reportFailure(() => session.requestPage($event.offset, $event.length, $event.generation))" @select="selectBytes"
     @edit-request="beginEdit" @viewport-offset="session.viewportOffset.value = $event" @close-dialog="closePopup"
-    @close-template-editor="templateEditorOpen = false"
   >
     <template #dialog>
       <form v-if="popup" class="prompt-form" @submit.prevent="submitPrompt">
@@ -292,7 +377,6 @@ onBeforeUnmount(() => { disposed = true; disposers.splice(0).forEach((dispose) =
     </template>
   </AppShell>
 </template>
-<style src="./styles/theme.css"></style>
 <style scoped>
 .prompt-form { display: grid; gap: 7px; margin-top: 12px; }
 .prompt-form label { color: var(--text); font-size: var(--font-support); }

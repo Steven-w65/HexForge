@@ -8,6 +8,7 @@ const readyState = (): MenuState => ({
   editMode: true,
   canUndo: true,
   templateValid: true,
+  templateActive: true,
   templateHasFields: true,
   hasNavigableTemplateFields: true,
   hasParsedResults: true,
@@ -33,6 +34,7 @@ describe('menu commands', () => {
     ['t', { ctrlKey: true, shiftKey: true }, 'template-editor'],
     ['Enter', { ctrlKey: true }, 'apply-template'],
     ['o', { ctrlKey: true, altKey: true }, 'load-template'],
+    ['u', { ctrlKey: true, altKey: true }, 'unload-template'],
     ['s', { ctrlKey: true }, 'save-template'],
     ['a', { ctrlKey: true, altKey: true }, 'add-field'],
     ['t', { ctrlKey: true, altKey: true }, 'theme-toggle'],
@@ -76,6 +78,8 @@ describe('menu commands', () => {
   })
 
   it('enforces selection, undo, result, template-validity and busy-state requirements', () => {
+    expect(commandEnabled('unload-template', { ...readyState(), templateActive: false })).toBe(false)
+    expect(commandEnabled('unload-template', readyState())).toBe(true)
     expect(commandEnabled('edit-selected', { ...readyState(), singleByteSelected: false })).toBe(false)
     expect(commandEnabled('edit-selected', { ...readyState(), editMode: false })).toBe(false)
     expect(commandEnabled('undo', { ...readyState(), canUndo: false })).toBe(false)

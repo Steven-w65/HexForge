@@ -6,7 +6,7 @@ import TopMenu from './TopMenu.vue'
 
 const state = (patch: Partial<MenuState> = {}): MenuState => ({
   hasFile: true, hasBytes: true, singleByteSelected: true, editMode: true, canUndo: true,
-  templateValid: true, templateHasFields: true, hasNavigableTemplateFields: true,
+  templateValid: true, templateActive: true, templateHasFields: true, hasNavigableTemplateFields: true,
   hasParsedResults: true, operationBusy: false, ...patch,
 })
 
@@ -44,7 +44,7 @@ describe('TopMenu', () => {
       file: ['open', 'close-file', 'save-as', 'export', 'exit'],
       edit: ['edit-selected', 'toggle-edit', 'undo'],
       navigate: ['goto', 'search'],
-      template: ['template-editor', 'apply-template', 'load-template', 'save-template', 'add-field'],
+      template: ['template-editor', 'apply-template', 'load-template', 'unload-template', 'save-template', 'add-field'],
       view: ['theme-toggle', 'row-16', 'row-32'],
     }
     for (const [menu, commands] of Object.entries(expected)) {

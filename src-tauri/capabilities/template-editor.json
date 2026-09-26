@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "template-editor",
+  "description": "Template Editor companion window; no file dialog permissions.",
+  "windows": ["template-editor"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:allow-close",
+    "core:window:allow-destroy"
+  ]
+}

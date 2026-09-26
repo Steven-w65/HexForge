@@ -7,10 +7,11 @@ const props = withDefaults(defineProps<{
   fileSize?: bigint | null
   results?: ParsedField[]
   canApply?: boolean
-}>(), { fileSize: null, results: () => [], canApply: false })
+  canUnload?: boolean
+}>(), { fileSize: null, results: () => [], canApply: false, canUnload: false })
 const emit = defineEmits<{
   'update:modelValue': [value: TemplateDefinition]
-  save: []; load: []; apply: []; navigate: [range: { start: bigint; end: bigint }]; validity: [valid: boolean]
+  save: []; load: []; unload: []; apply: []; navigate: [range: { start: bigint; end: bigint }]; validity: [valid: boolean]
 }>()
 
 const types: FieldType[] = ['u8', 'u16', 'u32', 'i8', 'i16', 'i32', 'f32', 'f64', 'string', 'bytes']
@@ -105,6 +106,7 @@ function addField(): void {
   updateTemplate({ fields: [...props.modelValue.fields, defaultField()] })
   publishValidity()
 }
+defineExpose({ addField })
 
 function duplicateField(index: number): void {
   const source = props.modelValue.fields[index]
@@ -233,6 +235,7 @@ function navigate(field: TemplateField): void {
     <div class="template-actions">
       <div><button type="button" data-action="add-field" @click="addField">+ Field</button>
         <button type="button" data-action="load-template" @click="emit('load')">Load…</button>
+        <button type="button" data-action="unload-template" :disabled="!canUnload" @click="emit('unload')">Unload</button>
         <button type="button" data-action="save-template" :disabled="Object.keys(validationErrors).length > 0" @click="emit('save')">Save As…</button>
       </div>
       <button type="button" class="primary" data-action="apply-template" :disabled="!canApply || Object.keys(validationErrors).length > 0" @click="emit('apply')">Apply Template</button>

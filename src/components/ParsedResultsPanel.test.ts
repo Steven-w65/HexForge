@@ -40,13 +40,28 @@ describe('ParsedResultsPanel', () => {
   })
 
   it.each([
-    [{ hasFile: false, templateHasFields: false }, 'Open a binary file', 'open'],
-    [{ hasFile: true, templateHasFields: false }, 'Create or load', 'template-editor'],
-    [{ hasFile: true, templateHasFields: true }, 'ready to apply', 'apply-template'],
-  ] as const)('offers a contextual empty action for %o', async (state, copy, command) => {
+    [{ hasFile: false, templateActive: false, templateHasFields: false }, 'Load a template', 'Load Template', 'load-template'],
+    [{ hasFile: false, templateActive: true, templateName: 'Header', templateHasFields: true }, 'Header', 'Open File', 'open'],
+    [{ hasFile: true, templateActive: false, templateHasFields: false }, 'Create or load', 'Template Editor', 'template-editor'],
+    [{ hasFile: true, templateActive: true, templateName: 'Header', templateHasFields: false }, 'has no fields', 'Template Editor', 'template-editor'],
+    [{ hasFile: true, templateActive: true, templateName: 'Header', templateHasFields: true }, 'ready to apply', 'Apply Template', 'apply-template'],
+    [{ hasFile: true, templateActive: true, templateName: 'Header', templateHasFields: true, resultsNeedRefresh: true }, 'Apply', 'Apply Template', 'apply-template'],
+  ] as const)('offers a contextual empty action for %o', async (state, copy, label, command) => {
     const wrapper = mount(ParsedResultsPanel, { props: { results: [], collapsed: false, ...state } })
     expect(wrapper.get('[data-testid="results-empty"]').text()).toContain(copy)
+    expect(wrapper.get('[data-action="results-empty-action"]').text()).toBe(label)
     await wrapper.get('[data-action="results-empty-action"]').trigger('click')
     expect(wrapper.emitted('empty-action')).toEqual([[command]])
+  })
+
+  it('keeps the current template and apply state visible when results are collapsed', async () => {
+    const wrapper = mount(ParsedResultsPanel, { props: {
+      results: [], collapsed: true, hasFile: true, templateActive: true, templateName: 'Header',
+      templateHasFields: true, resultsNeedRefresh: true,
+    } })
+    expect(wrapper.get('[data-testid="template-state"]').text()).toContain('Header')
+    expect(wrapper.get('[data-testid="template-state"]').text()).toContain('Apply again')
+    await wrapper.setProps({ resultsNeedRefresh: false })
+    expect(wrapper.get('[data-testid="template-state"]').text()).toContain('Ready to apply')
   })
 })

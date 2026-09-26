@@ -117,6 +117,21 @@ describe('useHexSession', () => {
     expect(session.template.value.name).toBe('New'); expect(session.busy.template).toBe(false)
   })
 
+  it('unloads the template and ignores a parse completed afterward', async () => {
+    const backend = fakeBackend(); const parsed = deferred<ParsedField[]>()
+    vi.mocked(backend.applyTemplate).mockReturnValue(parsed.promise)
+    const session = useHexSession(backend)
+    session.updateTemplate({ version: 1, name: 'Header', defaultEndianness: 'big', fields: [
+      { name: 'magic', offset: '0', type: 'u8', comment: '' },
+    ] })
+    const applying = session.applyTemplate()
+    session.unloadTemplate()
+    parsed.resolve([{ name: 'magic', offset: '0', type: 'u8', length: 1, endianness: 'big', value: '1', comment: '' }])
+    await applying
+    expect(session.template.value).toEqual({ version: 1, name: 'Untitled', defaultEndianness: 'little', fields: [] })
+    expect(session.results.value).toEqual([])
+  })
+
   it('does not publish parse results or progress after the template changes', async () => {
     const backend = fakeBackend(); const parsed = deferred<ParsedField[]>(); let parseProgress!: (value: OperationProgress) => void
     vi.mocked(backend.applyTemplate).mockImplementation((_template, progress) => { parseProgress = progress; return parsed.promise })
@@ -451,6 +466,33 @@ describe('useHexSession', () => {
     await session.loadTemplate('header.json'); await session.saveTemplate('copy.json'); await session.applyTemplate(); await session.exportCsv('result.csv')
     expect(session.template.value).toEqual(template); expect(session.results.value).toHaveLength(1)
     expect(backend.exportResultsCsv).toHaveBeenCalledWith('result.csv', template, expect.any(Function))
+  })
+
+  it('marks parsed results as needing reapplication after a template change', async () => {
+    const backend = fakeBackend(); const session = useHexSession(backend)
+    const template: TemplateDefinition = { version: 1, name: 'Header', defaultEndianness: 'little', fields: [
+      { name: 'magic', offset: '0', type: 'u8', comment: '' },
+    ] }
+    vi.mocked(backend.applyTemplate).mockResolvedValue([{ name: 'magic', offset: '0', type: 'u8', length: 1, endianness: 'little', value: '41', comment: '' }])
+    session.updateTemplate(template)
+    expect(session.resultsNeedRefresh.value).toBe(false)
+    await session.applyTemplate()
+    expect(session.resultsNeedRefresh.value).toBe(false)
+    session.updateTemplate({ ...template, name: 'Header v2' })
+    expect(session.results.value).toEqual([])
+    expect(session.resultsNeedRefresh.value).toBe(true)
+    await session.applyTemplate()
+    expect(session.resultsNeedRefresh.value).toBe(false)
+  })
+
+  it('resets the reapply state when a different template is loaded', async () => {
+    const backend = fakeBackend(); const session = useHexSession(backend)
+    session.results.value = [{ name: 'old', offset: '0', type: 'u8', length: 1, endianness: 'little', value: '41', comment: '' }]
+    session.updateTemplate({ version: 1, name: 'Changed', defaultEndianness: 'little', fields: [] })
+    expect(session.resultsNeedRefresh.value).toBe(true)
+    vi.mocked(backend.loadTemplate).mockResolvedValue({ version: 1, name: 'New', defaultEndianness: 'little', fields: [] })
+    await session.loadTemplate('new.json')
+    expect(session.resultsNeedRefresh.value).toBe(false)
   })
 
   it('barriers close behind an already-started edit before querying authoritative dirty state', async () => {

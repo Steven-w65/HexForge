@@ -44,7 +44,7 @@ describe('AppShell', () => {
     const wrapper = mount(AppShell, {
       props: {
         file: { name: 'firmware.bin', path: 'C:/projects/very/long/path/firmware.bin', size: '45103137', revision: '1', dirty: true },
-        menuState: { hasFile: true, hasBytes: true, singleByteSelected: true, editMode: false, canUndo: true, templateValid: true, templateHasFields: true, hasNavigableTemplateFields: true, hasParsedResults: true, operationBusy: false },
+        menuState: { hasFile: true, hasBytes: true, singleByteSelected: true, editMode: false, canUndo: true, templateValid: true, templateActive: true, templateHasFields: true, hasNavigableTemplateFields: true, hasParsedResults: true, operationBusy: false },
         template: { version: 1, name: 'T', defaultEndianness: 'little', fields: [{ name: 'x', offset: '0', type: 'u8', comment: '' }] },
         results: [{ name: 'x', offset: '0', type: 'u8', length: 1, endianness: 'little', value: '41', comment: '' }],
       },
@@ -64,24 +64,20 @@ describe('AppShell', () => {
     expect(wrapper.get('[data-testid="file-details"]').text()).toContain('C:/projects/very/long/path/firmware.bin')
   })
 
-  it('keeps file information out of the workspace and mounts the Template Editor only in its separate sheet', async () => {
-    const wrapper = mount(AppShell, { props: { templateEditorOpen: false } })
+  it('keeps file information out of the workspace and reserves its bottom row for results', async () => {
+    const wrapper = mount(AppShell)
     expect(wrapper.find('.sidebar-panel').exists()).toBe(false)
     expect(wrapper.find('[data-testid="template-editor-panel"]').exists()).toBe(false)
-    await wrapper.setProps({ templateEditorOpen: true })
-    expect(wrapper.find('[data-testid="template-editor-panel"] .template-editor').exists()).toBe(true)
-    await wrapper.get('[data-action="close-template-editor"]').trigger('click')
-    expect(wrapper.emitted('close-template-editor')).toEqual([[]])
+    expect(wrapper.get('.workspace').element.children[1]?.classList.contains('results-panel')).toBe(true)
   })
 
-  it('anchors the Template Editor below expanded file details', async () => {
+  it('keeps file details above the hex and results workspace', async () => {
     const wrapper = mount(AppShell, { props: {
       file: { name: 'firmware.bin', path: 'C:/firmware.bin', size: '32', revision: '1', dirty: false },
-      templateEditorOpen: true,
     }, global: { stubs: { HexCanvas: true } } })
     await wrapper.get('[data-action="toggle-file-details"]').trigger('click')
     expect(wrapper.find('[data-testid="file-details"]').exists()).toBe(true)
-    expect(wrapper.get('.workspace').find('[data-testid="template-editor-panel"]').exists()).toBe(true)
+    expect(wrapper.get('.workspace').find('[data-testid="template-editor-panel"]').exists()).toBe(false)
   })
 
   it('keeps the selected offset visible when its byte is outside the current page', () => {
@@ -107,7 +103,7 @@ describe('AppShell', () => {
     const wrapper = mount(AppShell, {
       props: {
         file: { name: 'firmware.bin', path: 'C:/firmware.bin', size: '32', revision: '1', dirty: false }, template,
-        menuState: { hasFile: true, hasBytes: true, singleByteSelected: false, editMode: false, canUndo: false, templateValid: true, templateHasFields: true, hasNavigableTemplateFields: true, hasParsedResults: false, operationBusy: false },
+        menuState: { hasFile: true, hasBytes: true, singleByteSelected: false, editMode: false, canUndo: false, templateValid: true, templateActive: true, templateHasFields: true, hasNavigableTemplateFields: true, hasParsedResults: false, operationBusy: false },
       },
       global: { stubs: { HexCanvas: true } },
     })
@@ -120,26 +116,27 @@ describe('AppShell', () => {
     expect(wrapper.emitted('navigate')).toEqual([[{ start: 4n, end: 5n }]])
   })
 
-  it('blocks Apply and template Save consistently while the editor reports invalid input', async () => {
+  it('blocks Apply and template Save when the companion editor reports invalid input', async () => {
     const template = { version: 1 as const, name: 'T', defaultEndianness: 'little' as const, fields: [{ name: 'x', offset: '0', type: 'u8' as const, endianness: 'little' as const, comment: '' }] }
-    const wrapper = mount(AppShell, { props: { file: { name: 'x', path: 'x', size: '1', revision: '1', dirty: false }, template, templateEditorOpen: true }, global: { stubs: { HexCanvas: true } } })
-    await wrapper.get('input[data-field="offset"]').setValue('0x')
+    const wrapper = mount(AppShell, { props: { file: { name: 'x', path: 'x', size: '1', revision: '1', dirty: false }, template,
+      templateValid: false, menuState: { hasFile: true, hasBytes: true, singleByteSelected: false, editMode: false, canUndo: false, templateValid: false, templateActive: true, templateHasFields: true, hasNavigableTemplateFields: true, hasParsedResults: false, operationBusy: false },
+    }, global: { stubs: { HexCanvas: true } } })
     await wrapper.get('[data-menu="template"]').trigger('click')
     expect(wrapper.get('[data-menu-command="apply-template"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('[data-action="save-template"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-menu-command="save-template"]').attributes('disabled')).toBeDefined()
     await wrapper.get('[data-menu-command="apply-template"]').trigger('click')
     expect(wrapper.emitted('command')).toBeUndefined()
   })
 
-  it('routes Apply from the Template Editor and shows template modified state', async () => {
+  it('routes Apply from the Template menu without mounting the editor', async () => {
     const template = { version: 1 as const, name: 'T', defaultEndianness: 'little' as const, fields: [{ name: 'x', offset: '0', type: 'u8' as const, comment: '' }] }
     const wrapper = mount(AppShell, { props: {
       file: { name: 'x.bin', path: 'C:/x.bin', size: '1', revision: '1', dirty: false }, template,
-      templateEditorOpen: true, templateDirty: true,
-      menuState: { hasFile: true, hasBytes: true, singleByteSelected: false, editMode: false, canUndo: false, templateValid: true, templateHasFields: true, hasNavigableTemplateFields: true, hasParsedResults: false, operationBusy: false },
+      menuState: { hasFile: true, hasBytes: true, singleByteSelected: false, editMode: false, canUndo: false, templateValid: true, templateActive: true, templateHasFields: true, hasNavigableTemplateFields: true, hasParsedResults: false, operationBusy: false },
     }, global: { stubs: { HexCanvas: true } } })
-    expect(wrapper.get('[data-testid="template-modified"]').text()).toContain('Modified')
-    await wrapper.get('[data-action="apply-template"]').trigger('click')
+    expect(wrapper.find('[data-testid="template-modified"]').exists()).toBe(false)
+    await wrapper.get('[data-menu="template"]').trigger('click')
+    await wrapper.get('[data-menu-command="apply-template"]').trigger('click')
     expect(wrapper.emitted('command')).toEqual([['apply-template']])
   })
 
