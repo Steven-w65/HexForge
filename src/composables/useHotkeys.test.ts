@@ -33,7 +33,7 @@ describe('useHotkeys', () => {
     ['e', { ctrlKey: true, altKey: true }, 'toggle-edit'], ['z', { ctrlKey: true }, 'undo'],
     ['g', { ctrlKey: true }, 'goto'], ['f', { ctrlKey: true }, 'search'],
     ['Enter', { ctrlKey: true }, 'apply-template'], ['o', { ctrlKey: true, altKey: true }, 'load-template'],
-    ['s', { ctrlKey: true }, 'save-template'], ['a', { ctrlKey: true, altKey: true }, 'add-field'],
+    ['s', { ctrlKey: true }, 'save-template'],
     ['t', { ctrlKey: true, altKey: true }, 'theme-toggle'], ['1', { ctrlKey: true }, 'row-16'],
     ['2', { ctrlKey: true }, 'row-32'],
   ] satisfies Array<[string, KeyboardEventInit, MenuCommand]>)('routes %s to %s and prevents the browser default', (key, options, command) => {
@@ -65,6 +65,7 @@ describe('useHotkeys', () => {
       keydown('l', { ctrlKey: true, altKey: true }),
       keydown('b', { ctrlKey: true }),
       keydown('b', { ctrlKey: true, altKey: true }),
+      keydown('a', { ctrlKey: true, altKey: true }),
     ]
     expect(events.every((event) => !event.defaultPrevented)).toBe(true)
     expect(target.invoke).not.toHaveBeenCalled()

@@ -36,7 +36,6 @@ describe('menu commands', () => {
     ['o', { ctrlKey: true, altKey: true }, 'load-template'],
     ['u', { ctrlKey: true, altKey: true }, 'unload-template'],
     ['s', { ctrlKey: true }, 'save-template'],
-    ['a', { ctrlKey: true, altKey: true }, 'add-field'],
     ['t', { ctrlKey: true, altKey: true }, 'theme-toggle'],
     ['1', { ctrlKey: true }, 'row-16'],
     ['2', { ctrlKey: true }, 'row-32'],
@@ -51,6 +50,7 @@ describe('menu commands', () => {
   })
 
   it('does not bind removed theme-selection or panel-visibility shortcuts', () => {
+    expect(matchMenuShortcut(shortcut('a', { ctrlKey: true, altKey: true }))).toBeNull()
     expect(matchMenuShortcut(shortcut('d', { ctrlKey: true, altKey: true }))).toBeNull()
     expect(matchMenuShortcut(shortcut('l', { ctrlKey: true, altKey: true }))).toBeNull()
     expect(matchMenuShortcut(shortcut('b', { ctrlKey: true }))).toBeNull()
@@ -72,7 +72,7 @@ describe('menu commands', () => {
     for (const command of ['close-file', 'save-as', 'export', 'edit-selected', 'toggle-edit', 'undo', 'goto', 'search', 'apply-template'] as const) {
       expect(commandEnabled(command, state), command).toBe(false)
     }
-    for (const command of ['open', 'template-editor', 'load-template', 'save-template', 'add-field', 'theme-toggle', 'row-16', 'row-32', 'toggle-right-panel', 'exit'] as const) {
+    for (const command of ['open', 'template-editor', 'load-template', 'save-template', 'theme-toggle', 'row-16', 'row-32', 'toggle-right-panel', 'exit'] as const) {
       expect(commandEnabled(command, state), command).toBe(true)
     }
   })

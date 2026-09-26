@@ -2,7 +2,7 @@ export type MenuCommand =
   | 'open' | 'close-file' | 'save-as' | 'export' | 'exit'
   | 'edit-selected' | 'toggle-edit' | 'undo'
   | 'goto' | 'search'
-  | 'template-editor' | 'apply-template' | 'load-template' | 'unload-template' | 'save-template' | 'add-field'
+  | 'template-editor' | 'apply-template' | 'load-template' | 'unload-template' | 'save-template'
   | 'theme-toggle'
   | 'row-16' | 'row-32' | 'toggle-right-panel'
 
@@ -44,7 +44,6 @@ const shortcuts: Shortcut[] = [
   { command: 'load-template', key: 'o', ctrl: true, alt: true },
   { command: 'unload-template', key: 'u', ctrl: true, alt: true },
   { command: 'save-template', key: 's', ctrl: true },
-  { command: 'add-field', key: 'a', ctrl: true, alt: true },
   { command: 'theme-toggle', key: 't', ctrl: true, alt: true },
   { command: 'row-16', key: '1', ctrl: true },
   { command: 'row-32', key: '2', ctrl: true },
@@ -72,7 +71,6 @@ export function commandEnabled(command: MenuCommand, state: MenuState): boolean 
     case 'open':
     case 'template-editor':
     case 'load-template':
-    case 'add-field':
       return true
     case 'save-template':
       return state.templateValid

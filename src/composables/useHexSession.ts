@@ -40,7 +40,7 @@ function friendlyError(value: unknown): AppError {
 export interface HexSession {
   file: Ref<FileInfo | null>; page: Ref<ViewportPage | null>; selection: Ref<ByteSelection | null>
   sourceIdentity: Ref<number>
-  template: Ref<TemplateDefinition>; results: Ref<ParsedField[]>; resultsNeedRefresh: Ref<boolean>; matches: Ref<bigint[]>
+  template: Ref<TemplateDefinition>; results: Ref<ParsedField[]>; templateApplied: Ref<boolean>; resultsNeedRefresh: Ref<boolean>; matches: Ref<bigint[]>
   searchMatchLength: Ref<number>; searchTruncated: Ref<boolean>
   activity: Ref<OperationActivity | null>
   busy: Record<BusyOperation, boolean>; progress: Ref<OperationProgress | null>; error: Ref<AppError | null>
@@ -64,6 +64,8 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   const selection = ref<ByteSelection | null>(null)
   const template = ref<TemplateDefinition>({ ...EMPTY_TEMPLATE, fields: [] })
   const results = ref<ParsedField[]>([])
+  // This status is independent of row count: a successful parse may return no fields.
+  const templateApplied = ref(false)
   const resultsNeedRefresh = ref(false)
   const matches = ref<bigint[]>([])
   const searchMatchLength = ref(1)
@@ -166,6 +168,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
 
   function invalidateDerivedContent(): void {
     contentVersion += 1
+    templateApplied.value = false
     matches.value = []
     searchMatchLength.value = 1
     searchTruncated.value = false
@@ -271,7 +274,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     const relevant = () => parsedTemplate === templateVersion && parsedContent === contentVersion
     const definition = backendTemplate(template.value)
     const result = await run('parse', (ticket) => api.applyTemplate(definition, (value) => reportProgress(ticket, value)), true, relevant)
-    if (result.current) { results.value = result.value; resultsNeedRefresh.value = false }
+    if (result.current) { results.value = result.value; templateApplied.value = true; resultsNeedRefresh.value = false }
   }
 
   async function editSelectedByteCore(text: string): Promise<void> {
@@ -317,7 +320,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     const loadedTemplate = ++templateVersion
     progress.value = null
     const result = await run('template', () => api.loadTemplate(path), false, () => loadedTemplate === templateVersion)
-    if (result.current) { template.value = result.value; results.value = []; resultsNeedRefresh.value = false }
+    if (result.current) { template.value = result.value; results.value = []; templateApplied.value = false; resultsNeedRefresh.value = false }
   }
   async function saveTemplate(path: string): Promise<void> { await run('template', () => api.saveTemplate(path, backendTemplate(template.value))) }
   async function exportCsv(path: string): Promise<void> { await run('export', (ticket) => api.exportResultsCsv(path, backendTemplate(template.value), (value) => reportProgress(ticket, value)), true) }
@@ -330,6 +333,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   function updateTemplate(value: TemplateDefinition): void {
     templateVersion += 1
     template.value = value
+    templateApplied.value = false
     if (results.value.length > 0) resultsNeedRefresh.value = true
     results.value = []
     progress.value = null
@@ -339,12 +343,13 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     templateVersion += 1
     template.value = { ...EMPTY_TEMPLATE, fields: [] }
     results.value = []
+    templateApplied.value = false
     resultsNeedRefresh.value = false
     progress.value = null
   }
 
   return {
-    file, page, selection, sourceIdentity, template, results, resultsNeedRefresh, matches, searchMatchLength, searchTruncated, activity, busy, progress, error, viewportOffset, editMode, canUndo,
+    file, page, selection, sourceIdentity, template, results, templateApplied, resultsNeedRefresh, matches, searchMatchLength, searchTruncated, activity, busy, progress, error, viewportOffset, editMode, canUndo,
     requestPage, openFile, closeFile, goTo, search, applyTemplate, editSelectedByte, undo, saveAs, loadTemplate,
     saveTemplate, exportCsv, updateTemplate, unloadTemplate, navigate, clearSelection: () => { selection.value = null }, clearError: () => { error.value = null }, presentError,
     prepareClose, releaseCloseBarrier,

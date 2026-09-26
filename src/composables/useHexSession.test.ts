@@ -468,6 +468,40 @@ describe('useHexSession', () => {
     expect(backend.exportResultsCsv).toHaveBeenCalledWith('result.csv', template, expect.any(Function))
   })
 
+  it('records a successful empty parse as applied and invalidates it when the template changes', async () => {
+    const backend = fakeBackend(); const session = useHexSession(backend)
+    const template: TemplateDefinition = { version: 1, name: 'Draft', defaultEndianness: 'little', fields: [] }
+    await session.openFile('input.bin')
+    session.updateTemplate(template)
+    expect(session.templateApplied.value).toBe(false)
+    await session.applyTemplate()
+    expect(session.results.value).toEqual([])
+    expect(session.templateApplied.value).toBe(true)
+    session.updateTemplate({ ...template, name: 'Revised' })
+    expect(session.templateApplied.value).toBe(false)
+  })
+
+  it('invalidates applied status when file bytes or identity change, but not when parsing fails', async () => {
+    const backend = fakeBackend(); const session = useHexSession(backend)
+    await session.openFile('input.bin')
+    await session.applyTemplate()
+    session.selection.value = { start: 0n, end: 0n, count: 1n }
+    await session.editSelectedByte('42')
+    expect(session.templateApplied.value).toBe(false)
+    await session.applyTemplate()
+    vi.mocked(backend.applyTemplate).mockRejectedValueOnce({ code: 'invalid_template', message: 'Could not parse.' })
+    await expect(session.applyTemplate()).rejects.toMatchObject({ code: 'invalid_template' })
+    expect(session.templateApplied.value).toBe(true)
+    await session.openFile('another.bin')
+    expect(session.templateApplied.value).toBe(false)
+    await session.applyTemplate()
+    await session.saveAs('copy.bin')
+    expect(session.templateApplied.value).toBe(false)
+    await session.applyTemplate()
+    await session.closeFile()
+    expect(session.templateApplied.value).toBe(false)
+  })
+
   it('marks parsed results as needing reapplication after a template change', async () => {
     const backend = fakeBackend(); const session = useHexSession(backend)
     const template: TemplateDefinition = { version: 1, name: 'Header', defaultEndianness: 'little', fields: [

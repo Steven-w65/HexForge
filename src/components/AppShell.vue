@@ -2,9 +2,9 @@
 import { computed } from 'vue'
 import type { BytesPerRow } from '../hex/layout'
 import type { ByteSelection } from '../hex/selection'
-import type { Endian, FileInfo, PageRequest, ParsedField, TemplateDefinition, ViewportPage } from '../types'
+import type { Endian, FileInfo, PageRequest, ParsedField, TemplateDefinition, TemplateSource, ViewportPage } from '../types'
 import type { ColorTheme } from '../types'
-import type { MenuCommand, MenuState } from '../menu/commands'
+import { commandEnabled, type MenuCommand, type MenuState } from '../menu/commands'
 import AppDialog from './AppDialog.vue'
 import FileInfoBar from './FileInfoBar.vue'
 import HexCanvas from './HexCanvas.vue'
@@ -18,14 +18,15 @@ const props = withDefaults(defineProps<{
   template?: TemplateDefinition; results?: ParsedField[]; dialogOpen?: boolean; dialogTitle?: string; dialogMessage?: string
   navigationOffset?: bigint
   matchLength?: number; busyLabel?: string; progressText?: string; searchTruncated?: boolean
-  templateValid?: boolean; resultsNeedRefresh?: boolean
+  templateValid?: boolean
+  templateSource?: TemplateSource; templateDisplayName?: string; templateApplied?: boolean
   menuState?: MenuState; theme?: ColorTheme; rightCollapsed?: boolean
 }>(), {
   file: null, sourceIdentity: 0, page: null, bytesPerRow: 16, selection: null, matches: () => [], templateRange: null,
   editMode: false, endianness: 'little', template: () => ({ version: 1, name: 'Untitled', defaultEndianness: 'little', fields: [] }), results: () => [], dialogOpen: false,
   dialogTitle: '', dialogMessage: '',
   matchLength: 1, busyLabel: '', progressText: '', searchTruncated: false,
-  templateValid: true, resultsNeedRefresh: false,
+  templateValid: true, templateSource: 'none', templateDisplayName: '', templateApplied: false,
   menuState: () => ({ hasFile: false, hasBytes: false, singleByteSelected: false, editMode: false, canUndo: false, templateValid: true, templateActive: false, templateHasFields: false, hasNavigableTemplateFields: false, hasParsedResults: false, operationBusy: false }),
   theme: 'dark', rightCollapsed: false,
 })
@@ -72,15 +73,15 @@ const selectedByte = computed(() => {
           :template-range="templateRange" :edit-mode="editMode" :theme="theme" :navigate-offset="navigationOffset" @request-page="emit('request-page', $event)"
           @select="emit('select', $event)" @edit-request="emit('edit-request', $event)" @viewport-offset="emit('viewport-offset', $event)" />
         <div v-else data-testid="drop-prompt" class="drop-prompt">
-          <span>＋</span><strong>Open or drop a binary file to begin</strong>
-          <button type="button" data-action="empty-open" @click="emit('command', 'open')">Open File</button>
+          <span>＋</span><strong>Drop a binary file or use File → Open File</strong>
         </div>
         <div v-if="file && fileSize === 0n" data-testid="empty-file" class="empty-file">This binary file is empty.</div>
         <div v-if="searchTruncated" data-testid="search-truncated" class="search-notice" role="status">Search results were limited; refine the byte pattern.</div>
       </section>
-      <ParsedResultsPanel :results="results" :collapsed="rightCollapsed" :has-file="Boolean(file)" :template-active="effectiveMenuState.templateActive"
-        :template-name="template.name" :template-has-fields="template.fields.length > 0" :results-need-refresh="resultsNeedRefresh" :template-range="templateRange"
-        @toggle-collapse="emit('command', 'toggle-right-panel')" @navigate="emit('navigate', $event)" @empty-action="emit('command', $event)" />
+      <ParsedResultsPanel :results="results" :collapsed="rightCollapsed" :has-file="Boolean(file)" :template-source="templateSource"
+        :template-name="templateDisplayName || template.name" :template-applied="templateApplied" :template-range="templateRange"
+        :can-apply="commandEnabled('apply-template', effectiveMenuState)" :can-edit-template="commandEnabled('template-editor', effectiveMenuState)"
+        @toggle-collapse="emit('command', 'toggle-right-panel')" @navigate="emit('navigate', $event)" @action="emit('command', $event)" />
     </div>
     <StatusBar :file-size="fileSize" :selected="selectedByte" :selected-count="selection?.count ?? 0n" :bytes-per-row="bytesPerRow"
       :edit-mode="editMode" :endianness="endianness" :dirty="file?.dirty ?? false" :busy-label="busyLabel" :progress-text="progressText"
@@ -97,7 +98,5 @@ const selectedByte = computed(() => {
 .search-notice { position: absolute; z-index: 2; top: 10px; left: 12px; padding: 5px 8px; color: var(--modified); background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--border); border-radius: 4px; font-size: var(--font-support); pointer-events: none; }
 .drop-prompt { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 7px; color: var(--muted); }
 .drop-prompt span { display: grid; place-items: center; width: 42px; height: 42px; color: var(--address); border: 1px dashed var(--border-strong); border-radius: 8px; font-size: 22px; }
-.drop-prompt button { height: 28px; margin-top: 3px; padding: 0 12px; color: var(--text); background: var(--button); border: 0; border-radius: 4px; font: inherit; font-size: var(--font-body); }
-.drop-prompt button:hover { background: var(--hover); }
 .empty-file { position: absolute; inset: 0 8px 0 0; display: grid; place-items: center; color: var(--muted); background: var(--bg); font-size: var(--font-body); pointer-events: none; }
 </style>

@@ -1,33 +1,34 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ByteSelection } from '../hex/selection'
-import type { ParsedField } from '../types'
+import type { ParsedField, TemplateSource } from '../types'
 
 const props = withDefaults(defineProps<{
-  results: ParsedField[]; collapsed: boolean; hasFile?: boolean; templateActive?: boolean; templateName?: string
-  templateHasFields?: boolean; resultsNeedRefresh?: boolean; templateRange?: ByteSelection | null
-}>(), { hasFile: false, templateActive: false, templateName: '', templateHasFields: false, resultsNeedRefresh: false, templateRange: null })
+  results: ParsedField[]; collapsed: boolean; hasFile?: boolean; templateSource?: TemplateSource; templateName?: string
+  templateApplied?: boolean; canApply?: boolean; canEditTemplate?: boolean; templateRange?: ByteSelection | null
+}>(), { hasFile: false, templateSource: 'none', templateName: '', templateApplied: false, canApply: false, canEditTemplate: true, templateRange: null })
 const emit = defineEmits<{
   'toggle-collapse': []; navigate: [range: { start: bigint; end: bigint }]
-  'empty-action': [command: 'load-template' | 'open' | 'template-editor' | 'apply-template']
+  action: [command: 'template-editor' | 'apply-template']
 }>()
 
 const activeName = computed(() => props.templateName.trim() || 'Untitled')
+const showResults = computed(() => props.hasFile && props.templateSource !== 'none' && props.templateApplied)
+const showActions = computed(() => props.hasFile && props.templateSource === 'file' && !props.templateApplied)
 const templateState = computed(() => {
-  if (props.results.length) return 'Applied'
-  if (!props.templateActive) return 'No template'
-  if (!props.hasFile) return 'Waiting for file'
-  if (!props.templateHasFields) return 'No fields'
-  return props.resultsNeedRefresh ? 'Apply again' : 'Ready to apply'
+  if (props.templateSource === 'none') return 'No template'
+  if (props.templateSource === 'draft') return showResults.value ? 'Applied draft' : 'Unsaved draft'
+  if (!props.hasFile) return 'Loaded'
+  return props.templateApplied ? 'Applied' : 'Pending apply'
 })
 
-const emptyState = computed(() => {
-  if (!props.hasFile && props.templateActive) return { message: `Template “${activeName.value}” is ready. Open a binary file to inspect fields.`, action: 'Open File', command: 'open' as const }
-  if (!props.hasFile) return { message: 'Load a template, then open a binary file to inspect parsed fields.', action: 'Load Template', command: 'load-template' as const }
-  if (!props.templateActive) return { message: 'Create or load a parsing template.', action: 'Template Editor', command: 'template-editor' as const }
-  if (!props.templateHasFields) return { message: `Template “${activeName.value}” has no fields yet.`, action: 'Template Editor', command: 'template-editor' as const }
-  if (props.resultsNeedRefresh) return { message: `Template or file bytes changed. Apply “${activeName.value}” again.`, action: 'Apply Template', command: 'apply-template' as const }
-  return { message: `Template “${activeName.value}” is ready to apply.`, action: 'Apply Template', command: 'apply-template' as const }
+const emptyMessage = computed(() => {
+  if (props.templateSource === 'none') return props.hasFile
+    ? 'No template loaded. Load or create template from Template menu.'
+    : 'No template loaded.'
+  if (props.templateSource === 'draft') return `Unsaved template draft: "${activeName.value}".`
+  if (!props.hasFile) return `Template: "${activeName.value}" loaded. Open binary file to preview.`
+  return `Template: "${activeName.value}" loaded, pending apply.`
 })
 
 function navigate(field: ParsedField): void {
@@ -50,12 +51,13 @@ function isActive(field: ParsedField): boolean {
   <aside class="results-panel" :class="{ collapsed }">
     <header class="results-header">
       <span class="panel-heading">PARSED RESULTS <span v-if="results.length" class="result-count">{{ results.length }}</span></span>
-      <span data-testid="template-state" class="template-state" :title="templateActive ? `${activeName} · ${templateState}` : templateState">{{ templateActive ? `${activeName} · ${templateState}` : templateState }}</span>
+      <span data-testid="template-state" class="template-state" :title="templateSource !== 'none' ? `${activeName} · ${templateState}` : templateState">{{ templateSource !== 'none' ? `${activeName} · ${templateState}` : templateState }}</span>
       <button type="button" class="collapse" data-action="collapse-results" :title="collapsed ? 'Expand results' : 'Collapse results'" :aria-label="collapsed ? 'Expand parsed results' : 'Collapse parsed results'" @click="emit('toggle-collapse')">{{ collapsed ? '⌃' : '⌄' }}</button>
     </header>
     <div v-if="!collapsed" class="results-content">
-      <div v-if="results.length" class="result-list">
+      <div v-if="showResults" class="result-list">
         <div class="result-columns" aria-hidden="true"><span>Name</span><span>Value</span><span>Offset</span><span>Size</span><span>Type</span></div>
+        <p v-if="results.length === 0" class="no-fields">No parsed fields.</p>
         <button v-for="(field, index) in results" :key="`${field.offset}-${field.name}-${index}`" type="button" data-testid="parsed-result" class="result-row" :class="{ active: isActive(field) }"
           :aria-current="isActive(field) ? 'location' : undefined" :title="field.comment || undefined" @click="navigate(field)">
           <span class="result-cell result-name">{{ field.name }}</span>
@@ -66,9 +68,11 @@ function isActive(field: ParsedField): boolean {
         </button>
       </div>
       <div v-else data-testid="results-empty" class="results-empty">
-        <span class="empty-icon">⌁</span>
-        <p>{{ emptyState.message }}</p>
-        <button type="button" data-action="results-empty-action" @click="emit('empty-action', emptyState.command)">{{ emptyState.action }}</button>
+        <p>{{ emptyMessage }}</p>
+        <div v-if="showActions" class="results-actions">
+          <button type="button" data-action="results-template-editor" :disabled="!canEditTemplate" @click="emit('action', 'template-editor')">Template Editor</button>
+          <button type="button" data-action="results-apply-template" :disabled="!canApply" @click="emit('action', 'apply-template')">Apply Template</button>
+        </div>
       </div>
     </div>
   </aside>
@@ -94,9 +98,11 @@ function isActive(field: ParsedField): boolean {
 .result-cell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .result-name { font-weight: 600; }
 .result-offset, .result-size, .result-type { color: var(--address); }
+.no-fields { margin: 16px; color: var(--muted); font-size: var(--font-body); }
 .results-empty { flex: 1; display: grid; place-content: center; justify-items: center; gap: 7px; padding: 18px; color: var(--muted); text-align: center; }
 .results-empty p { margin: 0; font-size: var(--font-body); line-height: 1.5; }
-.empty-icon { font-size: 20px; color: var(--address); }
+.results-actions { display: flex; justify-content: center; gap: 8px; margin-top: 4px; }
 .results-empty button { height: 27px; padding: 0 10px; color: var(--text); background: var(--button); border: 0; border-radius: 4px; font: inherit; font-size: var(--font-body); }
 .results-empty button:hover { background: var(--hover); }
+.results-empty button:disabled { opacity: .38; cursor: default; }
 </style>

@@ -81,4 +81,14 @@ describe('TemplateEditorWindow', () => {
     expect(mocks.sent.mock.calls.filter(([, event]) => event === 'hexforge:template:action')).toHaveLength(0)
     wrapper.unmount()
   })
+
+  it('adds fields through the editor button but not the removed Add Field shortcut', async () => {
+    const wrapper = mount(TemplateEditorWindow); await flushPromises()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, altKey: true, bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(wrapper.findAll('.field-card')).toHaveLength(0)
+    await wrapper.get('[data-action="add-field"]').trigger('click'); await flushPromises()
+    expect(wrapper.findAll('.field-card')).toHaveLength(1)
+    wrapper.unmount()
+  })
 })

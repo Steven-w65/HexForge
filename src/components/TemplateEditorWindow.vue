@@ -13,7 +13,6 @@ const model = ref<TemplateDefinition>(empty)
 const snapshot = ref<TemplateSnapshot | null>(null)
 const valid = ref(true)
 const error = ref('')
-const editor = ref<InstanceType<typeof TemplateEditor> | null>(null)
 const disposers: Array<() => void> = []
 let closing = false
 let bridgeReady = false
@@ -62,7 +61,6 @@ async function closeWindow(): Promise<void> {
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape' && error.value) { error.value = ''; event.preventDefault(); return }
   if (!event.ctrlKey || event.shiftKey || event.metaKey) return
-  if (event.altKey && event.key.toLowerCase() === 'a') { event.preventDefault(); editor.value?.addField(); return }
   const command = event.altKey
     ? event.key.toLowerCase() === 'o' ? 'load' : event.key.toLowerCase() === 'u' ? 'unload' : null
     : event.key.toLowerCase() === 's' ? 'save' : event.key === 'Enter' ? 'apply' : null
@@ -102,7 +100,7 @@ onBeforeUnmount(() => {
       <div><strong>Template Editor</strong><small>{{ model.name || 'Untitled' }}<span v-if="snapshot?.dirty" data-testid="template-modified"> · Modified</span></small></div>
       <button type="button" data-action="close-template-editor" aria-label="Close Template Editor" @click="closeWindow">×</button>
     </header>
-    <TemplateEditor v-if="snapshot" ref="editor" :model-value="model" :file-size="fileSize" :results="snapshot.results"
+    <TemplateEditor v-if="snapshot" :model-value="model" :file-size="fileSize" :results="snapshot.results"
       :can-unload="Boolean(snapshot?.active)"
       :can-apply="Boolean(snapshot?.canApply) && valid" @update:model-value="updateModel" @validity="updateValidity"
       @load="action('load')" @save="action('save')" @unload="action('unload')" @apply="action('apply')" @navigate="action('navigate', $event)" />

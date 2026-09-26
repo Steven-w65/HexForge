@@ -32,14 +32,14 @@ const labels: Record<VisibleMenuCommand, string> = {
   open: 'Open File…', 'close-file': 'Close File', 'save-as': 'Save As…', export: 'Export Parsed Results as CSV…', exit: 'Exit',
   'edit-selected': 'Edit Selected Byte…', 'toggle-edit': 'Edit Mode', undo: 'Undo Byte Edit',
   goto: 'Go To Offset…', search: 'Search Bytes…',
-  'template-editor': 'Template Editor…', 'apply-template': 'Apply Template', 'load-template': 'Load Template…', 'unload-template': 'Unload Template', 'save-template': 'Save Template As…', 'add-field': 'Add Field',
+  'template-editor': 'Template Editor…', 'apply-template': 'Apply Template', 'load-template': 'Load Template…', 'unload-template': 'Unload Template', 'save-template': 'Save Template As…',
   'theme-toggle': 'Toggle Theme',
   'row-16': '16 Bytes', 'row-32': '32 Bytes',
 }
 const shortcutLabels: Partial<Record<VisibleMenuCommand, string>> = {
   open: 'Ctrl+O', 'close-file': 'Ctrl+W', 'save-as': 'Ctrl+Shift+S', export: 'Ctrl+Shift+E', exit: 'Alt+F4',
   'edit-selected': 'F2', 'toggle-edit': 'Ctrl+Alt+E', undo: 'Ctrl+Z', goto: 'Ctrl+G', search: 'Ctrl+F',
-  'template-editor': 'Ctrl+Shift+T', 'apply-template': 'Ctrl+Enter', 'load-template': 'Ctrl+Alt+O', 'unload-template': 'Ctrl+Alt+U', 'save-template': 'Ctrl+S', 'add-field': 'Ctrl+Alt+A',
+  'template-editor': 'Ctrl+Shift+T', 'apply-template': 'Ctrl+Enter', 'load-template': 'Ctrl+Alt+O', 'unload-template': 'Ctrl+Alt+U', 'save-template': 'Ctrl+S',
   'theme-toggle': 'Ctrl+Alt+T',
   'row-16': 'Ctrl+1', 'row-32': 'Ctrl+2',
 }
@@ -47,7 +47,7 @@ const shortcutLabels: Partial<Record<VisibleMenuCommand, string>> = {
 const fileCommands: VisibleMenuCommand[] = ['open', 'close-file', 'save-as', 'export', 'exit']
 const editCommands: VisibleMenuCommand[] = ['edit-selected', 'toggle-edit', 'undo']
 const navigateCommands: VisibleMenuCommand[] = ['goto', 'search']
-const templateCommands: VisibleMenuCommand[] = ['template-editor', 'apply-template', 'load-template', 'unload-template', 'save-template', 'add-field']
+const templateCommands: VisibleMenuCommand[] = ['template-editor', 'apply-template', 'load-template', 'unload-template', 'save-template']
 const viewCommands: VisibleMenuCommand[] = ['theme-toggle', 'row-16', 'row-32']
 
 function anchorMenu(menu: MenuId, button?: EventTarget | null): void {

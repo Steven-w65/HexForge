@@ -6,10 +6,10 @@ import AppShell from './AppShell.vue'
 
 describe('AppShell', () => {
   afterEach(() => vi.restoreAllMocks())
-  it('shows a centered no-file drop prompt while keeping Open enabled', () => {
+  it('shows a centered no-file drop prompt without duplicating File menu Open', () => {
     const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: true } } })
-    expect(wrapper.get('[data-testid="drop-prompt"]').text()).toContain('Open or drop a binary file to begin')
-    expect(wrapper.find('[data-action="empty-open"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="drop-prompt"]').text()).toContain('Drop a binary file or use File → Open File')
+    expect(wrapper.find('[data-action="empty-open"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="file-info-bar"]').text()).toContain('No file open')
     expect(wrapper.findAll('[role="menubar"] > button').map((item) => item.text())).toEqual(['File', 'Edit', 'Navigate', 'Template', 'View'])
     expect(wrapper.find('.status-bar').exists()).toBe(true)
@@ -34,6 +34,8 @@ describe('AppShell', () => {
 
   it('passes the canvas template highlight to the matching parsed result row', () => {
     const wrapper = mount(AppShell, { props: {
+      file: { name: 'firmware.bin', path: 'C:/firmware.bin', size: '32', revision: '1', dirty: false },
+      templateSource: 'file', templateApplied: true,
       results: [{ name: 'size', offset: '16', type: 'u32', length: 4, endianness: 'big', value: '640', comment: '' }],
       templateRange: { start: 16n, end: 19n, count: 4n },
     }, global: { stubs: { HexCanvas: true } } })
@@ -90,10 +92,9 @@ describe('AppShell', () => {
     expect(wrapper.get('.status-bar').text()).toContain('Byte —')
   })
 
-  it('routes the empty-state Open action and identifies an opened empty file', async () => {
+  it('identifies an opened empty file without adding another Open button', async () => {
     const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: true } } })
-    await wrapper.get('[data-action="empty-open"]').trigger('click')
-    expect(wrapper.emitted('command')).toEqual([['open']])
+    expect(wrapper.find('[data-action="empty-open"]').exists()).toBe(false)
     await wrapper.setProps({ file: { name: 'empty.bin', path: 'C:/empty.bin', size: '0', revision: '1', dirty: false } })
     expect(wrapper.get('[data-testid="empty-file"]').text()).toContain('empty')
   })
@@ -138,6 +139,21 @@ describe('AppShell', () => {
     await wrapper.get('[data-menu="template"]').trigger('click')
     await wrapper.get('[data-menu-command="apply-template"]').trigger('click')
     expect(wrapper.emitted('command')).toEqual([['apply-template']])
+  })
+
+  it('forwards a pending loaded-template action from the bottom panel through the existing command route', async () => {
+    const template = { version: 1 as const, name: 'Internal title', defaultEndianness: 'little' as const, fields: [{ name: 'x', offset: '0', type: 'u8' as const, comment: '' }] }
+    const wrapper = mount(AppShell, { props: {
+      file: { name: 'x.bin', path: 'C:/x.bin', size: '1', revision: '1', dirty: false }, template,
+      templateSource: 'file', templateDisplayName: 'header.json', templateApplied: false,
+      menuState: { hasFile: true, hasBytes: true, singleByteSelected: false, editMode: false, canUndo: false, templateValid: true, templateActive: true, templateHasFields: true, hasNavigableTemplateFields: true, hasParsedResults: false, operationBusy: false },
+    }, global: { stubs: { HexCanvas: true } } })
+    expect(wrapper.get('[data-testid="results-empty"] p').text()).toBe('Template: "header.json" loaded, pending apply.')
+    await wrapper.get('[data-action="results-apply-template"]').trigger('click')
+    expect(wrapper.emitted('command')).toEqual([['apply-template']])
+    await wrapper.setProps({ templateApplied: true })
+    expect(wrapper.find('.result-list').exists()).toBe(true)
+    expect(wrapper.findAll('.results-content button')).toHaveLength(0)
   })
 
   it('passes orchestration navigation targets into the Canvas viewport', () => {

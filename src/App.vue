@@ -9,7 +9,7 @@ import { handleCloseRequest, useHotkeys } from './composables/useHotkeys'
 import { useTheme } from './composables/useTheme'
 import type { BytesPerRow } from './hex/layout'
 import { commandEnabled, type MenuCommand, type MenuState } from './menu/commands'
-import type { TemplateDefinition, TemplateField } from './types'
+import type { TemplateDefinition } from './types'
 import { normalizeSelection, type ByteSelection } from './hex/selection'
 import { createMainBridge } from './templateWindow/mainBridge'
 import { tauriBus } from './templateWindow/tauriBus'
@@ -43,6 +43,11 @@ function templateSnapshot(value: TemplateDefinition): string { return JSON.strin
 const templateBaseline = ref(templateSnapshot(session.template.value))
 const templateDirty = computed(() => templateSnapshot(session.template.value) !== templateBaseline.value)
 const templateActive = ref(false)
+const templateFilename = ref<string | null>(null)
+const templateSource = computed(() => !templateActive.value ? 'none' : templateFilename.value ? 'file' : 'draft')
+const templateDisplayName = computed(() => templateFilename.value ?? session.template.value.name)
+
+function filenameFromPath(path: string): string { return path.split(/[\\/]/).pop() || path }
 
 async function reportFailure(operation: () => Promise<void>): Promise<boolean> {
   try { await operation(); return true }
@@ -122,7 +127,7 @@ async function chooseTemplateLoad(flushDraft = true): Promise<void> {
     clearTemplateHighlight()
     templateBaseline.value = templateSnapshot(session.template.value)
     templateActive.value = true
-    if (!bridge.isReady()) await openTemplateEditor()
+    templateFilename.value = filenameFromPath(path)
   })
 }
 
@@ -135,6 +140,7 @@ async function chooseTemplateSave(flushDraft = true): Promise<void> {
     await session.saveTemplate(path)
     templateBaseline.value = templateSnapshot(session.template.value)
     templateActive.value = true
+    templateFilename.value = filenameFromPath(path)
   })
 }
 
@@ -188,33 +194,9 @@ async function unloadTemplate(flushDraft = true): Promise<void> {
   session.unloadTemplate()
   templateBaseline.value = templateSnapshot(session.template.value)
   templateActive.value = false
+  templateFilename.value = null
   clearTemplateHighlight()
   templateValid.value = true
-}
-function templateFieldLength(field: TemplateField): bigint {
-  if (field.type === 'string' || field.type === 'bytes') return BigInt(field.length ?? 1)
-  if (field.type.endsWith('8')) return 1n
-  if (field.type.endsWith('16')) return 2n
-  if (field.type.endsWith('32') || field.type === 'f32') return 4n
-  return 8n
-}
-function nextTemplateOffset(): string {
-  let next = 0n
-  for (const field of session.template.value.fields) {
-    try {
-      const offset = BigInt(field.offset)
-      const end = offset + templateFieldLength(field)
-      if (end > next) next = end
-    } catch { /* invalid drafts are handled by the editor */ }
-  }
-  return next.toString()
-}
-function addTemplateField(): void {
-  const fields = session.template.value.fields
-  updateTemplate({ ...session.template.value, fields: [...fields, {
-    name: `field${fields.length + 1}`, offset: nextTemplateOffset(), type: 'u8', endianness: session.template.value.defaultEndianness, comment: '',
-  }] })
-  void openTemplateEditor()
 }
 async function applyValidTemplate(flushDraft = true): Promise<void> {
   if (flushDraft) await bridge.flush()
@@ -307,7 +289,6 @@ function executeCommand(command: MenuCommand): void {
     case 'load-template': void reportFailure(chooseTemplateLoad); break
     case 'unload-template': void reportFailure(unloadTemplate); break
     case 'save-template': void reportFailure(chooseTemplateSave); break
-    case 'add-field': addTemplateField(); break
     case 'theme-toggle': theme.toggle(); break
     case 'row-16': bytesPerRow.value = 16; break
     case 'row-32': bytesPerRow.value = 32; break
@@ -356,9 +337,10 @@ onBeforeUnmount(() => { disposed = true; bridge.dispose(); disposers.splice(0).f
   <AppShell
     data-testid="hexforge-app" :file="session.file.value" :source-identity="session.sourceIdentity.value" :page="session.page.value" :selection="session.selection.value"
     :template="session.template.value" :results="session.results.value" :matches="session.matches.value"
+    :template-source="templateSource" :template-display-name="templateDisplayName" :template-applied="session.templateApplied.value"
     :match-length="session.searchMatchLength.value" :search-truncated="session.searchTruncated.value" :template-range="templateRange"
     :busy-label="activeBusy" :progress-text="progressText"
-    :template-valid="templateValid" :results-need-refresh="session.resultsNeedRefresh.value"
+    :template-valid="templateValid"
     :menu-state="menuState" :theme="theme.value.value" :right-collapsed="rightCollapsed"
     :bytes-per-row="bytesPerRow" :edit-mode="session.editMode.value" :endianness="session.template.value.defaultEndianness"
     :navigation-offset="session.viewportOffset.value" :dialog-open="popup !== null || session.error.value !== null"
