@@ -151,21 +151,15 @@ export class HexRenderer {
       context.fillStyle = this.theme.address
       context.fillText(rowOffset.toString(16).toUpperCase().padStart(digits, '0'), layout.addressX, y)
       context.fillStyle = this.theme.text
-      const asciiGroups: string[] = []
-      for (let groupStart = 0; groupStart < layout.bytesPerRow; groupStart += 8) {
-        let ascii = ''
-        for (let column = groupStart; column < Math.min(groupStart + 8, layout.bytesPerRow); column += 1) {
-          const value = values[column]
-          if (value === undefined) continue
-          const x = layout.hexX + column * layout.byteStride + groupGap(column) * layout.groupGap
-          context.fillText(value.toString(16).toUpperCase().padStart(2, '0'), x, y)
-          ascii += printable(value)
-        }
-        asciiGroups.push(ascii)
+      for (let column = 0; column < layout.bytesPerRow; column += 1) {
+        const value = values[column]
+        if (value === undefined) continue
+        const gap = groupGap(column) * layout.groupGap
+        context.fillText(value.toString(16).toUpperCase().padStart(2, '0'), layout.hexX + column * layout.byteStride + gap, y)
+        // Draw each glyph at its cell origin. A font's actual glyph width may
+        // differ from layout.charWidth, but highlights and hit testing must not drift.
+        context.fillText(printable(value), layout.asciiX + column * layout.charWidth + gap, y)
       }
-      asciiGroups.forEach((ascii, group) => {
-        if (ascii) context.fillText(ascii, layout.asciiX + group * (8 * layout.charWidth + layout.groupGap), y)
-      })
     }
   }
 

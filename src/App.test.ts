@@ -395,7 +395,7 @@ describe('App desktop orchestration', () => {
     const panelEvents = [press('b', { ctrlKey: true }), press('b', { ctrlKey: true, altKey: true })]
     await flushPromises()
     expect(panelEvents.every((event) => !event.defaultPrevented)).toBe(true)
-    expect(wrapper.get('[data-testid="hexforge-app"]').classes()).not.toContain('right-collapsed')
+    expect(wrapper.get('[data-testid="hexforge-app"]').classes()).not.toContain('results-collapsed')
     wrapper.unmount()
   })
 })

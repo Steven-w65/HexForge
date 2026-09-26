@@ -3,7 +3,7 @@ import { createLayout } from './layout'
 import { HexRenderer, type CanvasLayerSet } from './renderer'
 
 interface Recording {
-  text: Array<{ text: string; color: string }>
+  text: Array<{ text: string; color: string; x: number }>
   fills: string[]
   rects: Array<{ color: string; x: number; y: number; width: number; height: number }>
   fillAlphas: number[]
@@ -30,7 +30,7 @@ function recordingContext(name: string, recording: Recording): CanvasRenderingCo
       recording.rects.push({ color: String(this.fillStyle), x, y, width, height })
     },
     strokeRect(this: CanvasRenderingContext2D) { recording.strokes.push(String(this.strokeStyle)) },
-    fillText(this: CanvasRenderingContext2D, text: string) { recording.text.push({ text, color: String(this.fillStyle) }) },
+    fillText(this: CanvasRenderingContext2D, text: string, x: number) { recording.text.push({ text, color: String(this.fillStyle), x }) },
     drawImage: (source: CanvasImageSource) => { recording.composites.push((source as HTMLCanvasElement).dataset.layer ?? '?') },
     save: () => {},
     restore: () => {},
@@ -70,7 +70,34 @@ describe('HexRenderer', () => {
     const drawn = recording.text.map(({ text }) => text)
     expect(drawn).toContain('00000000')
     expect(drawn).toContain('AF')
-    expect(drawn).toContain('A..')
+    expect(drawn).toContain('A')
+    expect(drawn.filter((text) => text === '.')).toHaveLength(2)
+  })
+
+  it.each([16, 32] as const)('aligns ASCII glyphs with selected byte cells in %i-byte rows', (bytesPerRow) => {
+    const { recording, layers } = fixture()
+    const layout = createLayout(1200, bytesPerRow)
+    const renderer = new HexRenderer(layers, { width: 1200, height: 100, dpr: 1, layout, fileSize: 64n })
+    const bytes = Array.from({ length: bytesPerRow }, (_, index) => 0x41 + index)
+    renderer.drawContent({ offset: '0', bytes, modifiedOffsets: [], revision: '1' }, 0n)
+    renderer.drawOverlay({
+      modifiedOffsets: new Set(), selection: { start: 4n, end: 9n, count: 6n },
+      matches: [], matchLength: 1, templateRange: null, viewportRow: 0n,
+    })
+
+    // A 12px monospace glyph can be narrower than the fixed 8px byte cell.
+    // Expand each draw call as the browser would and compare glyph origins to highlights.
+    const glyphs = recording.text
+      .filter(({ x }) => x >= layout.asciiX)
+      .flatMap(({ text, x }) => [...text].map((glyph, index) => ({ glyph, x: x + index * 7.2 })))
+    const selectedAsciiRects = recording.rects.filter((rect) =>
+      rect.color === '#1f6feb' && rect.x >= layout.asciiX,
+    )
+    expect(selectedAsciiRects).toHaveLength(6)
+    for (let index = 4; index <= 9; index += 1) {
+      expect(glyphs.find(({ glyph }) => glyph === String.fromCharCode(0x41 + index))?.x)
+        .toBeCloseTo(selectedAsciiRects[index - 4]!.x)
+    }
   })
 
   it('marks modified bytes orange and draws the three overlays with distinct treatments', () => {

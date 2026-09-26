@@ -2,7 +2,6 @@ import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import tauriConfig from '../../src-tauri/tauri.conf.json'
-import { COMPACT_RIGHT_WIDTH, compactCenterWidth } from '../shell/layout'
 import AppShell from './AppShell.vue'
 
 describe('AppShell', () => {
@@ -22,14 +21,23 @@ describe('AppShell', () => {
     expect(style).toContain('--top-menu-height: 34px')
   })
 
-  it('requests the parsed-results panel toggle and row-width changes', async () => {
+  it('requests the bottom results-pane toggle and row-width changes', async () => {
     const wrapper = mount(AppShell, { props: { rightCollapsed: false } })
-    await wrapper.get('[data-action="collapse-right"]').trigger('click')
+    await wrapper.get('[data-action="collapse-results"]').trigger('click')
     expect(wrapper.emitted('command')).toEqual([['toggle-right-panel']])
     await wrapper.setProps({ rightCollapsed: true })
-    expect(wrapper.get('[data-testid="app-shell"]').classes()).toContain('right-collapsed')
+    expect(wrapper.get('[data-testid="app-shell"]').classes()).toContain('results-collapsed')
+    expect(wrapper.get('.workspace').element.children[1]?.classList.contains('results-panel')).toBe(true)
     await wrapper.get('[data-row-width="32"]').trigger('click')
     expect(wrapper.emitted('update:bytesPerRow')).toEqual([[32]])
+  })
+
+  it('passes the canvas template highlight to the matching parsed result row', () => {
+    const wrapper = mount(AppShell, { props: {
+      results: [{ name: 'size', offset: '16', type: 'u32', length: 4, endianness: 'big', value: '640', comment: '' }],
+      templateRange: { start: 16n, end: 19n, count: 4n },
+    }, global: { stubs: { HexCanvas: true } } })
+    expect(wrapper.get('[data-testid="parsed-result"]').classes()).toContain('active')
   })
 
   it('replaces shortcut buttons with collapsible file information in the second row', async () => {
@@ -156,7 +164,7 @@ describe('AppShell', () => {
     expect(wrapper.get('[data-testid="search-truncated"]').text()).toContain('limited')
   })
 
-  it('keeps both row widths reachable across the real configured 1280px shell geometry', async () => {
+  it('gives the hex canvas the full configured 1280px width above results', async () => {
     let resize!: ResizeObserverCallback
     vi.stubGlobal('ResizeObserver', class {
       constructor(callback: ResizeObserverCallback) { resize = callback }
@@ -169,20 +177,19 @@ describe('AppShell', () => {
       } as unknown as CanvasRenderingContext2D
     })
     const windowWidth = tauriConfig.app.windows[0]!.width
-    const centerWidth = compactCenterWidth(windowWidth)
-    expect(windowWidth).toBe(1280); expect(centerWidth).toBe(1040)
+    expect(windowWidth).toBe(1280)
     const wrapper = mount(AppShell, { props: { file: { name: 'firmware.bin', path: 'C:/firmware.bin', size: '4096', revision: '1', dirty: false }, bytesPerRow: 16 } })
     await nextTick(); await nextTick()
-    resize([{ contentRect: { width: centerWidth, height: 500 } } as ResizeObserverEntry], {} as ResizeObserver)
+    resize([{ contentRect: { width: windowWidth, height: 500 } } as ResizeObserverEntry], {} as ResizeObserver)
     await nextTick()
     const shellStyle = wrapper.get('[data-testid="app-shell"]').attributes('style') ?? ''
-    expect(shellStyle).toContain(`--compact-right-width: ${COMPACT_RIGHT_WIDTH}px`)
+    expect(shellStyle).toContain('--results-pane-height: 220px')
     const viewport = wrapper.get('[data-testid="hex-canvas"]')
     const canvas = wrapper.get('canvas').element as HTMLCanvasElement
-    expect(canvas.width + 8).toBeLessThanOrEqual(centerWidth)
+    expect(canvas.width + 8).toBeLessThanOrEqual(windowWidth)
     expect((viewport.element as HTMLElement).style.overflowX).toBe('hidden')
     await wrapper.setProps({ bytesPerRow: 32 }); await nextTick()
-    expect(canvas.width + 8).toBeGreaterThan(centerWidth)
-    expect((viewport.element as HTMLElement).style.overflowX).toBe('auto')
+    expect(canvas.width + 8).toBeLessThanOrEqual(windowWidth)
+    expect((viewport.element as HTMLElement).style.overflowX).toBe('hidden')
   })
 })

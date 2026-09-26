@@ -5,7 +5,6 @@ import type { ByteSelection } from '../hex/selection'
 import type { Endian, FileInfo, PageRequest, ParsedField, TemplateDefinition, ViewportPage } from '../types'
 import type { ColorTheme } from '../types'
 import { commandEnabled, type MenuCommand, type MenuState } from '../menu/commands'
-import { COMPACT_RIGHT_WIDTH } from '../shell/layout'
 import AppDialog from './AppDialog.vue'
 import FileInfoBar from './FileInfoBar.vue'
 import HexCanvas from './HexCanvas.vue'
@@ -67,8 +66,8 @@ const selectedByte = computed(() => {
   <main
     data-testid="app-shell"
     class="app-shell"
-    :class="{ 'right-collapsed': rightCollapsed }"
-    :style="{ '--compact-right-width': `${COMPACT_RIGHT_WIDTH}px`, '--top-menu-height': '34px' }"
+    :class="{ 'results-collapsed': rightCollapsed }"
+    :style="{ '--results-pane-height': '220px', '--top-menu-height': '34px' }"
     role="application"
   >
     <TopMenu :state="effectiveMenuState" :bytes-per-row="bytesPerRow"
@@ -86,7 +85,7 @@ const selectedByte = computed(() => {
         <div v-if="file && fileSize === 0n" data-testid="empty-file" class="empty-file">This binary file is empty.</div>
         <div v-if="searchTruncated" data-testid="search-truncated" class="search-notice" role="status">Search results were limited; refine the byte pattern.</div>
       </section>
-      <ParsedResultsPanel :results="results" :collapsed="rightCollapsed" :has-file="Boolean(file)" :template-has-fields="template.fields.length > 0"
+      <ParsedResultsPanel :results="results" :collapsed="rightCollapsed" :has-file="Boolean(file)" :template-has-fields="template.fields.length > 0" :template-range="templateRange"
         @toggle-collapse="emit('command', 'toggle-right-panel')" @navigate="emit('navigate', $event)" @empty-action="emit('command', $event)" />
       <aside v-if="templateEditorOpen" data-testid="template-editor-panel" class="template-editor-panel" role="dialog" aria-modal="false" aria-label="Template Editor">
         <header class="template-editor-header">
@@ -107,8 +106,8 @@ const selectedByte = computed(() => {
 
 <style scoped>
 .app-shell { position: relative; width: 100vw; height: 100vh; display: grid; grid-template-rows: var(--top-menu-height) auto minmax(0, 1fr) 24px; color: var(--text); background: var(--bg); overflow: hidden; }
-.workspace { position: relative; display: grid; grid-template-columns: minmax(360px, 1fr) minmax(240px, 30vw); min-width: 0; min-height: 0; }
-.app-shell.right-collapsed .workspace { grid-template-columns: minmax(360px, 1fr) 28px; }
+.workspace { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) min(var(--results-pane-height), 35vh); min-width: 0; min-height: 0; }
+.app-shell.results-collapsed .workspace { grid-template-rows: minmax(0, 1fr) 28px; }
 .hex-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
 .search-notice { position: absolute; z-index: 2; top: 10px; left: 12px; padding: 5px 8px; color: var(--modified); background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--border); border-radius: 4px; font-size: var(--font-support); pointer-events: none; }
 .drop-prompt { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 7px; color: var(--muted); }
@@ -124,6 +123,4 @@ const selectedByte = computed(() => {
 .template-editor-header small span { color: var(--modified); }
 .template-editor-header button { width: 26px; height: 26px; color: var(--muted); background: transparent; border: 0; border-radius: 4px; font: inherit; font-size: 18px; }
 .template-editor-header button:hover { color: var(--text); background: var(--hover); }
-@media (max-width: 760px) { .workspace { grid-template-columns: minmax(260px, 1fr) 28px; } }
-@media (max-width: 1280px) and (min-width: 761px) { .workspace { grid-template-columns: minmax(0, 1fr) var(--compact-right-width); } }
 </style>
