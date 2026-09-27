@@ -1,12 +1,15 @@
 use crate::edit_buffer::EditBuffer;
 use crate::error::{AppError, ErrorCode};
 use crate::page_cache::PageCache;
+use same_file::Handle;
 use serde::Serialize;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 pub const MAX_READ_RANGE: u64 = 1_048_576;
+pub const OVERVIEW_BIN_COUNT: u32 = 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,6 +34,8 @@ pub struct PageData {
 pub struct FileSession {
     file: File,
     info: FileInfo,
+    source_modified: Option<SystemTime>,
+    source_identity: Handle,
     cache: PageCache,
     edits: EditBuffer,
     #[cfg(test)]
@@ -75,6 +80,12 @@ impl FileSession {
                 )
             })?;
 
+        let identity_file = file
+            .try_clone()
+            .map_err(|error| AppError::from_io(error, Some(&canonical_path)))?;
+        let source_identity = Handle::from_file(identity_file)
+            .map_err(|error| AppError::from_io(error, Some(&canonical_path)))?;
+
         Ok(Self {
             file,
             info: FileInfo {
@@ -84,6 +95,8 @@ impl FileSession {
                 revision: 0,
                 dirty: false,
             },
+            source_modified: metadata.modified().ok(),
+            source_identity,
             cache: PageCache::new(page_size, max_pages),
             edits: EditBuffer::default(),
             #[cfg(test)]
@@ -114,17 +127,21 @@ impl FileSession {
         chunk_size: usize,
         progress: &mut dyn FnMut(u64),
     ) -> Result<u64, AppError> {
-        crate::export::copy_effective(
+        self.ensure_source_unchanged()?;
+        let written = crate::export::copy_effective(
             &mut self.file,
             output,
             self.info.size,
             chunk_size,
             &self.edits,
             progress,
-        )
+        )?;
+        self.ensure_source_unchanged()?;
+        Ok(written)
     }
 
     pub fn read_range(&mut self, start: u64, len: u64) -> Result<PageData, AppError> {
+        self.ensure_source_unchanged()?;
         if len > MAX_READ_RANGE {
             return Err(invalid_length("The requested range is too large."));
         }
@@ -140,6 +157,7 @@ impl FileSession {
 
         let end = requested_end.min(self.info.size);
         let mut bytes = self.read_source_range(start, end)?;
+        self.ensure_source_unchanged()?;
         self.edits.overlay(start, &mut bytes);
         Ok(self.page_data(start, bytes))
     }
@@ -150,6 +168,7 @@ impl FileSession {
         offset: u64,
         buffer: &mut [u8],
     ) -> Result<usize, AppError> {
+        self.ensure_source_unchanged()?;
         #[cfg(test)]
         {
             self.read_count += 1;
@@ -172,6 +191,7 @@ impl FileSession {
         self.file
             .read_exact(&mut buffer[..len])
             .map_err(|error| AppError::from_io(error, Some(path)))?;
+        self.ensure_source_unchanged()?;
         self.edits.overlay(offset, &mut buffer[..len]);
         Ok(len)
     }
@@ -182,10 +202,12 @@ impl FileSession {
     }
 
     pub fn edit_byte(&mut self, offset: u64, value: u8) -> Result<(), AppError> {
+        self.ensure_source_unchanged()?;
         if offset >= self.info.size {
             return Err(invalid_offset("The edit offset is outside the file."));
         }
         let source = self.source_byte(offset)?;
+        self.ensure_source_unchanged()?;
         if self.edits.apply(offset, source, value) {
             self.info.revision = self.info.revision.saturating_add(1);
         }
@@ -194,10 +216,12 @@ impl FileSession {
 
     /// Reverts the most recent effective edit. Returns false when there is no edit to undo.
     pub fn undo(&mut self) -> Result<bool, AppError> {
+        self.ensure_source_unchanged()?;
         let Some(offset) = self.edits.last_offset() else {
             return Ok(false);
         };
         let source = self.source_byte(offset)?;
+        self.ensure_source_unchanged()?;
         if self.edits.undo(source).is_some() {
             self.info.revision = self.info.revision.saturating_add(1);
             return Ok(true);
@@ -224,6 +248,11 @@ impl FileSession {
         self.cache.cached_bytes()
     }
 
+    pub fn modified_overview_bins(&self) -> Vec<u32> {
+        self.edits
+            .modified_overview_bins(self.info.size, OVERVIEW_BIN_COUNT)
+    }
+
     fn page_data(&self, offset: u64, bytes: Vec<u8>) -> PageData {
         let modified_offsets = self.edits.modified_offsets(offset, bytes.len() as u64);
         PageData {
@@ -232,6 +261,29 @@ impl FileSession {
             modified_offsets,
             revision: self.info.revision,
         }
+    }
+
+    pub(crate) fn ensure_source_unchanged(&self) -> Result<(), AppError> {
+        let path = self.source_path();
+        let changed = || {
+            AppError::new(
+            ErrorCode::SourceChanged,
+            "The source file changed outside HexForge. Reopen it to continue; in-memory edits are still retained.",
+            Some(path.to_string_lossy().into_owned()),
+        )
+        };
+        let current = self.file.metadata().map_err(|_| changed())?;
+        let at_path = std::fs::metadata(path).map_err(|_| changed())?;
+        let path_identity = Handle::from_path(path).map_err(|_| changed())?;
+        if path_identity != self.source_identity {
+            return Err(changed());
+        }
+        if [current, at_path].iter().any(|metadata| {
+            metadata.len() != self.info.size || metadata.modified().ok() != self.source_modified
+        }) {
+            return Err(changed());
+        }
+        Ok(())
     }
 
     fn source_byte(&mut self, offset: u64) -> Result<u8, AppError> {
@@ -397,6 +449,104 @@ mod tests {
     }
 
     #[test]
+    fn externally_changed_source_rejects_cached_reads_without_discarding_edits() {
+        let file = fixture(vec![4, 5, 6, 7]);
+        let mut session = FileSession::open(file.path().to_path_buf(), 4, 1).unwrap();
+        assert_eq!(session.read_range(0, 4).unwrap().bytes, vec![4, 5, 6, 7]);
+        session.edit_byte(1, 0xfe).unwrap();
+
+        std::fs::write(file.path(), [9, 5, 6, 7]).unwrap();
+        let changed = std::fs::OpenOptions::new()
+            .write(true)
+            .open(file.path())
+            .unwrap();
+        changed
+            .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60))
+            .unwrap();
+
+        assert_eq!(
+            session.read_range(0, 4).unwrap_err().code(),
+            "source_changed"
+        );
+        assert!(session.is_dirty());
+    }
+
+    #[test]
+    fn externally_changed_source_rejects_streaming_reads() {
+        let file = fixture(vec![1, 2, 3, 4]);
+        let mut session = FileSession::open(file.path().to_path_buf(), 2, 2).unwrap();
+        std::fs::write(file.path(), [1, 2, 3, 4, 5]).unwrap();
+        let mut bytes = [0; 2];
+
+        assert_eq!(
+            session
+                .read_effective_chunk(0, &mut bytes)
+                .unwrap_err()
+                .code(),
+            "source_changed"
+        );
+    }
+
+    #[test]
+    fn replaced_source_path_is_rejected_even_when_size_and_mtime_match() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("source.bin");
+        let moved = dir.path().join("original.bin");
+        let fixed_time =
+            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        std::fs::write(&path, [1, 2, 3]).unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(fixed_time)
+            .unwrap();
+        let mut session = FileSession::open(path.clone(), 2, 2).unwrap();
+
+        std::fs::rename(&path, &moved).unwrap();
+        std::fs::write(&path, [9, 8, 7]).unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(fixed_time)
+            .unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().modified().unwrap(),
+            fixed_time
+        );
+
+        assert_eq!(
+            session.read_range(0, 3).unwrap_err().code(),
+            "source_changed"
+        );
+    }
+
+    #[test]
+    fn external_source_change_rejects_new_byte_edits() {
+        let file = fixture(vec![1, 2]);
+        let mut session = FileSession::open(file.path().to_path_buf(), 2, 2).unwrap();
+        std::fs::write(file.path(), [1, 2, 3]).unwrap();
+
+        assert_eq!(
+            session.edit_byte(0, 9).unwrap_err().code(),
+            "source_changed"
+        );
+        assert!(!session.is_dirty());
+    }
+
+    #[test]
+    fn external_source_change_preserves_undo_history() {
+        let file = fixture(vec![1, 2]);
+        let mut session = FileSession::open(file.path().to_path_buf(), 2, 2).unwrap();
+        session.edit_byte(0, 9).unwrap();
+        std::fs::write(file.path(), [1, 2, 3]).unwrap();
+
+        assert_eq!(session.undo().unwrap_err().code(), "source_changed");
+        assert!(session.is_dirty());
+    }
+
+    #[test]
     fn no_op_edit_does_not_advance_revision() {
         let file = fixture(vec![4]);
         let mut session = FileSession::open(file.path().to_path_buf(), 1, 1).unwrap();
@@ -417,6 +567,16 @@ mod tests {
         assert_eq!(session.read_range(0, 1).unwrap().bytes, vec![4]);
         assert!(!session.is_dirty());
         assert_eq!(session.info().revision, 2);
+    }
+
+    #[test]
+    fn modified_overview_tracks_edit_and_undo() {
+        let file = fixture(vec![1, 2, 3, 4]);
+        let mut session = FileSession::open(file.path().to_path_buf(), 2, 2).unwrap();
+        session.edit_byte(3, 9).unwrap();
+        assert_eq!(session.modified_overview_bins(), vec![1023]);
+        session.undo().unwrap();
+        assert!(session.modified_overview_bins().is_empty());
     }
 
     #[test]

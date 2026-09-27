@@ -1262,6 +1262,7 @@ name = "hexforge"
 version = "0.1.0"
 dependencies = [
  "csv",
+ "same-file",
  "serde",
  "serde_json",
  "tauri",

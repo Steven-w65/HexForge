@@ -10,6 +10,7 @@ let drawnTextByContext: string[][]
 let contextIndex: number
 let contextCanvases: Array<HTMLCanvasElement | undefined>
 let contentCompositeCount: number
+let fillCallsByContext: Array<Array<{ x: number; y: number; width: number; height: number; color: string }>>
 
 class TestResizeObserver {
   constructor(callback: ResizeObserverCallback) { resizeCallback = callback }
@@ -23,7 +24,11 @@ function context(index: number): CanvasRenderingContext2D {
     canvas: null,
     fillStyle: '', strokeStyle: '', font: '', textBaseline: 'alphabetic', lineWidth: 1,
     globalAlpha: 1,
-    clearRect: vi.fn(), fillRect: vi.fn(), strokeRect: vi.fn(),
+    clearRect: vi.fn(),
+    fillRect(this: CanvasRenderingContext2D, x: number, y: number, width: number, height: number) {
+      ;(fillCallsByContext[index] ??= []).push({ x, y, width, height, color: String(this.fillStyle) })
+    },
+    strokeRect: vi.fn(),
     fillText(this: CanvasRenderingContext2D, text: string) {
       drawnColors.push(String(this.fillStyle))
       drawnTextByContext[index]!.push(text)
@@ -69,6 +74,7 @@ describe('HexCanvas', () => {
     contextIndex = 0
     contextCanvases = []
     contentCompositeCount = 0
+    fillCallsByContext = []
     vi.stubGlobal('ResizeObserver', TestResizeObserver)
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1 })
     vi.stubGlobal('cancelAnimationFrame', () => {})
@@ -109,6 +115,110 @@ describe('HexCanvas', () => {
     expect(request.length).toBeGreaterThan(0)
     expect(request.length).toBeLessThanOrEqual(1024 * 1024)
     expect(request.generation).toBeGreaterThan(0)
+  })
+
+  it('shows file-wide search, template and modified markers without loading distant bytes', async () => {
+    const wrapper = mount(HexCanvas, { props: {
+      ...readyProps, fileSize: 100n, matches: [0n, 50n, 99n],
+      templateFields: [{ name: 'header', offset: '20', type: 'bytes' as const, length: 10, endianness: 'little' as const, value: '', comment: '' }],
+      modifiedOverview: { binCount: 1024, bins: [0, 512, 1023] },
+    } })
+    await resize()
+
+    expect(wrapper.findAll('.minimap__match')).toHaveLength(3)
+    expect(wrapper.findAll('.minimap__template')).toHaveLength(1)
+    expect(wrapper.findAll('.minimap__modified')).toHaveLength(3)
+    expect(wrapper.emitted('request-page')).toHaveLength(1)
+    expect(wrapper.findAll('.minimap__match').at(-1)?.attributes('style')).toContain('top: 499px')
+  })
+
+  it('draws a miniature hex preview from the accepted nearby page without another file read', async () => {
+    const wrapper = mount(HexCanvas, { props: { ...readyProps, fileSize: 1_000_000n } })
+    await resize(900, 500)
+    const request = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint; length: number; generation: number }
+    expect(request.length).toBeLessThan(16_384)
+    const preview = wrapper.get<HTMLCanvasElement>('[data-testid="minimap-preview"]').element
+    await wrapper.setProps({ page: {
+      offset: request.offset.toString(), bytes: Array.from({ length: request.length }, (_, index) => [0, 0x41, 0x7f, 0xff][index % 4]!),
+      modifiedOffsets: ['1'], revision: '1', generation: request.generation,
+    } })
+    const contextNumber = contextCanvases.indexOf(preview)
+    expect(contextNumber).toBeGreaterThanOrEqual(0)
+    expect(fillCallsByContext[contextNumber]?.some((call) => call.color === '#f0883e')).toBe(true)
+    expect(wrapper.emitted('request-page')).toHaveLength(1)
+  })
+
+  it('uses the miniature content for nearby navigation and a separate full-file scroll strip', async () => {
+    const wrapper = mount(HexCanvas, { props: { ...readyProps, fileSize: 1_000_000n } })
+    await resize(900, 500)
+    const request = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint; length: number; generation: number }
+    await wrapper.setProps({ page: { offset: request.offset.toString(), bytes: Array(request.length).fill(0x41), modifiedOffsets: [], revision: '1', generation: request.generation } })
+    const preview = wrapper.get('[data-testid="minimap-preview"]')
+    vi.spyOn(preview.element, 'getBoundingClientRect').mockReturnValue({
+      top: 0, height: 500, left: 0, right: 84, bottom: 500, width: 84, x: 0, y: 0, toJSON: () => ({}),
+    })
+    await preview.trigger('pointerdown', { clientY: 180, pointerId: 13 })
+    const nearbyOffset = wrapper.emitted('viewport-offset')?.at(-1)?.[0] as bigint
+    expect(nearbyOffset).toBeGreaterThan(0n)
+    expect(nearbyOffset).toBeLessThan(10_000n)
+
+    const scrollbar = wrapper.get('.virtual-scrollbar')
+    vi.spyOn(scrollbar.element, 'getBoundingClientRect').mockReturnValue({
+      top: 0, height: 500, left: 84, right: 96, bottom: 500, width: 12, x: 84, y: 0, toJSON: () => ({}),
+    })
+    await scrollbar.trigger('pointerdown', { clientY: 499, pointerId: 14 })
+    expect(wrapper.emitted('viewport-offset')?.at(-1)?.[0] as bigint).toBeGreaterThan(500_000n)
+  })
+
+  it('bounds dense search markers to at most one per minimap pixel', async () => {
+    const wrapper = mount(HexCanvas, { props: {
+      ...readyProps, fileSize: 10_000n, matches: Array.from({ length: 10_000 }, (_, index) => BigInt(index)),
+    } })
+    await resize(900, 500)
+    const markers = wrapper.findAll('.minimap__match')
+    expect(markers.length).toBeGreaterThan(0)
+    expect(markers.length).toBeLessThanOrEqual(500)
+  })
+
+  it('uses a proportional viewport marker and stops at the last full visible page', async () => {
+    const wrapper = mount(HexCanvas, { props: readyProps })
+    await resize(900, 500)
+    const thumb = wrapper.get('.virtual-scrollbar__thumb')
+    expect(Number.parseFloat(thumb.element.getAttribute('style')?.match(/height:\s*([\d.]+)px/)?.[1] ?? '0')).toBeGreaterThan(24)
+    const minimap = wrapper.get('.virtual-scrollbar')
+    vi.spyOn(minimap.element, 'getBoundingClientRect').mockReturnValue({
+      top: 0, height: 500, left: 0, right: 40, bottom: 500, width: 40, x: 0, y: 0, toJSON: () => ({}),
+    })
+    await minimap.trigger('pointerdown', { clientY: 499, pointerId: 7 })
+    expect(wrapper.emitted('viewport-offset')?.at(-1)).toEqual([3760n])
+  })
+
+  it('lets the last row become fully visible when the viewport has a partial row', async () => {
+    const wrapper = mount(HexCanvas, { props: { ...readyProps, fileSize: 64n } })
+    await resize(900, 100)
+    const minimap = wrapper.get('.virtual-scrollbar')
+    vi.spyOn(minimap.element, 'getBoundingClientRect').mockReturnValue({
+      top: 0, height: 100, left: 0, right: 40, bottom: 100, width: 40, x: 0, y: 0, toJSON: () => ({}),
+    })
+    await minimap.trigger('pointerdown', { clientY: 99, pointerId: 10 })
+    expect(wrapper.emitted('viewport-offset')?.at(-1)).toEqual([16n])
+  })
+
+  it('navigates from a minimap search marker in a multi-gigabyte file', async () => {
+    const size = 1n << 60n
+    const wrapper = mount(HexCanvas, { props: { ...readyProps, fileSize: size, matches: [size * 3n / 4n] } })
+    await resize(900, 500)
+    const minimap = wrapper.get('.virtual-scrollbar')
+    vi.spyOn(minimap.element, 'getBoundingClientRect').mockReturnValue({
+      top: 0, height: 500, left: 0, right: 40, bottom: 500, width: 40, x: 0, y: 0, toJSON: () => ({}),
+    })
+    const markerY = Number.parseFloat(wrapper.get('.minimap__match').attributes('style')?.match(/top:\s*([\d.]+)px/)?.[1] ?? '0')
+    await minimap.trigger('pointerdown', { clientY: markerY, pointerId: 8 })
+
+    const offset = wrapper.emitted('viewport-offset')?.at(-1)?.[0] as bigint
+    expect(offset).toBeGreaterThan(size / 2n)
+    expect(offset).toBeLessThan(size)
+    expect((wrapper.emitted('request-page')?.at(-1)?.[0] as { length: number }).length).toBeLessThanOrEqual(1024 * 1024)
   })
 
   it('recalculates hit geometry and requests a new page when row width changes', async () => {
@@ -209,10 +319,9 @@ describe('HexCanvas', () => {
     } })
     expect(wrapper.get('canvas').attributes('data-page-revision')).toBe('1')
     const requestsBeforeMove = wrapper.emitted('request-page')?.length ?? 0
-    for (let index = 0; index < 5; index += 1) await wrapper.get('canvas').trigger('wheel', { deltaY: 100 })
     drawnTextByContext[2]!.length = 0
     contentCompositeCount = 0
-    await wrapper.get('canvas').trigger('wheel', { deltaY: 100 })
+    await wrapper.setProps({ navigateOffset: 202n * 16n })
     expect(wrapper.emitted('request-page')?.length).toBeGreaterThan(requestsBeforeMove)
     expect(wrapper.get('canvas').attributes('data-page-revision')).toBe('1')
     expect(drawnTextByContext[2]).toContain('41')

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => {
   const backend = {
-    openFile: vi.fn(), closeFile: vi.fn(), getFileInfo: vi.fn(), readPage: vi.fn(), editByte: vi.fn(), undoEdit: vi.fn(), getDirtyState: vi.fn(),
+    openFile: vi.fn(), closeFile: vi.fn(), getFileInfo: vi.fn(), readPage: vi.fn(), editByte: vi.fn(), undoEdit: vi.fn(), getDirtyState: vi.fn(), getModifiedOverview: vi.fn(),
     saveAs: vi.fn(), searchBytes: vi.fn(), applyTemplate: vi.fn(), loadTemplate: vi.fn(), saveTemplate: vi.fn(), saveTemplateAs: vi.fn(), unloadTemplateFile: vi.fn(), exportResultsCsv: vi.fn(),
   }
   return {
@@ -59,6 +59,7 @@ describe('App desktop orchestration', () => {
     mocks.backend.openFile.mockResolvedValue(file); mocks.backend.readPage.mockResolvedValue(page)
     mocks.backend.undoEdit.mockResolvedValue({ dirty: false, revision: '2', undone: true })
     mocks.backend.getDirtyState.mockResolvedValue({ dirty: false, revision: '1' })
+    mocks.backend.getModifiedOverview.mockResolvedValue({ binCount: 1024, bins: [] })
     mocks.backend.applyTemplate.mockResolvedValue([])
     mocks.backend.searchBytes.mockResolvedValue({ matches: [], truncated: false })
   })
@@ -631,12 +632,55 @@ describe('App desktop orchestration', () => {
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('f', { ctrlKey: true }); await flushPromises()
-    await wrapper.get('.prompt-form input').setValue('41 42')
-    await wrapper.get('.prompt-form').trigger('submit'); await flushPromises()
+    await wrapper.get('[data-testid="search-input"]').setValue('41 42')
+    await wrapper.get('[data-testid="search-bar"]').trigger('submit'); await flushPromises()
     expect(wrapper.get('[data-testid="status-progress"]').text()).toContain('Searching bytes')
     resolveSearch({ matches: ['0'], truncated: true }); await flushPromises()
     expect(wrapper.find('[data-testid="status-progress"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="search-count"]').text()).toContain('limited')
+    expect(wrapper.find('[data-testid="search-truncated"]').exists()).toBe(false)
+    press('Escape'); await flushPromises()
     expect(wrapper.get('[data-testid="search-truncated"]').text()).toContain('limited')
+    wrapper.unmount()
+  })
+
+  it('keeps canvas selection available beside a non-modal search bar and clears search independently', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    mocks.backend.searchBytes.mockResolvedValue({ matches: ['8'], truncated: false })
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    press('f', { ctrlKey: true }); await flushPromises()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="search-bar"]').exists()).toBe(true)
+
+    wrapper.findComponent(AppShell).vm.$emit('select', { start: 5n, end: 7n, count: 3n }); await flushPromises()
+    expect(wrapper.findComponent(AppShell).props('selection')).toEqual({ start: 5n, end: 7n, count: 3n })
+    await wrapper.get('[data-testid="search-input"]').setValue('41')
+    await wrapper.get('[data-testid="search-bar"]').trigger('submit'); await flushPromises()
+    expect(wrapper.get('[data-testid="search-count"]').text()).toContain('1 match')
+    expect(wrapper.findComponent(AppShell).props('matches')).toEqual([8n])
+
+    press('Escape'); await flushPromises()
+    expect(wrapper.find('[data-testid="search-bar"]').exists()).toBe(false)
+    expect(wrapper.findComponent(AppShell).props('matches')).toEqual([8n])
+    press('f', { ctrlKey: true }); await flushPromises()
+    expect((wrapper.get('[data-testid="search-input"]').element as HTMLInputElement).value).toBe('41')
+    await wrapper.get('[data-action="clear-search"]').trigger('click'); await flushPromises()
+    expect(wrapper.findComponent(AppShell).props('matches')).toEqual([])
+    expect((wrapper.get('[data-testid="search-input"]').element as HTMLInputElement).value).toBe('')
+    expect(wrapper.findComponent(AppShell).props('selection')).toEqual({ start: 8n, end: 8n, count: 1n })
+    wrapper.unmount()
+  })
+
+  it('refocuses an open search bar without discarding an unfinished hex pattern', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    const wrapper = mount(App, { attachTo: document.body, global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    press('f', { ctrlKey: true }); await flushPromises()
+    await wrapper.get('[data-testid="search-input"]').setValue('41 42')
+    press('f', { ctrlKey: true }); await flushPromises()
+    expect((wrapper.get('[data-testid="search-input"]').element as HTMLInputElement).value).toBe('41 42')
+    expect(document.activeElement).toBe(wrapper.get('[data-testid="search-input"]').element)
     wrapper.unmount()
   })
 
@@ -691,7 +735,22 @@ describe('App desktop orchestration', () => {
     wrapper.unmount()
   })
 
-  it('routes Navigate shortcuts to the go-to and byte-search dialogs', async () => {
+  it('passes edited byte markers from the session into the minimap', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    mocks.backend.editByte.mockResolvedValue({ dirty: true, revision: '2' })
+    mocks.backend.getModifiedOverview.mockResolvedValue({ binCount: 1024, bins: [512] })
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    wrapper.findComponent(AppShell).vm.$emit('select', { start: 0n, end: 0n, count: 1n }); await flushPromises()
+    wrapper.findComponent(AppShell).vm.$emit('edit-request', 0n); await flushPromises()
+    await wrapper.get('.prompt-form input').setValue('FF')
+    await wrapper.get('.prompt-form').trigger('submit'); await flushPromises()
+
+    expect(wrapper.findComponent(AppShell).props('modifiedOverview')).toEqual({ binCount: 1024, bins: [512] })
+    wrapper.unmount()
+  })
+
+  it('routes Navigate shortcuts to the go-to dialog and non-modal byte-search bar', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin'); mocks.backend.searchBytes.mockResolvedValue({ matches: ['8'], truncated: false })
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
@@ -699,7 +758,7 @@ describe('App desktop orchestration', () => {
     await wrapper.get('.prompt-form input').setValue('0x4'); await wrapper.get('.prompt-form').trigger('submit'); await flushPromises()
     expect(wrapper.findComponent(AppShell).props('selection')).toEqual({ start: 4n, end: 4n, count: 1n })
     press('f', { ctrlKey: true }); await flushPromises()
-    await wrapper.get('.prompt-form input').setValue('41 42'); await wrapper.get('.prompt-form').trigger('submit'); await flushPromises()
+    await wrapper.get('[data-testid="search-input"]').setValue('41 42'); await wrapper.get('[data-testid="search-bar"]').trigger('submit'); await flushPromises()
     expect(mocks.backend.searchBytes).toHaveBeenCalledWith('41 42', expect.any(Function))
     wrapper.unmount()
   })

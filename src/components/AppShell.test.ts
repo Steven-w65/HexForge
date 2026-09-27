@@ -15,6 +15,16 @@ describe('AppShell', () => {
     expect(wrapper.find('.status-bar').exists()).toBe(true)
   })
 
+  it('does not cover an opened file with the drop prompt when search is closed', () => {
+    const wrapper = mount(AppShell, {
+      props: { file: { name: 'image.bin', path: 'C:/image.bin', size: '16', revision: '1', dirty: false } },
+      global: { stubs: { HexCanvas: true } },
+    })
+
+    expect(wrapper.find('[data-testid="drop-prompt"]').exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'HexCanvas' }).exists()).toBe(true)
+  })
+
   it('keeps the menu row at its compact height', () => {
     const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: true } } })
     const style = wrapper.get('[data-testid="app-shell"]').attributes('style') ?? ''
@@ -175,6 +185,19 @@ describe('AppShell', () => {
     expect(wrapper.findComponent({ name: 'HexCanvas' }).props('sourceIdentity')).toBe(9)
   })
 
+  it('passes parsed ranges and bounded edit markers into the file minimap', () => {
+    const field = { name: 'magic', offset: '32', type: 'bytes' as const, length: 4, endianness: 'little' as const, value: '89 50 4E 47', comment: '' }
+    const overview = { binCount: 1024, bins: [0, 512] }
+    const wrapper = mount(AppShell, {
+      props: { file: { name: 'image.bin', path: 'C:/image.bin', size: '4096', revision: '2', dirty: true }, results: [field], modifiedOverview: overview },
+      global: { stubs: { HexCanvas: true } },
+    })
+
+    const canvas = wrapper.findComponent({ name: 'HexCanvas' })
+    expect(canvas.props('templateFields')).toEqual([field])
+    expect(canvas.props('modifiedOverview')).toEqual(overview)
+  })
+
   it('renders operation progress in the status bar and a truncated-search notice', () => {
     const wrapper = mount(AppShell, { props: {
       busyLabel: 'Searching bytes', progressText: '512 / 1024', searchTruncated: true,
@@ -185,7 +208,7 @@ describe('AppShell', () => {
     expect(wrapper.get('[data-testid="search-truncated"]').text()).toContain('limited')
   })
 
-  it('gives the hex canvas the full configured 1280px width above results', async () => {
+  it('fits 16-byte rows beside the minimap and scrolls 32-byte rows when needed', async () => {
     let resize!: ResizeObserverCallback
     vi.stubGlobal('ResizeObserver', class {
       constructor(callback: ResizeObserverCallback) { resize = callback }
@@ -207,10 +230,10 @@ describe('AppShell', () => {
     expect(shellStyle).toContain('--results-pane-height: 220px')
     const viewport = wrapper.get('[data-testid="hex-canvas"]')
     const canvas = wrapper.get('canvas').element as HTMLCanvasElement
-    expect(canvas.width + 8).toBeLessThanOrEqual(windowWidth)
+    expect(canvas.width + 96).toBeLessThanOrEqual(windowWidth)
     expect((viewport.element as HTMLElement).style.overflowX).toBe('hidden')
     await wrapper.setProps({ bytesPerRow: 32 }); await nextTick()
-    expect(canvas.width + 8).toBeLessThanOrEqual(windowWidth)
-    expect((viewport.element as HTMLElement).style.overflowX).toBe('hidden')
+    expect(canvas.width + 96).toBeGreaterThan(windowWidth)
+    expect((viewport.element as HTMLElement).style.overflowX).toBe('auto')
   })
 })

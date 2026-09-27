@@ -21,6 +21,7 @@ pub fn run() {
             commands::edit_byte,
             commands::undo_edit,
             commands::get_dirty_state,
+            commands::get_modified_overview,
             commands::save_as,
             commands::search_bytes,
             commands::apply_template,

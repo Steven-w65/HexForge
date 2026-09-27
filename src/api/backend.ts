@@ -1,6 +1,6 @@
 import { Channel, invoke } from '@tauri-apps/api/core'
 import type {
-  AppError, DirtyState, FileInfo, OperationProgress, PageResponse, ParsedField,
+  AppError, DirtyState, FileInfo, ModifiedOverview, OperationProgress, PageResponse, ParsedField,
   SaveResponse, SearchResponse, TemplateDefinition, UndoResponse,
 } from '../types'
 
@@ -37,6 +37,7 @@ export const backend = {
   editByte: (offset: bigint, value: number) => call<DirtyState>('edit_byte', { offset: offset.toString(), value }),
   undoEdit: () => call<UndoResponse>('undo_edit'),
   getDirtyState: () => call<DirtyState>('get_dirty_state'),
+  getModifiedOverview: () => call<ModifiedOverview>('get_modified_overview'),
   saveAs: (path: string, onProgress: ProgressHandler) => withProgress<SaveResponse>('save_as', { path }, onProgress),
   searchBytes: (pattern: string, onProgress: ProgressHandler) => withProgress<SearchResponse>('search_bytes', { pattern }, onProgress),
   applyTemplate: (template: TemplateDefinition, onProgress: ProgressHandler) => withProgress<ParsedField[]>('apply_template', { template }, onProgress),

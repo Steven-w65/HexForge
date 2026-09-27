@@ -19,6 +19,7 @@ function fakeBackend(): HexBackend {
     closeFile: vi.fn().mockResolvedValue(undefined), getFileInfo: vi.fn(),
     readPage: vi.fn().mockResolvedValue(pageAt(0n)), editByte: vi.fn().mockResolvedValue({ dirty: true, revision: '2' }),
     undoEdit: vi.fn().mockResolvedValue({ dirty: false, revision: '3', undone: true }), getDirtyState: vi.fn(),
+    getModifiedOverview: vi.fn().mockResolvedValue({ binCount: 1024, bins: [] }),
     saveAs: vi.fn().mockResolvedValue({ dirty: false, revision: '0', bytesWritten: '8192', destination: 'copy.bin',
       file: { name: 'copy.bin', path: 'copy.bin', size: '8192', revision: '0', dirty: false } }),
     searchBytes: vi.fn().mockResolvedValue({ matches: ['16', '32'], truncated: false }),
@@ -27,6 +28,24 @@ function fakeBackend(): HexBackend {
 }
 
 describe('useHexSession', () => {
+  it('keeps the file-wide modified markers in sync with edit, undo and Save As', async () => {
+    const backend = fakeBackend()
+    vi.mocked(backend.getModifiedOverview)
+      .mockResolvedValueOnce({ binCount: 1024, bins: [512] })
+      .mockResolvedValueOnce({ binCount: 1024, bins: [] })
+    const session = useHexSession(backend)
+    await session.openFile('input.bin')
+    session.page.value = { ...pageAt(0n), generation: 1 }
+    session.selection.value = { start: 0n, end: 0n, count: 1n }
+
+    await session.editSelectedByte('FF')
+    expect(session.modifiedOverview.value).toEqual({ binCount: 1024, bins: [512] })
+    await session.undo()
+    expect(session.modifiedOverview.value).toEqual({ binCount: 1024, bins: [] })
+    await session.saveAs('copy.bin')
+    expect(session.modifiedOverview.value).toEqual({ binCount: 1024, bins: [] })
+  })
+
   it('advances source identity on every successful open even when metadata is unchanged', async () => {
     const backend = fakeBackend(); const session = useHexSession(backend)
     expect(session.sourceIdentity.value).toBe(0)
@@ -104,6 +123,36 @@ describe('useHexSession', () => {
     expect(session.busy.search).toBe(true); expect(session.progress.value?.operationId).toBe('new')
     first.reject({ code: 'old_failure', message: 'Old search failed.' }); await a
     expect(session.matches.value).toEqual([32n]); expect(session.error.value).toBeNull(); expect(session.busy.search).toBe(false)
+  })
+
+  it('clears completed search state without clearing a byte selection', async () => {
+    const session = useHexSession(fakeBackend())
+    await session.openFile('input.bin')
+    await session.search('41 42')
+    expect(session.searchQuery.value).toBe('41 42')
+    expect(session.matches.value).toEqual([16n, 32n])
+    expect(session.selection.value).toEqual({ start: 16n, end: 16n, count: 1n })
+
+    session.clearSearch()
+    expect(session.searchQuery.value).toBe('')
+    expect(session.matches.value).toEqual([])
+    expect(session.searchMatchLength.value).toBe(1)
+    expect(session.searchTruncated.value).toBe(false)
+    expect(session.selection.value).toEqual({ start: 16n, end: 16n, count: 1n })
+  })
+
+  it('does not replace a byte selection made while a non-modal search runs', async () => {
+    const backend = fakeBackend()
+    const found = deferred<{ matches: string[]; truncated: boolean }>()
+    vi.mocked(backend.searchBytes).mockReturnValue(found.promise)
+    const session = useHexSession(backend)
+    await session.openFile('input.bin')
+    const pending = session.search('41')
+    session.selection.value = { start: 64n, end: 66n, count: 3n }
+    found.resolve({ matches: ['16'], truncated: false })
+    await pending
+    expect(session.matches.value).toEqual([16n])
+    expect(session.selection.value).toEqual({ start: 64n, end: 66n, count: 3n })
   })
 
   it('keeps only the newest overlapping template load', async () => {

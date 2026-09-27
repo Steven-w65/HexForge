@@ -3,7 +3,7 @@ import { backend as defaultBackend } from '../api/backend'
 import { parseHexBytes, parseOffset, parseSingleByte } from '../hex/input'
 import { normalizeSelection, type ByteSelection } from '../hex/selection'
 import type {
-  AppError, DirtyState, FileInfo, OperationProgress, PageResponse, ParsedField,
+  AppError, DirtyState, FileInfo, ModifiedOverview, OperationProgress, PageResponse, ParsedField,
   SaveResponse, SearchResponse, TemplateDefinition, UndoResponse, ViewportPage,
 } from '../types'
 
@@ -17,6 +17,7 @@ export interface HexBackend {
   editByte(offset: bigint, value: number): Promise<DirtyState>
   undoEdit(): Promise<UndoResponse>
   getDirtyState(): Promise<DirtyState>
+  getModifiedOverview(): Promise<ModifiedOverview>
   saveAs(path: string, onProgress: ProgressHandler): Promise<SaveResponse>
   searchBytes(pattern: string, onProgress: ProgressHandler): Promise<SearchResponse>
   applyTemplate(template: TemplateDefinition, onProgress: ProgressHandler): Promise<ParsedField[]>
@@ -42,14 +43,15 @@ function friendlyError(value: unknown): AppError {
 export interface HexSession {
   file: Ref<FileInfo | null>; page: Ref<ViewportPage | null>; selection: Ref<ByteSelection | null>
   sourceIdentity: Ref<number>
+  modifiedOverview: Ref<ModifiedOverview>
   template: Ref<TemplateDefinition>; results: Ref<ParsedField[]>; templateApplied: Ref<boolean>; resultsNeedRefresh: Ref<boolean>; matches: Ref<bigint[]>
-  searchMatchLength: Ref<number>; searchTruncated: Ref<boolean>
+  searchQuery: Ref<string>; searchMatchLength: Ref<number>; searchTruncated: Ref<boolean>
   activity: Ref<OperationActivity | null>
   busy: Record<BusyOperation, boolean>; progress: Ref<OperationProgress | null>; error: Ref<AppError | null>
   viewportOffset: Ref<bigint>; editMode: Ref<boolean>; canUndo: ComputedRef<boolean>
   requestPage(offset: bigint, length: number, generation?: number): Promise<void>
   openFile(path: string, discardUnsaved?: boolean): Promise<void>; closeFile(discardUnsaved?: boolean): Promise<void>; goTo(text: string): bigint
-  search(text: string): Promise<void>; applyTemplate(): Promise<void>; editSelectedByte(text: string): Promise<void>
+  search(text: string): Promise<void>; clearSearch(): void; applyTemplate(): Promise<void>; editSelectedByte(text: string): Promise<void>
   undo(): Promise<void>; saveAs(path: string): Promise<void>; loadTemplate(path: string): Promise<void>
   saveTemplate(overwriteExternal?: boolean, definition?: TemplateDefinition): Promise<void>
   saveTemplateAs(path: string, overwrite?: boolean, definition?: TemplateDefinition): Promise<void>
@@ -64,6 +66,7 @@ interface OperationTicket { name: BusyOperation; token: number; epoch: number; i
 export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   const file = ref<FileInfo | null>(null)
   const sourceIdentity = ref(0)
+  const modifiedOverview = ref<ModifiedOverview>({ binCount: 1024, bins: [] })
   const page = ref<ViewportPage | null>(null)
   const selection = ref<ByteSelection | null>(null)
   const template = ref<TemplateDefinition>({ ...EMPTY_TEMPLATE, fields: [] })
@@ -72,6 +75,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   const templateApplied = ref(false)
   const resultsNeedRefresh = ref(false)
   const matches = ref<bigint[]>([])
+  const searchQuery = ref('')
   const searchMatchLength = ref(1)
   const searchTruncated = ref(false)
   const progress = ref<OperationProgress | null>(null)
@@ -174,6 +178,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     contentVersion += 1
     templateApplied.value = false
     matches.value = []
+    searchQuery.value = ''
     searchMatchLength.value = 1
     searchTruncated.value = false
     if (results.value.length > 0) resultsNeedRefresh.value = true
@@ -183,6 +188,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
 
   function installOpenedFile(opened: FileInfo): void {
     file.value = opened
+    modifiedOverview.value = { binCount: 1024, bins: [] }
     undoDepth.value = 0
     selection.value = null
     invalidateDerivedContent()
@@ -232,6 +238,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     sessionEpoch += 1
     sourceIdentity.value += 1
     file.value = null
+    modifiedOverview.value = { binCount: 1024, bins: [] }
     page.value = null
     selection.value = null
     undoDepth.value = 0
@@ -260,16 +267,25 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
 
   async function search(text: string): Promise<void> {
     const searchedContent = contentVersion
+    const selectionBeforeSearch = selection.value
     const pattern = parseHexBytes(text)
     const result = await run('search', (ticket) => {
       return api.searchBytes(text, (value) => reportProgress(ticket, value))
     }, true, () => searchedContent === contentVersion)
     if (!result.current) return
     matches.value = result.value.matches.map(BigInt)
+    searchQuery.value = text.trim()
     searchMatchLength.value = pattern.length
     searchTruncated.value = result.value.truncated
     const first = matches.value[0]
-    if (first !== undefined) navigate({ start: first, end: first })
+    if (first !== undefined && selection.value === selectionBeforeSearch) navigate({ start: first, end: first })
+  }
+
+  function clearSearch(): void {
+    matches.value = []
+    searchQuery.value = ''
+    searchMatchLength.value = 1
+    searchTruncated.value = false
   }
 
   async function applyTemplate(): Promise<void> {
@@ -294,6 +310,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     if (previousRevision !== undefined && result.value.revision !== previousRevision) undoDepth.value += 1
     invalidateDerivedContent()
     updateFileState(result.value)
+    await refreshModifiedOverview()
     await refreshPage(viewportIntent)
   }
   function editSelectedByte(text: string): Promise<void> { return runMutation(() => editSelectedByteCore(text)) }
@@ -304,6 +321,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     if (!result.epochCurrent) return
     if (result.value.undone) { undoDepth.value = Math.max(0, undoDepth.value - 1); invalidateDerivedContent() }
     updateFileState(result.value)
+    if (result.value.undone) await refreshModifiedOverview()
     await refreshPage(viewportIntent)
   }
   function undo(): Promise<void> { return runMutation(undoCore) }
@@ -316,6 +334,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     undoDepth.value = 0
     invalidateDerivedContent()
     file.value = result.value.file
+    modifiedOverview.value = { binCount: 1024, bins: [] }
     page.value = null
   }
   function saveAs(path: string): Promise<void> { return runMutation(() => saveAsCore(path)) }
@@ -344,6 +363,17 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     error.value = friendlyError(cause)
   }
 
+  async function refreshModifiedOverview(): Promise<void> {
+    const epoch = sessionEpoch
+    const content = contentVersion
+    try {
+      const next = await api.getModifiedOverview()
+      if (epoch === sessionEpoch && content === contentVersion) modifiedOverview.value = next
+    } catch (cause) {
+      if (epoch === sessionEpoch && content === contentVersion) presentError(cause)
+    }
+  }
+
   function updateTemplate(value: TemplateDefinition): void {
     templateVersion += 1
     template.value = value
@@ -363,8 +393,8 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   }
 
   return {
-    file, page, selection, sourceIdentity, template, results, templateApplied, resultsNeedRefresh, matches, searchMatchLength, searchTruncated, activity, busy, progress, error, viewportOffset, editMode, canUndo,
-    requestPage, openFile, closeFile, goTo, search, applyTemplate, editSelectedByte, undo, saveAs, loadTemplate,
+    file, page, selection, sourceIdentity, modifiedOverview, template, results, templateApplied, resultsNeedRefresh, matches, searchQuery, searchMatchLength, searchTruncated, activity, busy, progress, error, viewportOffset, editMode, canUndo,
+    requestPage, openFile, closeFile, goTo, search, clearSearch, applyTemplate, editSelectedByte, undo, saveAs, loadTemplate,
     saveTemplate, saveTemplateAs, unloadTemplateFile, exportCsv, updateTemplate, unloadTemplate, navigate, clearSelection: () => { selection.value = null }, clearError: () => { error.value = null }, presentError,
     prepareClose, releaseCloseBarrier,
   }

@@ -16,7 +16,7 @@ import { tauriBus } from './templateWindow/tauriBus'
 import { templateWindowManager } from './templateWindow/windowManager'
 import type { EditorAction } from './templateWindow/protocol'
 
-type PromptKind = 'goto' | 'search' | 'edit'
+type PromptKind = 'goto' | 'edit'
 const session = useHexSession()
 const bytesPerRow = ref<BytesPerRow>(16)
 const RIGHT_PANEL_KEY = 'hexforge.rightCollapsed'
@@ -33,6 +33,10 @@ function storePanelPreference(key: string, value: boolean): void {
 const rightCollapsed = ref(readPanelPreference(RIGHT_PANEL_KEY, false))
 const theme = useTheme()
 const popup = ref<{ kind: PromptKind; title: string; value: string } | null>(null)
+const searchOpen = ref(false)
+const searchValue = ref('')
+const searchError = ref('')
+const searchFocusKey = ref(0)
 const templateRange = ref<ByteSelection | null>(null)
 const templateValid = ref(true)
 const closeGuard = { confirming: false }
@@ -211,6 +215,32 @@ function showPrompt(kind: PromptKind, title: string, value = ''): void { popup.v
 function closePopup(): void { popup.value = null; session.clearError() }
 function closeTopLayer(): void {
   if (popup.value !== null || session.error.value !== null) closePopup()
+  else if (searchOpen.value) searchOpen.value = false
+}
+
+function openSearch(): void {
+  if (!searchOpen.value) {
+    searchValue.value = session.searchQuery.value
+    searchError.value = ''
+  }
+  searchOpen.value = true
+  searchFocusKey.value += 1
+}
+
+async function submitSearch(): Promise<void> {
+  searchError.value = ''
+  try { await session.search(searchValue.value) }
+  catch (cause) {
+    searchError.value = cause instanceof Error ? cause.message :
+      typeof cause === 'object' && cause !== null && 'message' in cause ? String(cause.message) : 'Search could not be completed.'
+  }
+}
+
+function clearSearch(): void {
+  if (session.busy.search) return
+  session.clearSearch()
+  searchValue.value = ''
+  searchError.value = ''
 }
 
 async function submitPrompt(): Promise<void> {
@@ -218,7 +248,6 @@ async function submitPrompt(): Promise<void> {
   if (!active) return
   try {
     if (active.kind === 'goto') session.goTo(active.value)
-    else if (active.kind === 'search') await session.search(active.value)
     else await session.editSelectedByte(active.value)
     popup.value = null
   } catch { /* validation is rendered in the in-app dialog */ }
@@ -350,7 +379,7 @@ function executeCommand(command: MenuCommand): void {
     case 'toggle-edit': session.editMode.value = !session.editMode.value; break
     case 'undo': void reportFailure(session.undo); break
     case 'goto': showPrompt('goto', 'Go to offset'); break
-    case 'search': showPrompt('search', 'Search bytes'); break
+    case 'search': openSearch(); break
     case 'template-editor': void openTemplateEditor(); break
     case 'apply-template': void reportFailure(applyValidTemplate); break
     case 'load-template': void reportFailure(chooseTemplateLoad); break
@@ -368,7 +397,7 @@ onMounted(async () => {
   try { await bridge.start() } catch (error) { session.presentError(error) }
   disposers.push(useHotkeys({
     invoke: executeCommand, isEnabled: (command) => commandEnabled(command, menuState.value),
-    isPopupOpen: () => popup.value !== null || session.error.value !== null,
+    isPopupOpen: () => popup.value !== null || session.error.value !== null || searchOpen.value,
     closePopup: closeTopLayer, clearSelection: session.clearSelection,
   }))
   try {
@@ -400,14 +429,17 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => { disposed = true; bridge.dispose(); disposers.splice(0).forEach((dispose) => dispose()) })
+watch(() => session.sourceIdentity.value, () => { searchOpen.value = false; searchValue.value = ''; searchError.value = '' })
 </script>
 
 <template>
   <AppShell
     data-testid="hexforge-app" :file="session.file.value" :source-identity="session.sourceIdentity.value" :page="session.page.value" :selection="session.selection.value"
-    :template="session.template.value" :results="session.results.value" :matches="session.matches.value"
+    :template="session.template.value" :results="session.results.value" :matches="session.matches.value" :modified-overview="session.modifiedOverview.value"
     :template-source="templateSource" :template-display-name="templateDisplayName" :template-applied="session.templateApplied.value"
     :match-length="session.searchMatchLength.value" :search-truncated="session.searchTruncated.value" :template-range="templateRange"
+    :search-open="searchOpen" :search-value="searchValue" :search-query="session.searchQuery.value" :search-count="session.matches.value.length"
+    :search-busy="session.busy.search" :search-error="searchError" :search-focus-key="searchFocusKey"
     :busy-label="activeBusy" :progress-text="progressText"
     :template-valid="templateValid"
     :menu-state="menuState" :theme="theme.value.value" :right-collapsed="rightCollapsed"
@@ -417,13 +449,14 @@ onBeforeUnmount(() => { disposed = true; bridge.dispose(); disposers.splice(0).f
     @command="executeCommand" @update:bytes-per-row="bytesPerRow = $event" @navigate="navigateTemplate"
     @request-page="reportFailure(() => session.requestPage($event.offset, $event.length, $event.generation))" @select="selectBytes"
     @edit-request="beginEdit" @viewport-offset="session.viewportOffset.value = $event" @close-dialog="closePopup"
+    @update:search-value="searchValue = $event" @submit-search="submitSearch" @clear-search="clearSearch" @close-search="searchOpen = false"
   >
     <template #dialog>
       <form v-if="popup" class="prompt-form" @submit.prevent="submitPrompt">
-        <label for="prompt-value">{{ popup.kind === 'search' ? 'Hex byte sequence' : popup.kind === 'goto' ? 'Offset' : 'Hex byte value' }}</label>
-        <input id="prompt-value" v-model="popup.value" autofocus :placeholder="popup.kind === 'search' ? '41 42 43' : popup.kind === 'goto' ? '0x100' : 'FF'">
-        <small>{{ popup.kind === 'search' ? 'Enter space-separated hexadecimal bytes.' : popup.kind === 'goto' ? 'Enter a decimal value or a 0x-prefixed hexadecimal offset.' : 'Enter one hexadecimal byte from 00 to FF.' }}</small>
-        <div class="prompt-actions"><button type="button" class="secondary" @click="closePopup">Cancel</button><button type="submit">{{ popup.kind === 'search' ? 'Search' : popup.kind === 'goto' ? 'Go' : 'Apply' }}</button></div>
+        <label for="prompt-value">{{ popup.kind === 'goto' ? 'Offset' : 'Hex byte value' }}</label>
+        <input id="prompt-value" v-model="popup.value" autofocus :placeholder="popup.kind === 'goto' ? '0x100' : 'FF'">
+        <small>{{ popup.kind === 'goto' ? 'Enter a decimal value or a 0x-prefixed hexadecimal offset.' : 'Enter one hexadecimal byte from 00 to FF.' }}</small>
+        <div class="prompt-actions"><button type="button" class="secondary" @click="closePopup">Cancel</button><button type="submit">{{ popup.kind === 'goto' ? 'Go' : 'Apply' }}</button></div>
       </form>
     </template>
   </AppShell>

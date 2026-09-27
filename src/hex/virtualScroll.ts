@@ -9,6 +9,15 @@ function asTrackPixels(trackPx: number): bigint {
   return BigInt(Math.floor(trackPx))
 }
 
+/** Maps a 64-bit file position onto a viewport-sized overview without Number coercion. */
+export function offsetToOverviewPixel(offset: bigint, fileSize: bigint, heightPx: number): number {
+  const height = asTrackPixels(heightPx)
+  if (height <= 1n || fileSize <= 1n) return 0
+  const lastOffset = fileSize - 1n
+  const clamped = offset <= 0n ? 0n : offset >= lastOffset ? lastOffset : offset
+  return Number((clamped * (height - 1n)) / lastOffset)
+}
+
 export function rowToThumb(row: bigint, totalRows: bigint, trackPx: number): number {
   const track = asTrackPixels(trackPx)
   if (track === 0n || totalRows <= 1n) {

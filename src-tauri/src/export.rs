@@ -90,6 +90,7 @@ where
             output
                 .sync_all()
                 .map_err(|error| AppError::from_io(error, Some(&destination)))?;
+            session.ensure_source_unchanged()?;
             Ok(bytes_written)
         });
     let bytes_written = match result {
@@ -381,14 +382,15 @@ fn cleanup_owned_stage<S: OwnedStagedOutput>(stage: S, error: AppError) -> AppEr
 mod tests {
     use super::{
         copy_effective, export_csv_create_new, export_csv_create_new_with_stage,
-        normalized_destination, save_session_as, save_session_as_with_stage, OwnedStagedOutput,
+        normalized_destination, save_session_as, save_session_as_with_progress,
+        save_session_as_with_stage, OwnedStagedOutput,
     };
     use crate::edit_buffer::EditBuffer;
     use crate::error::ErrorCode;
     use crate::session::FileSession;
     use crate::template::{Endian, FieldType, ParsedField};
     use std::io::{self, Cursor, Write};
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     struct FailingWriter {
         remaining: usize,
@@ -435,6 +437,7 @@ mod tests {
     struct TestStage {
         file: tempfile::NamedTempFile,
         fault: StageFault,
+        source_to_change_on_sync: Option<PathBuf>,
     }
 
     impl TestStage {
@@ -442,6 +445,7 @@ mod tests {
             Self {
                 file: tempfile::NamedTempFile::new_in(parent).unwrap(),
                 fault,
+                source_to_change_on_sync: None,
             }
         }
     }
@@ -475,6 +479,15 @@ mod tests {
             if matches!(self.fault, StageFault::Sync | StageFault::Cleanup) {
                 return Err(io::Error::other("sync failed"));
             }
+            if let Some(source) = self.source_to_change_on_sync.take() {
+                std::fs::write(&source, [1, 2, 8, 4])?;
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&source)?
+                    .set_modified(
+                        std::time::SystemTime::now() + std::time::Duration::from_secs(60),
+                    )?;
+            }
             self.file.as_file_mut().sync_all()
         }
 
@@ -490,6 +503,7 @@ mod tests {
                     Self {
                         file: error.file,
                         fault,
+                        source_to_change_on_sync: self.source_to_change_on_sync,
                     },
                     error.error,
                 )),
@@ -620,6 +634,58 @@ mod tests {
         assert_eq!(std::fs::read(&source).unwrap(), [1, 2, 3]);
         assert!(session.is_dirty());
         assert_eq!(session.read_range(0, 3).unwrap().bytes, [1, 9, 3]);
+    }
+
+    #[test]
+    fn source_change_during_save_as_never_publishes_a_mixed_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.bin");
+        let output = dir.path().join("copy.bin");
+        std::fs::write(&source, [1, 2, 3, 4]).unwrap();
+        let mut session = FileSession::open(source.clone(), 2, 2).unwrap();
+        session.edit_byte(0, 9).unwrap();
+        let mut changed = false;
+
+        let error = save_session_as_with_progress(&mut session, &output, 2, &mut |processed| {
+            if processed == 2 && !changed {
+                std::fs::write(&source, [1, 2, 8, 4]).unwrap();
+                let file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&source)
+                    .unwrap();
+                file.set_modified(
+                    std::time::SystemTime::now() + std::time::Duration::from_secs(60),
+                )
+                .unwrap();
+                changed = true;
+            }
+        })
+        .unwrap_err();
+
+        assert_eq!(error.code(), "source_changed");
+        assert!(!output.exists());
+        assert!(session.is_dirty());
+    }
+
+    #[test]
+    fn source_change_during_stage_sync_aborts_before_publishing_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.bin");
+        let output = dir.path().join("copy.bin");
+        std::fs::write(&source, [1, 2, 3, 4]).unwrap();
+        let mut session = FileSession::open(source.clone(), 2, 2).unwrap();
+        session.edit_byte(0, 9).unwrap();
+
+        let error = save_session_as_with_stage(&mut session, &output, 2, |parent| {
+            let mut stage = TestStage::new(parent, StageFault::PersistReplacement);
+            stage.source_to_change_on_sync = Some(source.clone());
+            Ok(stage)
+        })
+        .unwrap_err();
+
+        assert_eq!(error.code(), "source_changed");
+        assert!(!output.exists());
+        assert!(session.is_dirty());
     }
 
     #[test]

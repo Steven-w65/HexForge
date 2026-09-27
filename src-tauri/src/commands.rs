@@ -1,7 +1,7 @@
 use crate::error::{AppError, ErrorCode};
 use crate::export;
 use crate::search::{self, SearchResult};
-use crate::session::{FileInfo, FileSession, PageData};
+use crate::session::{FileInfo, FileSession, PageData, OVERVIEW_BIN_COUNT};
 use crate::template::{self, ParsedField, TemplateDefinition, TemplateFileSession};
 use serde::Serialize;
 use std::path::PathBuf;
@@ -92,6 +92,13 @@ impl From<SearchResult> for SearchResponse {
 pub struct DirtyState {
     pub dirty: bool,
     pub revision: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModifiedOverviewDto {
+    pub bin_count: u32,
+    pub bins: Vec<u32>,
 }
 
 impl From<&FileSession> for DirtyState {
@@ -358,6 +365,19 @@ pub async fn undo_edit(state: State<'_, AppState>) -> Result<UndoResponse, AppEr
 pub async fn get_dirty_state(state: State<'_, AppState>) -> Result<DirtyState, AppError> {
     session_operation(&state, |session| {
         Ok(DirtyState::from(&*active_session(session)?))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn get_modified_overview(
+    state: State<'_, AppState>,
+) -> Result<ModifiedOverviewDto, AppError> {
+    session_operation(&state, |session| {
+        Ok(ModifiedOverviewDto {
+            bin_count: OVERVIEW_BIN_COUNT,
+            bins: active_session(session)?.modified_overview_bins(),
+        })
     })
     .await
 }

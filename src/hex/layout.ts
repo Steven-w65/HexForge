@@ -125,6 +125,7 @@ export function visibleRange(
   scrollRow: bigint,
   viewportHeight: number,
   fileSize: bigint,
+  nearbyRows = 2,
 ): VisibleRange {
   if (fileSize < 0n) {
     throw new RangeError('File size cannot be negative')
@@ -139,12 +140,13 @@ export function visibleRange(
   if (totalRows === 0n) {
     return { firstRow: 0n, rowCount: 0, byteStart: 0n, byteLength: 0 }
   }
-  const prefetchRows = 2
   const maxReadRows = Math.floor(MAX_READ_BYTES / layout.bytesPerRow)
-  const maxVisibleRows = Math.max(1, maxReadRows - prefetchRows * 2)
+  const maxVisibleRows = Math.max(1, maxReadRows - 4)
   const visibleRows = viewportHeight >= maxVisibleRows * layout.rowHeight
     ? maxVisibleRows
     : Math.max(1, Math.ceil(viewportHeight / layout.rowHeight))
+  const requestedNearbyRows = Number.isFinite(nearbyRows) ? Math.max(2, Math.floor(nearbyRows)) : 2
+  const prefetchRows = Math.min(requestedNearbyRows, Math.floor((maxReadRows - visibleRows) / 2))
   const requestedCount = Math.min(maxReadRows, visibleRows + prefetchRows * 2)
   const requestedRow = scrollRow
   const clampedRow = requestedRow < 0n ? 0n : requestedRow >= totalRows ? totalRows - 1n : requestedRow

@@ -20,6 +20,12 @@ export interface PageResponse {
   revision: string
 }
 
+/** Fixed-size edit summary for the file overview; never contains source bytes. */
+export interface ModifiedOverview {
+  binCount: number
+  bins: number[]
+}
+
 /** UI-owned request identity paired with a backend page response. */
 export interface ViewportPage extends PageResponse {
   generation: number

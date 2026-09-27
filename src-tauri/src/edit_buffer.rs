@@ -69,6 +69,25 @@ impl EditBuffer {
             .collect()
     }
 
+    /// Summarizes sparse edits for a fixed-size file overview without returning every offset.
+    pub fn modified_overview_bins(&self, file_size: u64, bin_count: u32) -> Vec<u32> {
+        if file_size == 0 || bin_count == 0 {
+            return Vec::new();
+        }
+        let last_offset = u128::from(file_size - 1);
+        let last_bin = u128::from(bin_count - 1);
+        let mut bins = Vec::new();
+        for &offset in self.edits.keys() {
+            let bin = (u128::from(offset) * last_bin)
+                .checked_div(last_offset)
+                .unwrap_or(0) as u32;
+            if bins.last().copied() != Some(bin) {
+                bins.push(bin);
+            }
+        }
+        bins
+    }
+
     /// Clears all sparse edits and undo history, returning whether state changed.
     pub fn clear(&mut self) -> bool {
         let changed = !self.edits.is_empty() || !self.history.is_empty();
@@ -102,5 +121,17 @@ mod tests {
         edits.apply(2, 0x10, 0x30);
         assert_eq!(edits.undo(0x10), Some((2, 0x20)));
         assert_eq!(edits.effective_byte(2, 0x10), 0x20);
+    }
+
+    #[test]
+    fn modified_overview_bins_are_bounded_and_cover_large_file_offsets() {
+        let mut edits = EditBuffer::default();
+        let size = 1_u64 << 40;
+        edits.apply(0, 0, 1);
+        edits.apply(size / 2, 0, 1);
+        edits.apply(size / 2 + 1, 0, 1);
+        edits.apply(size - 1, 0, 1);
+
+        assert_eq!(edits.modified_overview_bins(size, 101), vec![0, 50, 100]);
     }
 }

@@ -38,6 +38,16 @@ describe('hex layout', () => {
     })
   })
 
+  it('reads a bounded nearby context for the minimap without losing visible rows', () => {
+    const layout = createLayout(900, 16)
+    expect(visibleRange(layout, 100n, 500, 1_000_000n, 80)).toEqual({
+      firstRow: 20n, rowCount: 183, byteStart: 320n, byteLength: 2928,
+    })
+    const huge = visibleRange(layout, 100_000n, Number.MAX_VALUE, 1n << 60n, 80)
+    expect(huge.firstRow).toBe(99_998n)
+    expect(huge.byteLength).toBeLessThanOrEqual(1024 * 1024)
+  })
+
   it('handles empty files and caps large reads at one MiB', () => {
     const layout = createLayout(900, 32)
     expect(visibleRange(layout, 0n, 100, 0n)).toEqual({ firstRow: 0n, rowCount: 0, byteStart: 0n, byteLength: 0 })

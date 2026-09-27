@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { rowToThumb, thumbToRow } from './virtualScroll'
+import { offsetToOverviewPixel, rowToThumb, thumbToRow } from './virtualScroll'
 
 describe('64-bit virtual scrolling', () => {
+  it('projects file-wide offsets onto a bounded minimap without losing bigint precision', () => {
+    const size = 1n << 60n
+    expect(offsetToOverviewPixel(0n, size, 500)).toBe(0)
+    expect(offsetToOverviewPixel(size / 2n, size, 500)).toBe(249)
+    expect(offsetToOverviewPixel(size - 1n, size, 500)).toBe(499)
+    expect(offsetToOverviewPixel(size + 1n, size, 500)).toBe(499)
+  })
+
   it('maps the final bigint row exactly to the final track position', () => {
     expect(rowToThumb(9_000_000_000n, 9_000_000_001n, 1000)).toBe(1000)
     expect(thumbToRow(1000, 9_000_000_001n, 1000)).toBe(9_000_000_000n)

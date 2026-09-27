@@ -23,6 +23,14 @@ describe('backend IPC contract', () => {
     expect(() => JSON.stringify(invoke.mock.calls)).not.toThrow()
   })
 
+  it('returns the bounded modified-byte overview from the backend', async () => {
+    const overview = { binCount: 1024, bins: [0, 512, 1023] }
+    invoke.mockResolvedValue(overview)
+
+    expect(await backend.getModifiedOverview()).toEqual(overview)
+    expect(invoke).toHaveBeenCalledWith('get_modified_overview', {})
+  })
+
   it('routes file lifecycle, edits and template IO with camelCase arguments', async () => {
     invoke.mockResolvedValue(undefined)
     await backend.openFile('input.bin')
