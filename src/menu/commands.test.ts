@@ -59,6 +59,14 @@ describe('menu commands', () => {
     expect(matchMenuShortcut(shortcut('b', { ctrlKey: true, altKey: true }))).toBeNull()
   })
 
+  it('keeps minimap View options available without adding shortcuts', () => {
+    for (const command of ['minimap-toggle', 'minimap-fit', 'minimap-proportional', 'minimap-characters', 'minimap-blocks',
+      'minimap-scale-1', 'minimap-scale-2', 'minimap-scale-3'] as const) {
+      expect(commandEnabled(command, { ...readyState(), hasFile: false, operationBusy: true }), command).toBe(true)
+    }
+    expect(matchMenuShortcut(shortcut('m', { ctrlKey: true, altKey: true }))).toBeNull()
+  })
+
   it('keeps text-editing undo and F2 inside editable controls', () => {
     const input = document.createElement('input')
     expect(matchMenuShortcut(shortcut('z', { ctrlKey: true }), input)).toBeNull()

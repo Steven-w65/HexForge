@@ -92,6 +92,33 @@ describe('TopMenu', () => {
     expect(wrapper.get('[data-menu-command="row-32"]').attributes('aria-checked')).toBe('false')
   })
 
+  it('offers minimap settings without column-width choices in the View submenu', async () => {
+    const wrapper = mountMenu()
+    await wrapper.get('[data-menu="view"]').trigger('click')
+    await wrapper.get('[data-submenu="minimap"]').trigger('click')
+    expect(wrapper.findAll('[data-minimap-command]').map((item) => item.attributes('data-minimap-command'))).toEqual([
+      'minimap-toggle', 'minimap-fit', 'minimap-proportional', 'minimap-characters', 'minimap-blocks',
+      'minimap-scale-1', 'minimap-scale-2', 'minimap-scale-3',
+    ])
+    expect(wrapper.get('[data-minimap-command="minimap-fit"]').attributes('aria-checked')).toBe('true')
+    expect(wrapper.get('[data-minimap-command="minimap-toggle"]').find('kbd').exists()).toBe(false)
+    await wrapper.get('[data-minimap-command="minimap-proportional"]').trigger('click')
+    expect(wrapper.emitted('command')).toEqual([['minimap-proportional']])
+  })
+
+  it('opens the minimap flyout from the keyboard and restores focus on ArrowLeft', async () => {
+    const wrapper = mountMenu()
+    await wrapper.get('[data-menu="view"]').trigger('click')
+    const trigger = wrapper.get('[data-submenu="minimap"]')
+    ;(trigger.element as HTMLElement).focus()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
+    await wrapper.vm.$nextTick()
+    expect((document.activeElement as HTMLElement).dataset.minimapCommand).toBe('minimap-toggle')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }))
+    await wrapper.vm.$nextTick()
+    expect(document.activeElement).toBe(trigger.element)
+  })
+
   it('positions a pointer-opened dropdown below its menu heading', async () => {
     const wrapper = mountMenu()
     const viewButton = wrapper.get('[data-menu="view"]')

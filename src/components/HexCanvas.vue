@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import type { ColorTheme, ModifiedOverview, PageRequest, ParsedField, ViewportPage } from '../types'
+import { backend } from '../api/backend'
 import { contentWidth, createLayout, hitTestByte, visibleRange, type BytesPerRow, type HexLayout } from '../hex/layout'
 import { normalizeSelection, type ByteSelection } from '../hex/selection'
-import { offsetToOverviewPixel, rowToThumb, thumbToRow } from '../hex/virtualScroll'
+import { rowToThumb, thumbToRow } from '../hex/virtualScroll'
 import { createCanvasLayers, HexRenderer } from '../hex/renderer'
-import { minimapPreview, minimapRowAt, minimapViewport, paintMinimap } from '../hex/minimap'
+import { MINIMAP_SUBPIXELS, createMinimapGeometry, samplePlan, viewportBox, DEFAULT_MINIMAP_SETTINGS, type MinimapSettings } from '../hex/minimapGeometry'
+import { createMinimapDataManager, type MinimapDataManager, type MinimapRow } from '../hex/minimapData'
+import { collectMinimapMarkers, projectMinimapMarkers, projectOverviewMarkers } from '../hex/minimapMarkers'
+import { createMinimapCanvasLayers, MinimapRenderer } from '../hex/minimapRenderer'
+import { createMinimapInteractionController, type MinimapInteractionController } from '../hex/minimapInteraction'
 
 const props = defineProps<{
   fileSize: bigint
@@ -23,6 +28,8 @@ const props = defineProps<{
   editMode: boolean
   theme: ColorTheme
   navigateOffset?: bigint
+  minimapSettings?: MinimapSettings
+  editDelta?: { offset: bigint; revision: string } | null
 }>()
 
 const emit = defineEmits<{
@@ -30,20 +37,30 @@ const emit = defineEmits<{
   select: [selection: ByteSelection]
   'edit-request': [offset: bigint]
   'viewport-offset': [offset: bigint]
+  'minimap-error': [error: unknown]
 }>()
 
 const root = ref<HTMLElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
+const gutterCanvas = ref<HTMLCanvasElement | null>(null)
 const minimapCanvas = ref<HTMLCanvasElement | null>(null)
-const previewPage = shallowRef<ViewportPage | null>(null)
+const minimapContent = ref<HTMLElement | null>(null)
 const renderedRevision = ref<string>()
 const size = reactive({ width: 1, height: 1 })
 const canvasWidth = ref(1)
 let layout: HexLayout = createLayout(size.width, props.bytesPerRow)
+const gutterWidth = ref(layout.hexX - layout.charWidth + 1)
 let renderer: HexRenderer | null = null
-let minimapContext: CanvasRenderingContext2D | null = null
+let gutterContext: CanvasRenderingContext2D | null = null
+let miniRenderer: MinimapRenderer | null = null
+let miniData: MinimapDataManager | null = null
+let miniInteraction: MinimapInteractionController | null = null
 let resizeObserver: ResizeObserver | null = null
 let frame = 0
+let minimapInputFrame = 0
+let minimapInputGeneration = 0
+let pendingMinimapMainRow: bigint | null = null
+let applyingMinimapFrame = false
 let measured = false
 const scrollRow = ref(0n)
 let generation = 0
@@ -60,11 +77,13 @@ let minimapDirty = true
 let scrollbarPointerId: number | null = null
 let scrollbarGrabOffset = 0
 let minimapPointerId: number | null = null
+const visualMinimapTopPx = ref<number | null>(null)
+const minimapHovered = ref(false)
+const minimapDragging = ref(false)
 
 const THUMB_HEIGHT = 24
 const MINIMAP_PREVIEW_WIDTH = 84
-const SCROLL_STRIP_WIDTH = 12
-const MINIMAP_WIDTH = MINIMAP_PREVIEW_WIDTH + SCROLL_STRIP_WIDTH
+const settings = computed(() => props.minimapSettings ?? DEFAULT_MINIMAP_SETTINGS)
 
 const totalRows = computed(() => props.fileSize === 0n ? 0n : (props.fileSize + BigInt(props.bytesPerRow) - 1n) / BigInt(props.bytesPerRow))
 const visibleRows = computed(() => Math.max(1, Math.ceil(Math.max(0, size.height - layout.headerHeight) / layout.rowHeight)))
@@ -77,42 +96,18 @@ const thumbHeight = computed(() => {
   return Math.min(height, Math.max(THUMB_HEIGHT, proportional))
 })
 const thumbTop = computed(() => `${rowToThumb(scrollRow.value, maxScrollRow.value + 1n, Math.max(0, size.height - thumbHeight.value))}px`)
-const horizontalOverflow = computed(() => canvasWidth.value + MINIMAP_WIDTH > size.width)
-const preview = computed(() => minimapPreview(previewPage.value, props.bytesPerRow, size.height))
-const previewViewport = computed(() => minimapViewport(preview.value, scrollRow.value, fullyVisibleRows.value))
-const searchMarks = computed(() => {
-  const pixels = new Set<number>()
-  for (const offset of props.matches) {
-    if (offset >= 0n && offset < props.fileSize) pixels.add(offsetToOverviewPixel(offset, props.fileSize, size.height))
-  }
-  return [...pixels].sort((a, b) => a - b)
-})
-const modifiedMarks = computed(() => {
-  const { binCount, bins } = props.modifiedOverview ?? { binCount: 0, bins: [] }
-  if (binCount < 2) return []
-  const lastPixel = Math.max(0, Math.floor(size.height) - 1)
-  const pixels = new Set<number>()
-  for (const bin of bins) {
-    if (Number.isInteger(bin) && bin >= 0 && bin < binCount) {
-      pixels.add(Math.floor(bin * lastPixel / (binCount - 1)))
-    }
-  }
-  return [...pixels].sort((a, b) => a - b)
-})
-const templateMarks = computed(() => {
-  const ranges = new Map<number, number>()
-  for (const field of props.templateFields ?? []) {
-    try {
-      const start = BigInt(field.offset)
-      if (start < 0n || start >= props.fileSize || field.length <= 0) continue
-      const end = start + BigInt(field.length) - 1n
-      const top = offsetToOverviewPixel(start, props.fileSize, size.height)
-      const bottom = offsetToOverviewPixel(end, props.fileSize, size.height)
-      ranges.set(top, Math.max(ranges.get(top) ?? 0, Math.max(2, bottom - top + 1)))
-    } catch { /* Ignore incomplete template draft ranges. */ }
-  }
-  return [...ranges].map(([top, height]) => ({ top, height }))
-})
+const horizontalOverflow = computed(() => canvasWidth.value > size.width)
+const miniGeometry = computed(() => createMinimapGeometry({
+  mode: settings.value.mode, totalRows: totalRows.value, heightPx: Math.max(1, Math.floor(size.height)),
+  rowPx: settings.value.scale * 2, topRow: scrollRow.value,
+  visibleMainRows: BigInt(fullyVisibleRows.value), visualTopPx: visualMinimapTopPx.value,
+}))
+const markers = computed(() => collectMinimapMarkers(props.matches, props.matchLength ?? 1, props.templateFields ?? [],
+  props.modifiedOverview ?? { binCount: 0, bins: [] }, props.fileSize, props.bytesPerRow))
+const overviewMarks = computed(() => projectOverviewMarkers(markers.value, totalRows.value, Math.floor(size.height)))
+const searchMarks = computed(() => overviewMarks.value.filter((mark) => mark.kind === 'search'))
+const templateMarks = computed(() => overviewMarks.value.filter((mark) => mark.kind === 'template'))
+const modifiedMarks = computed(() => overviewMarks.value.filter((mark) => mark.kind === 'modified'))
 
 const THEMES = {
   dark: { background: '#111418', text: '#c9d1d9', address: '#8b949e', divider: '#30363d' },
@@ -121,13 +116,50 @@ const THEMES = {
 
 function invalidateAcceptedPage(): void {
   acceptedPage = null
-  previewPage.value = null
   acceptedSourceIdentity = null
   acceptedSourceKey = null
   renderedRevision.value = undefined
   contentDirty = true
   overlayDirty = true
   minimapDirty = true
+  syncMinimapData()
+}
+
+function syncMinimapData(): void {
+  miniData?.update({
+    enabled: settings.value.enabled,
+    sourceIdentity: props.sourceIdentity, sourceKey: props.sourceKey, revision: props.sourceRevision,
+    fileSize: props.fileSize, bytesPerRow: props.bytesPerRow, geometry: miniGeometry.value,
+    acceptedPage: acceptedSourceIdentity === props.sourceIdentity && acceptedSourceKey === props.sourceKey &&
+      acceptedPage?.revision === props.sourceRevision ? acceptedPage : null,
+  })
+}
+
+function paintCurrentMinimap(): void {
+  if (!settings.value.enabled || !miniRenderer) return
+  const geometry = miniGeometry.value
+  const rows = new Map<bigint, MinimapRow>()
+  for (const position of samplePlan(geometry)) {
+    const sample = miniData?.getRow(position.row)
+    if (sample) rows.set(position.row, sample)
+  }
+  miniRenderer.resize(MINIMAP_PREVIEW_WIDTH, Math.max(1, geometry.canvasHeightPx), globalThis.devicePixelRatio || 1)
+  if (minimapCanvas.value) minimapCanvas.value.style.height = `${geometry.canvasHeightPx}px`
+  miniRenderer.setContent(geometry, rows, {
+    bytesPerRow: props.bytesPerRow, renderCharacters: settings.value.renderCharacters,
+    scale: settings.value.scale,
+    theme: props.theme,
+  })
+  miniRenderer.setMarkers(projectMinimapMarkers(markers.value, geometry))
+  miniRenderer.setViewport(viewportBox(geometry, scrollRow.value, scrollRow.value + BigInt(fullyVisibleRows.value)),
+    geometry.mode === 'proportional' ? minimapDragging.value ? 'active' : minimapHovered.value ? 'hover' : 'normal' : 'normal')
+  miniRenderer.paint()
+}
+
+function ensureMiniRenderer(): void {
+  if (!settings.value.enabled || !minimapCanvas.value || miniRenderer) return
+  try { miniRenderer = new MinimapRenderer(createMinimapCanvasLayers(minimapCanvas.value)) }
+  catch (error) { emit('minimap-error', error) }
 }
 
 function visibleByteInterval(): { start: bigint; end: bigint } {
@@ -194,8 +226,12 @@ function schedule(): void {
       overlayDirty = false
     }
     renderer.composite()
-    if (minimapDirty && minimapContext) {
-      paintMinimap(minimapContext, previewPage.value, preview.value, props.bytesPerRow, MINIMAP_PREVIEW_WIDTH, size.height, props.theme)
+    if (gutterContext && gutterCanvas.value && canvas.value) {
+      gutterContext.clearRect(0, 0, gutterWidth.value, size.height)
+      gutterContext.drawImage(canvas.value, 0, 0, gutterCanvas.value.width, gutterCanvas.value.height, 0, 0, gutterWidth.value, size.height)
+    }
+    if (minimapDirty) {
+      paintCurrentMinimap()
       minimapDirty = false
     }
   })
@@ -203,8 +239,9 @@ function schedule(): void {
 }
 
 function rebuildLayout(width: number): void {
-  const base = createLayout(Math.max(0, width - MINIMAP_WIDTH), props.bytesPerRow)
+  const base = createLayout(Math.max(0, width), props.bytesPerRow)
   layout = createLayout(Math.max(base.width, contentWidth(base)), props.bytesPerRow)
+  gutterWidth.value = layout.hexX - layout.charWidth + 1
   canvasWidth.value = layout.width
   renderer?.resize(layout.width, size.height, globalThis.devicePixelRatio || 1)
 }
@@ -220,7 +257,6 @@ function acceptPage(page: ViewportPage | null): void {
   if (BigInt(page.offset) !== activeRequest.offset || page.bytes.length > activeRequest.length) return
   if (page.revision !== props.sourceRevision) return
   acceptedPage = page
-  previewPage.value = page
   acceptedSourceIdentity = props.sourceIdentity
   acceptedSourceKey = props.sourceKey
   activeRequest = null
@@ -228,6 +264,7 @@ function acceptPage(page: ViewportPage | null): void {
   contentDirty = true
   overlayDirty = true
   minimapDirty = true
+  syncMinimapData()
   schedule()
 }
 
@@ -237,12 +274,13 @@ function resize(width: number, height: number): void {
   size.height = height
   measured = true
   rebuildLayout(width)
-  if (minimapCanvas.value && minimapContext) {
+  if (gutterCanvas.value && gutterContext) {
     const dpr = globalThis.devicePixelRatio || 1
-    minimapCanvas.value.width = Math.ceil(MINIMAP_PREVIEW_WIDTH * dpr)
-    minimapCanvas.value.height = Math.ceil(height * dpr)
-    minimapContext.setTransform(dpr, 0, 0, dpr, 0, 0)
+    gutterCanvas.value.width = Math.max(1, Math.round(gutterWidth.value * dpr))
+    gutterCanvas.value.height = Math.max(1, Math.round(height * dpr))
+    gutterContext.setTransform(dpr, 0, 0, dpr, 0, 0)
   }
+  syncMinimapData()
   minimapDirty = true
   staticDirty = contentDirty = overlayDirty = true
   requestPage()
@@ -285,11 +323,39 @@ function onDoubleClick(event: MouseEvent): void {
 }
 
 function setScrollRow(row: bigint): void {
+  if (!applyingMinimapFrame && minimapInputFrame) cancelPendingMinimapInput()
   scrollRow.value = row < 0n ? 0n : row > maxScrollRow.value ? maxScrollRow.value : row
   contentDirty = overlayDirty = true
   emit('viewport-offset', scrollRow.value * BigInt(props.bytesPerRow))
+  syncMinimapData()
+  minimapDirty = true
   requestPage()
   schedule()
+}
+
+function cancelPendingMinimapInput(): void {
+  minimapInputGeneration += 1
+  if (minimapInputFrame) cancelAnimationFrame(minimapInputFrame)
+  minimapInputFrame = 0
+  pendingMinimapMainRow = null
+}
+
+function scheduleMinimapInput(): void {
+  if (minimapInputFrame) return
+  const generation = minimapInputGeneration
+  let completedSynchronously = false
+  const requestedFrame = requestAnimationFrame(() => {
+    completedSynchronously = true
+    if (generation !== minimapInputGeneration) return
+    minimapInputFrame = 0
+    const row = pendingMinimapMainRow
+    pendingMinimapMainRow = null
+    if (row !== null) {
+      applyingMinimapFrame = true
+      try { setScrollRow(row) } finally { applyingMinimapFrame = false }
+    }
+  })
+  minimapInputFrame = completedSynchronously ? 0 : requestedFrame
 }
 
 function onWheel(event: WheelEvent): void {
@@ -332,29 +398,93 @@ function onScrollbarPointerUp(event: PointerEvent): void {
 }
 
 function updateMinimapPointer(event: PointerEvent): void {
-  const current = preview.value
-  const element = minimapCanvas.value
-  if (!current || !element) return
+  const element = minimapContent.value
+  if (!element || !miniInteraction) return
   const rect = element.getBoundingClientRect()
-  const targetRow = minimapRowAt(current, event.clientY - rect.top)
-  setScrollRow(targetRow - BigInt(Math.floor(fullyVisibleRows.value / 2)))
+  miniInteraction.dragViewport(event.clientY - rect.top)
 }
 
 function onMinimapPointerDown(event: PointerEvent): void {
-  if (!preview.value || !minimapCanvas.value) return
-  minimapPointerId = event.pointerId
-  minimapCanvas.value.setPointerCapture?.(event.pointerId)
-  updateMinimapPointer(event)
+  if (!minimapCanvas.value || !minimapContent.value || !miniInteraction) return
+  const rect = minimapContent.value.getBoundingClientRect()
+  const y = event.clientY - rect.top
+  const geometry = miniGeometry.value
+  if (geometry.totalRows === 0n) return
+  const box = viewportBox(geometry, scrollRow.value, scrollRow.value + BigInt(fullyVisibleRows.value))
+  const boxTop = geometry.mode === 'proportional'
+    ? Number(geometry.viewportTopSubPx) / Number(MINIMAP_SUBPIXELS) : box?.top ?? 0
+  const inBox = !!box && y >= boxTop && y < boxTop + box.height
+  if (inBox || geometry.mode === 'fit') {
+    minimapPointerId = event.pointerId
+    minimapCanvas.value.setPointerCapture?.(event.pointerId)
+  }
+  if (inBox) {
+    minimapDragging.value = geometry.mode === 'proportional'
+    minimapHovered.value = true
+    miniInteraction.beginViewportDrag(y, scrollRow.value)
+    minimapDirty = true
+    schedule()
+  } else {
+    miniInteraction.click(y)
+    // Fit mode retains its existing click-then-drag behavior. A
+    // proportional preview click is navigation only, never a box drag.
+    if (geometry.mode === 'fit') miniInteraction.beginViewportDrag(y, pendingMinimapMainRow ?? scrollRow.value)
+  }
 }
 
 function onMinimapPointerMove(event: PointerEvent): void {
-  if (minimapPointerId === event.pointerId && event.buttons === 1) updateMinimapPointer(event)
+  if (minimapPointerId !== event.pointerId) {
+    if (settings.value.mode === 'proportional' && minimapPointerId === null && minimapContent.value) {
+      const y = event.clientY - minimapContent.value.getBoundingClientRect().top
+      const g = miniGeometry.value
+      const top = Number(g.viewportTopSubPx) / Number(MINIMAP_SUBPIXELS)
+      const hovered = y >= top && y < top + g.viewportHeightPx
+      if (minimapHovered.value !== hovered) { minimapHovered.value = hovered; minimapDirty = true; schedule() }
+    }
+    return
+  }
+  if (event.buttons !== 1) return
+  const rect = minimapContent.value?.getBoundingClientRect()
+  // Fit retains its old exit behavior. Proportional capture continues and
+  // clamps vertical movement outside the column to an endpoint.
+  if (settings.value.mode === 'fit' && rect && rect.width > 0 && rect.height > 0 &&
+      (event.clientX < rect.left || event.clientX >= rect.right || event.clientY < rect.top || event.clientY >= rect.bottom)) {
+    onMinimapPointerUp(event)
+    return
+  }
+  updateMinimapPointer(event)
 }
 
 function onMinimapPointerUp(event: PointerEvent): void {
   if (minimapPointerId !== event.pointerId) return
-  minimapCanvas.value?.releasePointerCapture?.(event.pointerId)
   minimapPointerId = null
+  minimapDragging.value = false
+  miniInteraction?.endDrag()
+  if (settings.value.mode === 'proportional' && minimapContent.value) {
+    const rect = minimapContent.value.getBoundingClientRect()
+    const y = event.clientY - rect.top
+    const g = miniGeometry.value
+    const top = Number(g.viewportTopSubPx) / Number(MINIMAP_SUBPIXELS)
+    minimapHovered.value = event.clientX >= rect.left && event.clientX < rect.right &&
+      y >= top && y < top + g.viewportHeightPx
+  }
+  minimapDirty = true
+  schedule()
+  if (minimapCanvas.value?.hasPointerCapture?.(event.pointerId)) {
+    minimapCanvas.value.releasePointerCapture(event.pointerId)
+  }
+}
+
+function onMinimapPointerLeave(event: PointerEvent): void {
+  minimapHovered.value = false
+  minimapDirty = true
+  schedule()
+  if (settings.value.mode === 'fit') onMinimapPointerUp(event)
+}
+
+function onMinimapWheel(event: WheelEvent): void {
+  event.preventDefault()
+  miniInteraction?.wheel(event.deltaY)
 }
 
 watch(() => props.page, acceptPage)
@@ -365,6 +495,7 @@ watch(() => props.bytesPerRow, (nextWidth, previousWidth) => {
   scrollRow.value = nextRow > maxScrollRow.value ? maxScrollRow.value : nextRow
   staticDirty = contentDirty = overlayDirty = true
   minimapDirty = true
+  syncMinimapData()
   emit('viewport-offset', scrollRow.value * BigInt(nextWidth))
   requestPage()
   schedule()
@@ -372,15 +503,23 @@ watch(() => props.bytesPerRow, (nextWidth, previousWidth) => {
 watch(() => props.fileSize, () => {
   if (scrollRow.value > maxScrollRow.value) scrollRow.value = maxScrollRow.value
   staticDirty = contentDirty = overlayDirty = true
+  minimapDirty = true
+  syncMinimapData()
   requestPage()
   schedule()
 })
 watch([() => props.sourceIdentity, () => props.sourceKey, () => props.sourceRevision], ([nextIdentity, nextKey], [previousIdentity, previousKey]) => {
   invalidateAcceptedPage()
   if (nextIdentity !== previousIdentity || nextKey !== previousKey) {
+    cancelPendingMinimapInput()
+    miniInteraction?.endDrag()
+    minimapPointerId = null
+    if (root.value) root.value.scrollLeft = 0
+    visualMinimapTopPx.value = null
     const requestedRow = (props.navigateOffset ?? 0n) / BigInt(props.bytesPerRow)
     scrollRow.value = requestedRow < 0n ? 0n : requestedRow > maxScrollRow.value ? maxScrollRow.value : requestedRow
   }
+  syncMinimapData()
   requestPage()
   schedule()
 })
@@ -395,6 +534,18 @@ watch(() => props.theme, (theme) => {
   minimapDirty = true
   schedule()
 })
+watch([() => props.minimapSettings, () => props.modifiedOverview, () => props.templateFields, () => props.matches], () => {
+  void nextTick(() => {
+    if (!settings.value.enabled && miniRenderer) { miniRenderer.dispose(); miniRenderer = null }
+    ensureMiniRenderer()
+    syncMinimapData()
+    minimapDirty = true
+    schedule()
+  })
+}, { deep: true })
+watch(() => props.editDelta, (delta) => {
+  if (delta) miniData?.applyEditDelta(delta)
+})
 watch(() => props.navigateOffset, (offset) => {
   if (offset === undefined || offset < 0n || offset >= props.fileSize) return
   const row = offset / BigInt(props.bytesPerRow)
@@ -405,9 +556,30 @@ onMounted(async () => {
   await nextTick()
   if (!canvas.value || !root.value) return
   const layers = createCanvasLayers(canvas.value)
-  minimapContext = minimapCanvas.value?.getContext('2d') ?? null
+  gutterContext = gutterCanvas.value?.getContext('2d') ?? null
+  ensureMiniRenderer()
+  miniData = createMinimapDataManager(backend,
+    (rows) => { miniRenderer?.invalidateRows(rows); minimapDirty = true; schedule() },
+    (error) => emit('minimap-error', error))
+  miniInteraction = createMinimapInteractionController({
+    geometry: () => miniGeometry.value, visibleMainRows: () => BigInt(fullyVisibleRows.value),
+    getMainRow: () => pendingMinimapMainRow ?? scrollRow.value,
+    setMainRow: (row) => { pendingMinimapMainRow = row; scheduleMinimapInput() },
+    setVisualTop: (top) => {
+      if (top === null && pendingMinimapMainRow !== null) {
+        const row = pendingMinimapMainRow
+        cancelPendingMinimapInput()
+        setScrollRow(row)
+      }
+      visualMinimapTopPx.value = top
+      syncMinimapData()
+      minimapDirty = true
+      schedule()
+    },
+  })
   renderer = new HexRenderer(layers, { width: size.width, height: size.height, dpr: globalThis.devicePixelRatio || 1, layout, fileSize: props.fileSize })
   renderer.setTheme(THEMES[props.theme])
+  syncMinimapData()
   resizeObserver = new ResizeObserver((entries) => {
     const box = entries[0]?.contentRect
     if (box) resize(box.width, box.height)
@@ -418,50 +590,62 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
+  miniData?.dispose()
+  miniRenderer?.dispose()
   if (frame) cancelAnimationFrame(frame)
+  cancelPendingMinimapInput()
+  miniInteraction?.endDrag()
 })
 </script>
 
 <template>
-  <div ref="root" class="hex-canvas" data-testid="hex-canvas" :data-theme="theme" :style="{ '--canvas-width': `${canvasWidth}px`, width: '100%', height: '100%', overflowX: horizontalOverflow ? 'auto' : 'hidden' }">
-    <canvas
-      ref="canvas"
-      :data-page-revision="renderedRevision"
-      @pointerdown="onPointerDown"
-      @pointermove="onPointerMove"
-      @pointerup="onPointerUp"
-      @pointercancel="onPointerUp"
-      @dblclick="onDoubleClick"
-      @wheel="onWheel"
-    />
-    <div class="minimap-content" aria-label="Nearby hex preview">
-      <canvas ref="minimapCanvas" data-testid="minimap-preview" @pointerdown="onMinimapPointerDown" @pointermove="onMinimapPointerMove"
-        @pointerup="onMinimapPointerUp" @pointercancel="onMinimapPointerUp" />
-      <div v-if="previewViewport" class="minimap-viewport" :style="{ top: `${previewViewport.top}px`, height: `${previewViewport.height}px` }" />
+  <div class="hex-frame">
+    <div ref="root" class="hex-canvas" data-testid="hex-canvas" :data-theme="theme" :style="{ '--canvas-width': `${canvasWidth}px`, width: '100%', height: '100%', overflowX: horizontalOverflow ? 'auto' : 'hidden' }">
+      <canvas
+        ref="canvas"
+        :data-page-revision="renderedRevision"
+        @pointerdown="onPointerDown"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+        @pointercancel="onPointerUp"
+        @dblclick="onDoubleClick"
+        @wheel="onWheel"
+      />
+    </div>
+    <div v-if="settings.enabled" ref="minimapContent" class="minimap-content" aria-label="File minimap" :class="{ 'is-box-hover': minimapHovered, 'is-box-dragging': minimapDragging }" :style="{ height: '100%' }" @wheel="onMinimapWheel" @pointerleave="onMinimapPointerLeave">
+      <canvas ref="minimapCanvas" data-testid="minimap-preview" :style="{ height: `${miniGeometry.canvasHeightPx}px` }"
+        @pointerdown="onMinimapPointerDown" @pointermove="onMinimapPointerMove" @pointerup="onMinimapPointerUp" @pointercancel="onMinimapPointerUp"
+        @lostpointercapture="onMinimapPointerUp"
+      />
     </div>
     <div class="virtual-scrollbar" aria-label="Full-file scrollbar" @pointerdown="onScrollbarPointerDown" @pointermove="onScrollbarPointerMove" @pointerup="onScrollbarPointerUp" @pointercancel="onScrollbarPointerUp">
-      <div class="minimap__markers">
-        <span v-for="pixel in searchMarks" :key="pixel" class="minimap__match" :style="{ top: `${pixel}px` }" />
-        <span v-for="mark in templateMarks" :key="mark.top" class="minimap__template" :style="{ top: `${mark.top}px`, height: `${mark.height}px` }" />
-        <span v-for="pixel in modifiedMarks" :key="pixel" class="minimap__modified" :style="{ top: `${pixel}px` }" />
-      </div>
-      <div class="virtual-scrollbar__thumb" :style="{ transform: `translateY(${thumbTop})`, height: `${thumbHeight}px` }" />
+        <div class="minimap__markers">
+          <span v-for="mark in searchMarks" :key="mark.top" class="minimap__match" :style="{ top: `${mark.top}px`, height: `${mark.height}px` }" />
+          <span v-for="mark in templateMarks" :key="mark.top" class="minimap__template" :style="{ top: `${mark.top}px`, height: `${mark.height}px` }" />
+          <span v-for="mark in modifiedMarks" :key="mark.top" class="minimap__modified" :style="{ top: `${mark.top}px`, height: `${mark.height}px` }" />
+        </div>
+        <div class="virtual-scrollbar__thumb" :style="{ transform: `translateY(${thumbTop})`, height: `${thumbHeight}px` }" />
     </div>
+    <canvas ref="gutterCanvas" class="address-gutter" data-testid="address-gutter" aria-hidden="true"
+      :style="{ width: `${gutterWidth}px`, height: `${size.height}px` }" @wheel="onWheel" />
   </div>
 </template>
 
 <style scoped>
-.hex-canvas { display: grid; grid-template-columns: var(--canvas-width) 84px 12px; min-width: 0; min-height: 0; overflow-y: hidden; }
+.hex-frame { position: relative; display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; }
+.hex-canvas { flex: 1 1 auto; min-width: 0; min-height: 0; overflow-y: hidden; }
+.hex-canvas > canvas { width: var(--canvas-width); }
 canvas { display: block; width: 100%; height: 100%; cursor: default; }
-.minimap-content { position: sticky; right: 12px; overflow: hidden; background: var(--panel); border-left: 1px solid var(--border); }
-.minimap-content canvas { width: 84px; height: 100%; cursor: pointer; touch-action: none; }
-.minimap-viewport { position: absolute; left: 0; right: 0; box-sizing: border-box; pointer-events: none; background: rgb(150 170 190 / 20%); border: 1px solid rgb(150 170 190 / 27%); }
-.hex-canvas[data-theme='light'] .minimap-viewport { background: rgb(70 100 135 / 13%); border-color: rgb(70 100 135 / 22%); }
-.virtual-scrollbar { position: sticky; right: 0; background: color-mix(in srgb, currentColor 8%, transparent); border-left: 1px solid var(--border); touch-action: none; cursor: pointer; }
+.address-gutter { position: absolute; z-index: 1; top: 0; left: 0; cursor: default; }
+.minimap-content { position: relative; flex: 0 0 84px; overflow: hidden; background: var(--panel); border-left: 1px solid var(--border); }
+.minimap-content canvas { width: 84px; cursor: pointer; touch-action: none; }
+.minimap-content.is-box-hover canvas { cursor: grab; }
+.minimap-content.is-box-dragging canvas { cursor: grabbing; }
+.virtual-scrollbar { position: relative; flex: 0 0 12px; background: color-mix(in srgb, currentColor 8%, transparent); border-left: 1px solid var(--border); touch-action: none; cursor: pointer; }
 .minimap__markers { position: absolute; inset: 0; pointer-events: none; }
 .minimap__match, .minimap__template, .minimap__modified { position: absolute; left: 0; right: 0; min-height: 2px; border-radius: 1px; }
-.minimap__match { height: 2px; background: #bda64a; opacity: .85; }
-.minimap__template { background: #39c5cf; opacity: .7; }
-.minimap__modified { height: 2px; background: #f0883e; }
-.virtual-scrollbar__thumb { position: absolute; inset: 0 1px auto; height: 24px; border: 1px solid color-mix(in srgb, #1f6feb 75%, transparent); border-radius: 2px; background: color-mix(in srgb, #1f6feb 23%, transparent); pointer-events: none; }
+.minimap__match { height: 2px; background: #bda64a; opacity: .65; }
+.minimap__template { background: #39c5cf; opacity: .55; }
+.minimap__modified { height: 2px; background: #f0883e; opacity: .9; }
+.virtual-scrollbar__thumb { position: absolute; inset: 0 1px auto; height: 24px; border: 1px solid color-mix(in srgb, currentColor 38%, transparent); border-radius: 2px; background: color-mix(in srgb, currentColor 17%, transparent); pointer-events: none; }
 </style>

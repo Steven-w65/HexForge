@@ -5,6 +5,7 @@ pub mod commands;
 pub mod edit_buffer;
 pub mod error;
 pub mod export;
+pub mod minimap;
 pub mod page_cache;
 pub mod search;
 pub mod session;
@@ -18,6 +19,7 @@ pub fn run() {
             commands::close_file,
             commands::get_file_info,
             commands::read_page,
+            commands::read_minimap_samples,
             commands::edit_byte,
             commands::undo_edit,
             commands::get_dirty_state,

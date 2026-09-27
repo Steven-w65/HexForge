@@ -5,6 +5,8 @@ export type MenuCommand =
   | 'template-editor' | 'apply-template' | 'load-template' | 'unload-template' | 'save-template' | 'save-template-as'
   | 'theme-toggle'
   | 'row-16' | 'row-32' | 'toggle-right-panel'
+  | 'minimap-toggle' | 'minimap-fit' | 'minimap-proportional' | 'minimap-characters' | 'minimap-blocks'
+  | 'minimap-scale-1' | 'minimap-scale-2' | 'minimap-scale-3'
 
 export interface MenuState {
   hasFile: boolean
@@ -67,7 +69,7 @@ export function matchMenuShortcut(event: KeyboardEvent, target: EventTarget | nu
 }
 
 export function commandEnabled(command: MenuCommand, state: MenuState): boolean {
-  if (command === 'exit' || command === 'theme-toggle' || command.startsWith('row-') || command === 'toggle-right-panel') return true
+  if (command === 'exit' || command === 'theme-toggle' || command.startsWith('row-') || command.startsWith('minimap-') || command === 'toggle-right-panel') return true
   if (state.operationBusy) return false
   switch (command) {
     case 'open':

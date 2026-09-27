@@ -43,6 +43,7 @@ function friendlyError(value: unknown): AppError {
 export interface HexSession {
   file: Ref<FileInfo | null>; page: Ref<ViewportPage | null>; selection: Ref<ByteSelection | null>
   sourceIdentity: Ref<number>
+  lastEditDelta: Ref<{ offset: bigint; revision: string } | null>
   modifiedOverview: Ref<ModifiedOverview>
   template: Ref<TemplateDefinition>; results: Ref<ParsedField[]>; templateApplied: Ref<boolean>; resultsNeedRefresh: Ref<boolean>; matches: Ref<bigint[]>
   searchQuery: Ref<string>; searchMatchLength: Ref<number>; searchTruncated: Ref<boolean>
@@ -66,6 +67,7 @@ interface OperationTicket { name: BusyOperation; token: number; epoch: number; i
 export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   const file = ref<FileInfo | null>(null)
   const sourceIdentity = ref(0)
+  const lastEditDelta = ref<{ offset: bigint; revision: string } | null>(null)
   const modifiedOverview = ref<ModifiedOverview>({ binCount: 1024, bins: [] })
   const page = ref<ViewportPage | null>(null)
   const selection = ref<ByteSelection | null>(null)
@@ -188,6 +190,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
 
   function installOpenedFile(opened: FileInfo): void {
     file.value = opened
+    lastEditDelta.value = null
     modifiedOverview.value = { binCount: 1024, bins: [] }
     undoDepth.value = 0
     selection.value = null
@@ -238,6 +241,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     sessionEpoch += 1
     sourceIdentity.value += 1
     file.value = null
+    lastEditDelta.value = null
     modifiedOverview.value = { binCount: 1024, bins: [] }
     page.value = null
     selection.value = null
@@ -307,7 +311,10 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     const viewportIntent = viewportIntentVersion
     const result = await run('edit', () => api.editByte(selected.start, value))
     if (!result.epochCurrent) return
-    if (previousRevision !== undefined && result.value.revision !== previousRevision) undoDepth.value += 1
+    if (previousRevision !== undefined && result.value.revision !== previousRevision) {
+      undoDepth.value += 1
+      lastEditDelta.value = { offset: selected.start, revision: result.value.revision }
+    }
     invalidateDerivedContent()
     updateFileState(result.value)
     await refreshModifiedOverview()
@@ -319,7 +326,11 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     const viewportIntent = viewportIntentVersion
     const result = await run('undo', () => api.undoEdit())
     if (!result.epochCurrent) return
-    if (result.value.undone) { undoDepth.value = Math.max(0, undoDepth.value - 1); invalidateDerivedContent() }
+    if (result.value.undone) {
+      undoDepth.value = Math.max(0, undoDepth.value - 1)
+      invalidateDerivedContent()
+      if (result.value.offset !== undefined) lastEditDelta.value = { offset: BigInt(result.value.offset), revision: result.value.revision }
+    }
     updateFileState(result.value)
     if (result.value.undone) await refreshModifiedOverview()
     await refreshPage(viewportIntent)
@@ -331,6 +342,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     if (!result.epochCurrent) return
     sessionEpoch += 1
     sourceIdentity.value += 1
+    lastEditDelta.value = null
     undoDepth.value = 0
     invalidateDerivedContent()
     file.value = result.value.file
@@ -393,7 +405,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   }
 
   return {
-    file, page, selection, sourceIdentity, modifiedOverview, template, results, templateApplied, resultsNeedRefresh, matches, searchQuery, searchMatchLength, searchTruncated, activity, busy, progress, error, viewportOffset, editMode, canUndo,
+    file, page, selection, sourceIdentity, lastEditDelta, modifiedOverview, template, results, templateApplied, resultsNeedRefresh, matches, searchQuery, searchMatchLength, searchTruncated, activity, busy, progress, error, viewportOffset, editMode, canUndo,
     requestPage, openFile, closeFile, goTo, search, clearSearch, applyTemplate, editSelectedByte, undo, saveAs, loadTemplate,
     saveTemplate, saveTemplateAs, unloadTemplateFile, exportCsv, updateTemplate, unloadTemplate, navigate, clearSelection: () => { selection.value = null }, clearError: () => { error.value = null }, presentError,
     prepareClose, releaseCloseBarrier,

@@ -33,7 +33,7 @@ export function minimapViewport(preview: MinimapPreview | null, scrollRow: bigin
   return { top, height: Math.max(2, bottom - top) }
 }
 
-/** A compressed hex texture, rendered from in-memory page bytes without extra I/O. */
+/** Tiny text-like rows from the accepted page only; the gaps avoid solid byte stripes. */
 export function paintMinimap(
   context: CanvasRenderingContext2D,
   page: ViewportPage | null,
@@ -49,8 +49,8 @@ export function paintMinimap(
   if (!page || !preview) return
 
   const colors = theme === 'dark'
-    ? { zero: '#35414a', printable: '#9bb8d4', other: '#667e91' }
-    : { zero: '#d2dce4', printable: '#5b7894', other: '#99a9b8' }
+    ? { zero: '#39444c', printable: '#899cac', other: '#607584' }
+    : { zero: '#d8e0e6', printable: '#647b8e', other: '#9cadb9' }
   const pageStart = BigInt(page.offset)
   const modified = new Set<number>()
   for (const offset of page.modifiedOffsets) {
@@ -58,15 +58,17 @@ export function paintMinimap(
     if (relative >= 0n && relative < BigInt(page.bytes.length)) modified.add(Number(relative))
   }
   const cellWidth = (width - 8) / bytesPerRow
-  for (let y = 0; y < preview.contentHeight; y += 1) {
+  const glyphWidth = Math.max(1, Math.min(3, Math.floor(cellWidth - 1.5)))
+  for (let y = 0; y < preview.contentHeight; y += 2) {
     const row = Math.floor(y * preview.rowCount / preview.contentHeight)
     for (let column = 0; column < bytesPerRow; column += 1) {
       const index = row * bytesPerRow + column
       const byte = page.bytes[index]
       if (byte === undefined) break
+      const printable = byte >= 0x20 && byte <= 0x7e
       context.fillStyle = modified.has(index) ? '#f0883e' :
-        byte === 0 ? colors.zero : byte >= 0x20 && byte <= 0x7e ? colors.printable : colors.other
-      context.fillRect(Math.floor(4 + column * cellWidth), y, Math.max(1, Math.floor(cellWidth - 0.5)), 1)
+        byte === 0 ? colors.zero : printable ? colors.printable : colors.other
+      context.fillRect(Math.floor(4 + column * cellWidth), y, byte === 0 ? 1 : printable ? glyphWidth : Math.max(1, glyphWidth - 1), 1)
     }
   }
 }

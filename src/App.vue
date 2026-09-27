@@ -8,6 +8,7 @@ import { useHexSession } from './composables/useHexSession'
 import { handleCloseRequest, useHotkeys } from './composables/useHotkeys'
 import { useTheme } from './composables/useTheme'
 import type { BytesPerRow } from './hex/layout'
+import { DEFAULT_MINIMAP_SETTINGS, type MinimapSettings } from './hex/minimapGeometry'
 import { commandEnabled, type MenuCommand, type MenuState } from './menu/commands'
 import type { TemplateDefinition } from './types'
 import { normalizeSelection, type ByteSelection } from './hex/selection'
@@ -16,9 +17,10 @@ import { tauriBus } from './templateWindow/tauriBus'
 import { templateWindowManager } from './templateWindow/windowManager'
 import type { EditorAction } from './templateWindow/protocol'
 
-type PromptKind = 'goto' | 'edit'
+type PromptKind = 'edit'
 const session = useHexSession()
 const bytesPerRow = ref<BytesPerRow>(16)
+const minimapSettings = ref<MinimapSettings>({ ...DEFAULT_MINIMAP_SETTINGS })
 const RIGHT_PANEL_KEY = 'hexforge.rightCollapsed'
 function readPanelPreference(key: string, fallback: boolean): boolean {
   try {
@@ -37,6 +39,10 @@ const searchOpen = ref(false)
 const searchValue = ref('')
 const searchError = ref('')
 const searchFocusKey = ref(0)
+const gotoOpen = ref(false)
+const gotoValue = ref('')
+const gotoError = ref('')
+const gotoFocusKey = ref(0)
 const templateRange = ref<ByteSelection | null>(null)
 const templateValid = ref(true)
 const closeGuard = { confirming: false }
@@ -215,7 +221,26 @@ function showPrompt(kind: PromptKind, title: string, value = ''): void { popup.v
 function closePopup(): void { popup.value = null; session.clearError() }
 function closeTopLayer(): void {
   if (popup.value !== null || session.error.value !== null) closePopup()
+  else if (gotoOpen.value) gotoOpen.value = false
   else if (searchOpen.value) searchOpen.value = false
+}
+
+function openGoto(): void {
+  if (!gotoOpen.value) { gotoValue.value = ''; gotoError.value = '' }
+  searchOpen.value = false
+  gotoOpen.value = true
+  gotoFocusKey.value += 1
+}
+
+function submitGoto(): void {
+  gotoError.value = ''
+  try {
+    session.goTo(gotoValue.value)
+    gotoOpen.value = false
+  } catch (cause) {
+    gotoError.value = typeof cause === 'object' && cause !== null && 'message' in cause ? String(cause.message) : 'The offset is invalid.'
+    session.clearError()
+  }
 }
 
 function openSearch(): void {
@@ -223,6 +248,7 @@ function openSearch(): void {
     searchValue.value = session.searchQuery.value
     searchError.value = ''
   }
+  gotoOpen.value = false
   searchOpen.value = true
   searchFocusKey.value += 1
 }
@@ -247,8 +273,7 @@ async function submitPrompt(): Promise<void> {
   const active = popup.value
   if (!active) return
   try {
-    if (active.kind === 'goto') session.goTo(active.value)
-    else await session.editSelectedByte(active.value)
+    await session.editSelectedByte(active.value)
     popup.value = null
   } catch { /* validation is rendered in the in-app dialog */ }
 }
@@ -378,7 +403,7 @@ function executeCommand(command: MenuCommand): void {
     }
     case 'toggle-edit': session.editMode.value = !session.editMode.value; break
     case 'undo': void reportFailure(session.undo); break
-    case 'goto': showPrompt('goto', 'Go to offset'); break
+    case 'goto': openGoto(); break
     case 'search': openSearch(); break
     case 'template-editor': void openTemplateEditor(); break
     case 'apply-template': void reportFailure(applyValidTemplate); break
@@ -389,6 +414,14 @@ function executeCommand(command: MenuCommand): void {
     case 'theme-toggle': theme.toggle(); break
     case 'row-16': bytesPerRow.value = 16; break
     case 'row-32': bytesPerRow.value = 32; break
+    case 'minimap-toggle': minimapSettings.value = { ...minimapSettings.value, enabled: !minimapSettings.value.enabled }; break
+    case 'minimap-fit': minimapSettings.value = { ...minimapSettings.value, mode: 'fit' }; break
+    case 'minimap-proportional': minimapSettings.value = { ...minimapSettings.value, mode: 'proportional' }; break
+    case 'minimap-characters': minimapSettings.value = { ...minimapSettings.value, renderCharacters: true }; break
+    case 'minimap-blocks': minimapSettings.value = { ...minimapSettings.value, renderCharacters: false }; break
+    case 'minimap-scale-1': minimapSettings.value = { ...minimapSettings.value, scale: 1 }; break
+    case 'minimap-scale-2': minimapSettings.value = { ...minimapSettings.value, scale: 2 }; break
+    case 'minimap-scale-3': minimapSettings.value = { ...minimapSettings.value, scale: 3 }; break
     case 'toggle-right-panel': rightCollapsed.value = !rightCollapsed.value; storePanelPreference(RIGHT_PANEL_KEY, rightCollapsed.value); break
   }
 }
@@ -397,7 +430,7 @@ onMounted(async () => {
   try { await bridge.start() } catch (error) { session.presentError(error) }
   disposers.push(useHotkeys({
     invoke: executeCommand, isEnabled: (command) => commandEnabled(command, menuState.value),
-    isPopupOpen: () => popup.value !== null || session.error.value !== null || searchOpen.value,
+    isPopupOpen: () => popup.value !== null || session.error.value !== null || gotoOpen.value || searchOpen.value,
     closePopup: closeTopLayer, clearSelection: session.clearSelection,
   }))
   try {
@@ -429,7 +462,10 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => { disposed = true; bridge.dispose(); disposers.splice(0).forEach((dispose) => dispose()) })
-watch(() => session.sourceIdentity.value, () => { searchOpen.value = false; searchValue.value = ''; searchError.value = '' })
+watch(() => session.sourceIdentity.value, () => {
+  searchOpen.value = false; searchValue.value = ''; searchError.value = ''
+  gotoOpen.value = false; gotoValue.value = ''; gotoError.value = ''
+})
 </script>
 
 <template>
@@ -440,23 +476,25 @@ watch(() => session.sourceIdentity.value, () => { searchOpen.value = false; sear
     :match-length="session.searchMatchLength.value" :search-truncated="session.searchTruncated.value" :template-range="templateRange"
     :search-open="searchOpen" :search-value="searchValue" :search-query="session.searchQuery.value" :search-count="session.matches.value.length"
     :search-busy="session.busy.search" :search-error="searchError" :search-focus-key="searchFocusKey"
+    :goto-open="gotoOpen" :goto-value="gotoValue" :goto-error="gotoError" :goto-focus-key="gotoFocusKey"
     :busy-label="activeBusy" :progress-text="progressText"
     :template-valid="templateValid"
-    :menu-state="menuState" :theme="theme.value.value" :right-collapsed="rightCollapsed"
+    :menu-state="menuState" :theme="theme.value.value" :right-collapsed="rightCollapsed" :minimap-settings="minimapSettings" :edit-delta="session.lastEditDelta.value"
     :bytes-per-row="bytesPerRow" :edit-mode="session.editMode.value" :endianness="session.template.value.defaultEndianness"
     :navigation-offset="session.viewportOffset.value" :dialog-open="popup !== null || session.error.value !== null"
     :dialog-title="popup?.title ?? (session.error.value ? 'Operation failed' : '')" :dialog-message="session.error.value?.message ?? ''"
     @command="executeCommand" @update:bytes-per-row="bytesPerRow = $event" @navigate="navigateTemplate"
     @request-page="reportFailure(() => session.requestPage($event.offset, $event.length, $event.generation))" @select="selectBytes"
-    @edit-request="beginEdit" @viewport-offset="session.viewportOffset.value = $event" @close-dialog="closePopup"
+    @edit-request="beginEdit" @viewport-offset="session.viewportOffset.value = $event" @minimap-error="session.presentError($event)" @close-dialog="closePopup"
     @update:search-value="searchValue = $event" @submit-search="submitSearch" @clear-search="clearSearch" @close-search="searchOpen = false"
+    @update:goto-value="gotoValue = $event" @submit-goto="submitGoto" @close-goto="gotoOpen = false"
   >
     <template #dialog>
       <form v-if="popup" class="prompt-form" @submit.prevent="submitPrompt">
-        <label for="prompt-value">{{ popup.kind === 'goto' ? 'Offset' : 'Hex byte value' }}</label>
-        <input id="prompt-value" v-model="popup.value" autofocus :placeholder="popup.kind === 'goto' ? '0x100' : 'FF'">
-        <small>{{ popup.kind === 'goto' ? 'Enter a decimal value or a 0x-prefixed hexadecimal offset.' : 'Enter one hexadecimal byte from 00 to FF.' }}</small>
-        <div class="prompt-actions"><button type="button" class="secondary" @click="closePopup">Cancel</button><button type="submit">{{ popup.kind === 'goto' ? 'Go' : 'Apply' }}</button></div>
+        <label for="prompt-value">Hex byte value</label>
+        <input id="prompt-value" v-model="popup.value" autofocus placeholder="FF">
+        <small>Enter one hexadecimal byte from 00 to FF.</small>
+        <div class="prompt-actions"><button type="button" class="secondary" @click="closePopup">Cancel</button><button type="submit">Apply</button></div>
       </form>
     </template>
   </AppShell>

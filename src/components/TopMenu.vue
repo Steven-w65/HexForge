@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { BytesPerRow } from '../hex/layout'
+import { DEFAULT_MINIMAP_SETTINGS, type MinimapSettings } from '../hex/minimapGeometry'
 import { commandEnabled, type MenuCommand, type MenuState } from '../menu/commands'
 import type { ParsedField, TemplateDefinition, TemplateField } from '../types'
 
 type MenuId = 'file' | 'edit' | 'navigate' | 'template' | 'view'
-type SubmenuId = 'template-fields' | 'parsed-results' | null
+type SubmenuId = 'template-fields' | 'parsed-results' | 'minimap' | null
 type VisibleMenuCommand = Exclude<MenuCommand, 'toggle-right-panel'>
 
 const props = defineProps<{
@@ -14,6 +15,7 @@ const props = defineProps<{
   fileSize: bigint
   template: TemplateDefinition
   results: ParsedField[]
+  minimapSettings?: MinimapSettings
 }>()
 const emit = defineEmits<{
   command: [value: MenuCommand]
@@ -35,6 +37,9 @@ const labels: Record<VisibleMenuCommand, string> = {
   'template-editor': 'Template Editor…', 'apply-template': 'Apply Template', 'load-template': 'Load Template…', 'unload-template': 'Unload Template', 'save-template': 'Save Template', 'save-template-as': 'Save Template As…',
   'theme-toggle': 'Toggle Theme',
   'row-16': '16 Bytes', 'row-32': '32 Bytes',
+  'minimap-toggle': 'Show Minimap', 'minimap-fit': 'Fit File', 'minimap-proportional': 'Proportional',
+  'minimap-characters': 'Characters', 'minimap-blocks': 'Color Blocks',
+  'minimap-scale-1': 'Scale 1×', 'minimap-scale-2': 'Scale 2×', 'minimap-scale-3': 'Scale 3×',
 }
 const shortcutLabels: Partial<Record<VisibleMenuCommand, string>> = {
   open: 'Ctrl+O', 'close-file': 'Ctrl+W', 'save-as': 'Ctrl+Alt+S', export: 'Ctrl+Shift+E', exit: 'Alt+F4',
@@ -49,6 +54,9 @@ const editCommands: VisibleMenuCommand[] = ['edit-selected', 'toggle-edit', 'und
 const navigateCommands: VisibleMenuCommand[] = ['goto', 'search']
 const templateCommands: VisibleMenuCommand[] = ['template-editor', 'apply-template', 'load-template', 'unload-template', 'save-template', 'save-template-as']
 const viewCommands: VisibleMenuCommand[] = ['theme-toggle', 'row-16', 'row-32']
+const minimapCommands: VisibleMenuCommand[] = ['minimap-toggle', 'minimap-fit', 'minimap-proportional', 'minimap-characters', 'minimap-blocks',
+  'minimap-scale-1', 'minimap-scale-2', 'minimap-scale-3']
+const mini = computed(() => props.minimapSettings ?? DEFAULT_MINIMAP_SETTINGS)
 
 function anchorMenu(menu: MenuId, button?: EventTarget | null): void {
   const anchor = button instanceof HTMLElement ? button : root.value?.querySelector<HTMLElement>(`[data-menu="${menu}"]`)
@@ -67,7 +75,7 @@ function showSubmenu(submenu: Exclude<SubmenuId, null>, button?: EventTarget | n
   const trigger = button instanceof HTMLElement ? button : root.value?.querySelector<HTMLElement>(`[data-submenu="${submenu}"]`)
   submenuTop.value = trigger?.offsetTop ?? 0
   openSubmenu.value = submenu
-  focusSubmenuItem(submenu === 'template-fields' ? '[data-template-field]' : '[data-parsed-result]')
+  focusSubmenuItem(submenu === 'template-fields' ? '[data-template-field]' : submenu === 'parsed-results' ? '[data-parsed-result]' : '[data-minimap-command]')
 }
 
 function toggleSubmenu(submenu: Exclude<SubmenuId, null>, button: EventTarget | null): void {
@@ -86,6 +94,14 @@ function checked(command: MenuCommand): boolean | undefined {
     case 'toggle-edit': return props.state.editMode
     case 'row-16': return props.bytesPerRow === 16
     case 'row-32': return props.bytesPerRow === 32
+    case 'minimap-toggle': return mini.value.enabled
+    case 'minimap-fit': return mini.value.mode === 'fit'
+    case 'minimap-proportional': return mini.value.mode === 'proportional'
+    case 'minimap-characters': return mini.value.renderCharacters
+    case 'minimap-blocks': return !mini.value.renderCharacters
+    case 'minimap-scale-1': return mini.value.scale === 1
+    case 'minimap-scale-2': return mini.value.scale === 2
+    case 'minimap-scale-3': return mini.value.scale === 3
     default: return undefined
   }
 }
@@ -249,6 +265,15 @@ onBeforeUnmount(() => {
       <template v-else>
         <MenuCommandItem v-for="command in viewCommands" :key="command" :command="command" :label="labels[command]" :shortcut="shortcutLabels[command]"
           :disabled="!commandEnabled(command, state)" :checked="checked(command)" @invoke="invoke" />
+        <div class="separator" />
+        <button type="button" role="menuitem" class="menu-item submenu-trigger" data-submenu="minimap"
+          :aria-expanded="openSubmenu === 'minimap'" @click="toggleSubmenu('minimap', $event.currentTarget)">
+          <span>Minimap</span><span>›</span>
+        </button>
+        <div v-if="openSubmenu === 'minimap'" class="submenu-flyout" role="menu" data-open-submenu="minimap" :style="{ top: `${submenuTop}px` }">
+          <MenuCommandItem v-for="command in minimapCommands" :key="command" :command="command" :data-minimap-command="command"
+            :label="labels[command]" :disabled="!commandEnabled(command, state)" :checked="checked(command)" @invoke="invoke" />
+        </div>
       </template>
     </div>
   </nav>
@@ -302,5 +327,6 @@ export default { components: { MenuCommandItem } }
 kbd { color: var(--muted); font: inherit; font-size: var(--font-support); }
 .separator { height: 1px; margin: 4px 3px; background: var(--border); }
 .submenu-flyout { position: absolute; left: calc(100% + 4px); display: grid; min-width: 230px; max-height: 280px; padding: 4px; overflow: auto; color: var(--text); background: var(--panel); border: 1px solid var(--border-strong); border-radius: 4px; box-shadow: 0 8px 20px rgb(0 0 0 / 24%); }
-.submenu-flyout .menu-item { grid-template-columns: minmax(120px, 1fr) auto; }
+.submenu-flyout .menu-item { grid-template-columns: 14px minmax(120px, 1fr) auto; }
+.submenu-flyout .menu-item:not([data-minimap-command]) { grid-template-columns: minmax(120px, 1fr) auto; }
 </style>

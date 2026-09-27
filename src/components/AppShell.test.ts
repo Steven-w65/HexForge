@@ -224,16 +224,34 @@ describe('AppShell', () => {
     expect(windowWidth).toBe(1280)
     const wrapper = mount(AppShell, { props: { file: { name: 'firmware.bin', path: 'C:/firmware.bin', size: '4096', revision: '1', dirty: false }, bytesPerRow: 16 } })
     await nextTick(); await nextTick()
-    resize([{ contentRect: { width: windowWidth, height: 500 } } as ResizeObserverEntry], {} as ResizeObserver)
+    // ResizeObserver now observes the dedicated editor column, excluding the
+    // 84px minimap and 12px overview ruler siblings.
+    const editorWidth = windowWidth - 96
+    resize([{ contentRect: { width: editorWidth, height: 500 } } as ResizeObserverEntry], {} as ResizeObserver)
     await nextTick()
     const shellStyle = wrapper.get('[data-testid="app-shell"]').attributes('style') ?? ''
     expect(shellStyle).toContain('--results-pane-height: 220px')
     const viewport = wrapper.get('[data-testid="hex-canvas"]')
     const canvas = wrapper.get('canvas').element as HTMLCanvasElement
-    expect(canvas.width + 96).toBeLessThanOrEqual(windowWidth)
+    expect(canvas.width).toBeLessThanOrEqual(editorWidth)
     expect((viewport.element as HTMLElement).style.overflowX).toBe('hidden')
     await wrapper.setProps({ bytesPerRow: 32 }); await nextTick()
-    expect(canvas.width + 96).toBeGreaterThan(windowWidth)
+    expect(canvas.width).toBeGreaterThan(editorWidth)
     expect((viewport.element as HTMLElement).style.overflowX).toBe('auto')
+  })
+
+  it('passes minimap settings and edit deltas to Canvas and forwards nonfatal errors', async () => {
+    const settings = { enabled: false, mode: 'proportional' as const, renderCharacters: false, scale: 2 as const }
+    const delta = { offset: 8n, revision: '2' }
+    const wrapper = mount(AppShell, { props: {
+      file: { name: 'firmware.bin', path: 'C:/firmware.bin', size: '4096', revision: '2', dirty: true },
+      minimapSettings: settings, editDelta: delta,
+    }, global: { stubs: { HexCanvas: true } } })
+    const canvas = wrapper.findComponent({ name: 'HexCanvas' })
+    expect(canvas.props('minimapSettings')).toEqual(settings)
+    expect(canvas.props('editDelta')).toEqual(delta)
+    expect(wrapper.get('[data-testid="app-shell"]').attributes('style')).toContain('--minimap-width: 12px')
+    canvas.vm.$emit('minimap-error', new Error('Sample failed'))
+    expect(wrapper.emitted('minimap-error')).toEqual([[expect.any(Error)]])
   })
 })

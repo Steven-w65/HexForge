@@ -20,6 +20,17 @@ export interface PageResponse {
   revision: string
 }
 
+export interface MinimapSampleRow {
+  row: OffsetString
+  bytes: number[]
+  modifiedOffsets: OffsetString[]
+}
+
+export interface MinimapSamplesResponse {
+  revision: OffsetString
+  samples: MinimapSampleRow[]
+}
+
 /** Fixed-size edit summary for the file overview; never contains source bytes. */
 export interface ModifiedOverview {
   binCount: number
@@ -72,6 +83,7 @@ export interface DirtyState {
 
 export interface UndoResponse extends DirtyState {
   undone: boolean
+  offset?: OffsetString
 }
 
 export interface SaveResponse extends DirtyState {

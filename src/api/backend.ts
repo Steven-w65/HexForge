@@ -1,8 +1,9 @@
 import { Channel, invoke } from '@tauri-apps/api/core'
 import type {
-  AppError, DirtyState, FileInfo, ModifiedOverview, OperationProgress, PageResponse, ParsedField,
+  AppError, DirtyState, FileInfo, MinimapSamplesResponse, ModifiedOverview, OperationProgress, PageResponse, ParsedField,
   SaveResponse, SearchResponse, TemplateDefinition, UndoResponse,
 } from '../types'
+import type { BytesPerRow } from '../hex/layout'
 
 function normalizeError(error: unknown): AppError {
   if (typeof error === 'object' && error !== null &&
@@ -34,6 +35,8 @@ export const backend = {
   closeFile: (discardUnsaved = false) => call<void>('close_file', { discardUnsaved }),
   getFileInfo: () => call<FileInfo>('get_file_info'),
   readPage: (offset: bigint, length: number) => call<PageResponse>('read_page', { offset: offset.toString(), length }),
+  readMinimapSamples: (rows: bigint[], bytesPerRow: BytesPerRow, sourceKey: string, expectedRevision: string) =>
+    call<MinimapSamplesResponse>('read_minimap_samples', { rows: rows.map((row) => row.toString()), bytesPerRow, sourceKey, expectedRevision }),
   editByte: (offset: bigint, value: number) => call<DirtyState>('edit_byte', { offset: offset.toString(), value }),
   undoEdit: () => call<UndoResponse>('undo_edit'),
   getDirtyState: () => call<DirtyState>('get_dirty_state'),

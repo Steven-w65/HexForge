@@ -23,6 +23,15 @@ describe('backend IPC contract', () => {
     expect(() => JSON.stringify(invoke.mock.calls)).not.toThrow()
   })
 
+  it('sends bounded minimap row positions and revision as decimal text', async () => {
+    const response = { revision: '2', samples: [{ row: '9007199254740993', bytes: [0x41], modifiedOffsets: [] }] }
+    invoke.mockResolvedValue(response)
+    expect(await backend.readMinimapSamples([9007199254740993n], 16, 'source-key', '2')).toEqual(response)
+    expect(invoke).toHaveBeenCalledWith('read_minimap_samples', {
+      rows: ['9007199254740993'], bytesPerRow: 16, sourceKey: 'source-key', expectedRevision: '2',
+    })
+  })
+
   it('returns the bounded modified-byte overview from the backend', async () => {
     const overview = { binCount: 1024, bins: [0, 512, 1023] }
     invoke.mockResolvedValue(overview)

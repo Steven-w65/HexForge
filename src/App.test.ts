@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => {
   const backend = {
-    openFile: vi.fn(), closeFile: vi.fn(), getFileInfo: vi.fn(), readPage: vi.fn(), editByte: vi.fn(), undoEdit: vi.fn(), getDirtyState: vi.fn(), getModifiedOverview: vi.fn(),
+    openFile: vi.fn(), closeFile: vi.fn(), getFileInfo: vi.fn(), readPage: vi.fn(), readMinimapSamples: vi.fn(), editByte: vi.fn(), undoEdit: vi.fn(), getDirtyState: vi.fn(), getModifiedOverview: vi.fn(),
     saveAs: vi.fn(), searchBytes: vi.fn(), applyTemplate: vi.fn(), loadTemplate: vi.fn(), saveTemplate: vi.fn(), saveTemplateAs: vi.fn(), unloadTemplateFile: vi.fn(), exportResultsCsv: vi.fn(),
   }
   return {
@@ -57,11 +57,33 @@ describe('App desktop orchestration', () => {
     mocks.unlistenClose.mockReset(); mocks.unlistenDrop.mockReset(); mocks.windowClose.mockReset(); mocks.windowClose.mockResolvedValue(undefined); mocks.windowSetFocus.mockReset(); mocks.windowSetFocus.mockResolvedValue(undefined); mocks.closeHandler = undefined; mocks.dropHandler = undefined
     mocks.windowOpen.mockReset(); mocks.windowOpen.mockResolvedValue(undefined); mocks.windowDestroyEditor.mockReset(); mocks.windowDestroyEditor.mockResolvedValue(undefined); mocks.busHandlers.clear(); mocks.busSent.mockReset(); mocks.lastDraft = null; mocks.failFlush = false
     mocks.backend.openFile.mockResolvedValue(file); mocks.backend.readPage.mockResolvedValue(page)
+    mocks.backend.readMinimapSamples.mockResolvedValue({ revision: '1', samples: [] })
     mocks.backend.undoEdit.mockResolvedValue({ dirty: false, revision: '2', undone: true })
     mocks.backend.getDirtyState.mockResolvedValue({ dirty: false, revision: '1' })
     mocks.backend.getModifiedOverview.mockResolvedValue({ binCount: 1024, bins: [] })
     mocks.backend.applyTemplate.mockResolvedValue([])
     mocks.backend.searchBytes.mockResolvedValue({ matches: [], truncated: false })
+  })
+
+  it('routes View minimap controls through the existing command path without adding shortcuts', async () => {
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const shell = wrapper.findComponent(AppShell)
+    expect(shell.props('minimapSettings')).toMatchObject({ enabled: true, mode: 'fit', renderCharacters: true, scale: 1 })
+    shell.vm.$emit('command', 'minimap-proportional'); await flushPromises()
+    shell.vm.$emit('command', 'minimap-blocks'); await flushPromises()
+    shell.vm.$emit('command', 'minimap-scale-3'); await flushPromises()
+    expect(shell.props('minimapSettings')).toMatchObject({ enabled: true, mode: 'proportional', renderCharacters: false, scale: 3 })
+    shell.vm.$emit('command', 'minimap-toggle'); await flushPromises()
+    expect(shell.props('minimapSettings')?.enabled).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('surfaces minimap sampling errors through the existing friendly dialog', async () => {
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    wrapper.findComponent(AppShell).vm.$emit('minimap-error', { code: 'source_changed', message: 'The source file changed externally.' })
+    await flushPromises()
+    expect(wrapper.get('[role="dialog"]').text()).toContain('The source file changed externally.')
+    wrapper.unmount()
   })
 
   it('opens or focuses the one Template Editor window from its retained shortcut', async () => {
@@ -684,6 +706,55 @@ describe('App desktop orchestration', () => {
     wrapper.unmount()
   })
 
+  it('opens Go To as a focused non-modal bar and navigates on submit', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    const wrapper = mount(App, { attachTo: document.body, global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    press('g', { ctrlKey: true }); await flushPromises()
+
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="goto-bar"]').exists()).toBe(true)
+    expect(document.activeElement).toBe(wrapper.get('[data-testid="goto-input"]').element)
+    await wrapper.get('[data-testid="goto-input"]').setValue('0x10')
+    await wrapper.get('[data-testid="goto-bar"]').trigger('submit'); await flushPromises()
+
+    expect(wrapper.findComponent(AppShell).props('selection')).toEqual({ start: 16n, end: 16n, count: 1n })
+    expect(wrapper.find('[data-testid="goto-bar"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps invalid Go To input in the bar with an inline error', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    press('g', { ctrlKey: true }); await flushPromises()
+    await wrapper.get('[data-testid="goto-input"]').setValue('0xZZ')
+    await expect(wrapper.get('[data-testid="goto-bar"]').trigger('submit')).resolves.toBeUndefined()
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="goto-error"]').text()).toContain('decimal or 0x-prefixed hexadecimal')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="goto-bar"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('switches between Search and Go To without stacking floating bars', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    press('f', { ctrlKey: true }); await flushPromises()
+    expect(wrapper.find('[data-testid="search-bar"]').exists()).toBe(true)
+
+    press('g', { ctrlKey: true }); await flushPromises()
+    expect(wrapper.find('[data-testid="search-bar"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="goto-bar"]').exists()).toBe(true)
+
+    press('f', { ctrlKey: true }); await flushPromises()
+    expect(wrapper.find('[data-testid="goto-bar"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="search-bar"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('routes File shortcuts to Open, Save As, Export, Close and Exit', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
     mocks.save.mockResolvedValueOnce('C:/results.csv').mockResolvedValueOnce('C:/copy.bin')
@@ -750,12 +821,12 @@ describe('App desktop orchestration', () => {
     wrapper.unmount()
   })
 
-  it('routes Navigate shortcuts to the go-to dialog and non-modal byte-search bar', async () => {
+  it('routes Navigate shortcuts to the non-modal Go To and byte-search bars', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin'); mocks.backend.searchBytes.mockResolvedValue({ matches: ['8'], truncated: false })
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('g', { ctrlKey: true }); await flushPromises()
-    await wrapper.get('.prompt-form input').setValue('0x4'); await wrapper.get('.prompt-form').trigger('submit'); await flushPromises()
+    await wrapper.get('[data-testid="goto-input"]').setValue('0x4'); await wrapper.get('[data-testid="goto-bar"]').trigger('submit'); await flushPromises()
     expect(wrapper.findComponent(AppShell).props('selection')).toEqual({ start: 4n, end: 4n, count: 1n })
     press('f', { ctrlKey: true }); await flushPromises()
     await wrapper.get('[data-testid="search-input"]').setValue('41 42'); await wrapper.get('[data-testid="search-bar"]').trigger('submit'); await flushPromises()

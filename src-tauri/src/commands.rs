@@ -1,5 +1,6 @@
 use crate::error::{AppError, ErrorCode};
 use crate::export;
+use crate::minimap::{MinimapSampleRowDto, MinimapSamplesResponse};
 use crate::search::{self, SearchResult};
 use crate::session::{FileInfo, FileSession, PageData, OVERVIEW_BIN_COUNT};
 use crate::template::{self, ParsedField, TemplateDefinition, TemplateFileSession};
@@ -114,6 +115,8 @@ impl From<&FileSession> for DirtyState {
 #[serde(rename_all = "camelCase")]
 pub struct UndoResponse {
     pub undone: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<String>,
     #[serde(flatten)]
     pub state: DirtyState,
 }
@@ -334,6 +337,35 @@ pub async fn read_page(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+pub async fn read_minimap_samples(
+    state: State<'_, AppState>,
+    rows: Vec<String>,
+    bytes_per_row: u8,
+    source_key: String,
+    expected_revision: String,
+) -> Result<MinimapSamplesResponse, AppError> {
+    let rows = rows
+        .iter()
+        .map(|row| parse_offset_arg(row))
+        .collect::<Result<Vec<_>, _>>()?;
+    let expected_revision = parse_offset_arg(&expected_revision)?;
+    session_operation(&state, move |session| {
+        let session = active_session(session)?;
+        let pages = session.sample_rows(&rows, bytes_per_row, &source_key, expected_revision)?;
+        let samples = rows
+            .into_iter()
+            .zip(pages)
+            .map(|(row, page)| MinimapSampleRowDto::from_page(row, page))
+            .collect();
+        Ok(MinimapSamplesResponse {
+            revision: session.info().revision.to_string(),
+            samples,
+        })
+    })
+    .await
+}
+
+#[tauri::command(rename_all = "camelCase")]
 pub async fn edit_byte(
     state: State<'_, AppState>,
     offset: String,
@@ -352,9 +384,10 @@ pub async fn edit_byte(
 pub async fn undo_edit(state: State<'_, AppState>) -> Result<UndoResponse, AppError> {
     session_operation(&state, |session| {
         let session = active_session(session)?;
-        let undone = session.undo()?;
+        let offset = session.undo_with_offset()?;
         Ok(UndoResponse {
-            undone,
+            undone: offset.is_some(),
+            offset: offset.map(|value| value.to_string()),
             state: DirtyState::from(&*session),
         })
     })
@@ -613,6 +646,30 @@ mod tests {
             serde_json::to_value(result).unwrap(),
             serde_json::json!({"matches":["18446744073709551615"],"truncated":true})
         );
+    }
+
+    #[test]
+    fn undo_response_includes_only_an_actual_edit_offset() {
+        let undone = serde_json::to_value(UndoResponse {
+            undone: true,
+            offset: Some(u64::MAX.to_string()),
+            state: DirtyState {
+                dirty: false,
+                revision: "2".into(),
+            },
+        })
+        .unwrap();
+        assert_eq!(undone["offset"], "18446744073709551615");
+        let no_op = serde_json::to_value(UndoResponse {
+            undone: false,
+            offset: None,
+            state: DirtyState {
+                dirty: false,
+                revision: "2".into(),
+            },
+        })
+        .unwrap();
+        assert!(no_op.get("offset").is_none());
     }
 
     #[test]

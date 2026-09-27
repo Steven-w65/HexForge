@@ -46,6 +46,43 @@ describe('useHexSession', () => {
     expect(session.modifiedOverview.value).toEqual({ binCount: 1024, bins: [] })
   })
 
+  it('exposes only successful edit and Undo offsets for targeted minimap invalidation', async () => {
+    const backend = fakeBackend()
+    vi.mocked(backend.undoEdit).mockResolvedValue({ dirty: false, revision: '3', undone: true, offset: '7' })
+    const session = useHexSession(backend)
+    await session.openFile('input.bin')
+    session.selection.value = { start: 7n, end: 7n, count: 1n }
+    expect(session.lastEditDelta.value).toBeNull()
+
+    await session.editSelectedByte('FF')
+    expect(session.lastEditDelta.value).toEqual({ offset: 7n, revision: '2' })
+    await session.undo()
+    expect(session.lastEditDelta.value).toEqual({ offset: 7n, revision: '3' })
+    await session.saveAs('copy.bin')
+    expect(session.lastEditDelta.value).toBeNull()
+  })
+
+  it('does not emit an edit delta for a no-op revision', async () => {
+    const backend = fakeBackend(); const session = useHexSession(backend)
+    await session.openFile('input.bin')
+    session.selection.value = { start: 3n, end: 3n, count: 1n }
+    vi.mocked(backend.editByte).mockResolvedValue({ dirty: false, revision: '1' })
+    await session.editSelectedByte('41')
+    expect(session.lastEditDelta.value).toBeNull()
+  })
+
+  it('ignores a stale Undo delta after a replacement file opens', async () => {
+    const backend = fakeBackend(); const pending = deferred<{ dirty: boolean; revision: string; undone: boolean; offset: string }>()
+    vi.mocked(backend.undoEdit).mockReturnValue(pending.promise)
+    const session = useHexSession(backend)
+    await session.openFile('input.bin')
+    const undo = session.undo()
+    await session.openFile('replacement.bin')
+    pending.resolve({ dirty: false, revision: '3', undone: true, offset: '7' })
+    await undo
+    expect(session.lastEditDelta.value).toBeNull()
+  })
+
   it('advances source identity on every successful open even when metadata is unchanged', async () => {
     const backend = fakeBackend(); const session = useHexSession(backend)
     expect(session.sourceIdentity.value).toBe(0)

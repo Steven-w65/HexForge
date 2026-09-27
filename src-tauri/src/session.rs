@@ -196,6 +196,45 @@ impl FileSession {
         Ok(len)
     }
 
+    /// Sparse minimap reads bypass the page cache so file-wide samples cannot
+    /// evict pages that the main hex viewport is actively using.
+    pub fn sample_rows(
+        &mut self,
+        rows: &[u64],
+        bytes_per_row: u8,
+        expected_source: &str,
+        expected_revision: u64,
+    ) -> Result<Vec<PageData>, AppError> {
+        if rows.len() > 32 || !matches!(bytes_per_row, 16 | 32) {
+            return Err(invalid_length(
+                "The minimap request is too large or has an invalid row width.",
+            ));
+        }
+        if expected_source != self.info.path || expected_revision != self.info.revision {
+            return Err(AppError::new(
+                ErrorCode::OperationFailed,
+                "The minimap request is no longer current.",
+                None,
+            ));
+        }
+        self.ensure_source_unchanged()?;
+        let mut buffer = [0u8; 32];
+        let mut samples = Vec::with_capacity(rows.len());
+        for &row in rows {
+            let offset = row
+                .checked_mul(u64::from(bytes_per_row))
+                .ok_or_else(|| invalid_offset("The minimap row is outside the file."))?;
+            if offset >= self.info.size {
+                return Err(invalid_offset("The minimap row is outside the file."));
+            }
+            let count =
+                self.read_effective_chunk(offset, &mut buffer[..usize::from(bytes_per_row)])?;
+            samples.push(self.page_data(offset, buffer[..count].to_vec()));
+        }
+        self.ensure_source_unchanged()?;
+        Ok(samples)
+    }
+
     #[cfg(test)]
     pub(crate) fn test_read_count(&self) -> usize {
         self.read_count
@@ -216,17 +255,22 @@ impl FileSession {
 
     /// Reverts the most recent effective edit. Returns false when there is no edit to undo.
     pub fn undo(&mut self) -> Result<bool, AppError> {
+        Ok(self.undo_with_offset()?.is_some())
+    }
+
+    /// Reports the single byte affected by Undo for targeted minimap invalidation.
+    pub fn undo_with_offset(&mut self) -> Result<Option<u64>, AppError> {
         self.ensure_source_unchanged()?;
         let Some(offset) = self.edits.last_offset() else {
-            return Ok(false);
+            return Ok(None);
         };
         let source = self.source_byte(offset)?;
         self.ensure_source_unchanged()?;
         if self.edits.undo(source).is_some() {
             self.info.revision = self.info.revision.saturating_add(1);
-            return Ok(true);
+            return Ok(Some(offset));
         }
-        Ok(false)
+        Ok(None)
     }
 
     pub fn clear_edits(&mut self) {
@@ -399,6 +443,72 @@ mod tests {
     }
 
     #[test]
+    fn minimap_samples_overlay_edits_and_do_not_evict_viewport_pages() {
+        let file = fixture((0u8..34).collect());
+        let mut session = FileSession::open(file.path().to_path_buf(), 8, 2).unwrap();
+        session.edit_byte(33, 0xfe).unwrap();
+        session.read_range(0, 8).unwrap();
+        let cached_pages = session.cache_len();
+        let info = session.info();
+
+        let samples = session
+            .sample_rows(&[0, 2], 16, &info.path, info.revision)
+            .unwrap();
+
+        assert_eq!(samples[0].bytes, (0u8..16).collect::<Vec<_>>());
+        assert_eq!(samples[1].bytes, [32, 0xfe]);
+        assert_eq!(samples[1].modified_offsets, [33]);
+        assert_eq!(session.cache_len(), cached_pages);
+    }
+
+    #[test]
+    fn minimap_samples_reject_oversized_invalid_and_stale_requests() {
+        let file = fixture(vec![1; 34]);
+        let mut session = FileSession::open(file.path().to_path_buf(), 8, 2).unwrap();
+        let info = session.info();
+
+        assert_eq!(
+            session
+                .sample_rows(&[0; 33], 16, &info.path, 0)
+                .unwrap_err()
+                .code(),
+            "invalid_length"
+        );
+        assert_eq!(
+            session
+                .sample_rows(&[0], 8, &info.path, 0)
+                .unwrap_err()
+                .code(),
+            "invalid_length"
+        );
+        assert_eq!(
+            session
+                .sample_rows(&[3], 16, &info.path, 0)
+                .unwrap_err()
+                .code(),
+            "invalid_offset"
+        );
+        assert!(session.sample_rows(&[0], 16, "another-file", 0).is_err());
+        assert!(session.sample_rows(&[0], 16, &info.path, 1).is_err());
+    }
+
+    #[test]
+    fn minimap_samples_reject_external_source_changes() {
+        let file = fixture(vec![1, 2, 3]);
+        let mut session = FileSession::open(file.path().to_path_buf(), 2, 2).unwrap();
+        let info = session.info();
+        std::fs::write(file.path(), [1, 2, 3, 4]).unwrap();
+
+        assert_eq!(
+            session
+                .sample_rows(&[0], 16, &info.path, 0)
+                .unwrap_err()
+                .code(),
+            "source_changed"
+        );
+    }
+
+    #[test]
     fn read_range_clamps_at_eof_and_marks_the_current_revision() {
         let file = fixture(vec![1, 2, 3]);
         let mut session = FileSession::open(file.path().to_path_buf(), 2, 2).unwrap();
@@ -567,6 +677,15 @@ mod tests {
         assert_eq!(session.read_range(0, 1).unwrap().bytes, vec![4]);
         assert!(!session.is_dirty());
         assert_eq!(session.info().revision, 2);
+    }
+
+    #[test]
+    fn undo_with_offset_reports_only_the_reverted_byte() {
+        let file = fixture(vec![4, 5]);
+        let mut session = FileSession::open(file.path().to_path_buf(), 2, 2).unwrap();
+        session.edit_byte(1, 9).unwrap();
+        assert_eq!(session.undo_with_offset().unwrap(), Some(1));
+        assert_eq!(session.undo_with_offset().unwrap(), None);
     }
 
     #[test]
