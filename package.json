@@ -12,6 +12,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
+    "test:canvas:real": "node scripts/test-real-canvas.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

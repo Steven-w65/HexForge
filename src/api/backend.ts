@@ -31,6 +31,7 @@ function withProgress<T>(command: string, args: Record<string, unknown>, onProgr
 }
 
 export const backend = {
+  frontendReady: () => call<void>('frontend_ready'),
   openFile: (path: string, discardUnsaved = false) => call<FileInfo>('open_file', { path, discardUnsaved }),
   closeFile: (discardUnsaved = false) => call<void>('close_file', { discardUnsaved }),
   getFileInfo: () => call<FileInfo>('get_file_info'),

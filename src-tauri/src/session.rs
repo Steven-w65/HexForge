@@ -3,6 +3,8 @@ use crate::error::{AppError, ErrorCode};
 use crate::page_cache::PageCache;
 use same_file::Handle;
 use serde::Serialize;
+#[cfg(test)]
+use std::cell::Cell;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -40,6 +42,8 @@ pub struct FileSession {
     edits: EditBuffer,
     #[cfg(test)]
     read_count: usize,
+    #[cfg(test)]
+    source_check_count: Cell<usize>,
 }
 
 impl FileSession {
@@ -101,6 +105,8 @@ impl FileSession {
             edits: EditBuffer::default(),
             #[cfg(test)]
             read_count: 0,
+            #[cfg(test)]
+            source_check_count: Cell::new(0),
         })
     }
 
@@ -169,6 +175,19 @@ impl FileSession {
         buffer: &mut [u8],
     ) -> Result<usize, AppError> {
         self.ensure_source_unchanged()?;
+        let len = self.read_effective_chunk_unchecked(offset, buffer)?;
+        self.ensure_source_unchanged()?;
+        Ok(len)
+    }
+
+    /// Used only inside an operation that validates the source around the
+    /// entire batch. Keep offset bounds and edit overlay identical to a normal
+    /// chunk read without repeating three metadata lookups for every row.
+    fn read_effective_chunk_unchecked(
+        &mut self,
+        offset: u64,
+        buffer: &mut [u8],
+    ) -> Result<usize, AppError> {
         #[cfg(test)]
         {
             self.read_count += 1;
@@ -191,7 +210,6 @@ impl FileSession {
         self.file
             .read_exact(&mut buffer[..len])
             .map_err(|error| AppError::from_io(error, Some(path)))?;
-        self.ensure_source_unchanged()?;
         self.edits.overlay(offset, &mut buffer[..len]);
         Ok(len)
     }
@@ -227,8 +245,10 @@ impl FileSession {
             if offset >= self.info.size {
                 return Err(invalid_offset("The minimap row is outside the file."));
             }
-            let count =
-                self.read_effective_chunk(offset, &mut buffer[..usize::from(bytes_per_row)])?;
+            let count = self.read_effective_chunk_unchecked(
+                offset,
+                &mut buffer[..usize::from(bytes_per_row)],
+            )?;
             samples.push(self.page_data(offset, buffer[..count].to_vec()));
         }
         self.ensure_source_unchanged()?;
@@ -238,6 +258,11 @@ impl FileSession {
     #[cfg(test)]
     pub(crate) fn test_read_count(&self) -> usize {
         self.read_count
+    }
+
+    #[cfg(test)]
+    fn test_source_check_count(&self) -> usize {
+        self.source_check_count.get()
     }
 
     pub fn edit_byte(&mut self, offset: u64, value: u8) -> Result<(), AppError> {
@@ -308,6 +333,9 @@ impl FileSession {
     }
 
     pub(crate) fn ensure_source_unchanged(&self) -> Result<(), AppError> {
+        #[cfg(test)]
+        self.source_check_count
+            .set(self.source_check_count.get() + 1);
         let path = self.source_path();
         let changed = || {
             AppError::new(
@@ -459,6 +487,21 @@ mod tests {
         assert_eq!(samples[1].bytes, [32, 0xfe]);
         assert_eq!(samples[1].modified_offsets, [33]);
         assert_eq!(session.cache_len(), cached_pages);
+    }
+
+    #[test]
+    fn sparse_minimap_batch_checks_source_once_before_and_after_io() {
+        let file = fixture(vec![0x41; 32 * 16]);
+        let mut session = FileSession::open(file.path().to_path_buf(), 64, 2).unwrap();
+        let info = session.info();
+        let before = session.test_source_check_count();
+
+        let samples = session
+            .sample_rows(&(0..32).collect::<Vec<_>>(), 16, &info.path, info.revision)
+            .unwrap();
+
+        assert_eq!(samples.len(), 32);
+        assert_eq!(session.test_source_check_count() - before, 2);
     }
 
     #[test]

@@ -42,6 +42,9 @@ jobs:
       - name: Type-check frontend
         run: npm run typecheck
 
+      - name: Test real Canvas rendering in Edge
+        run: npm run test:canvas:real
+
       - name: Test Rust backend
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
@@ -51,6 +54,10 @@ jobs:
       - name: Verify GUI-only Windows executable
         shell: pwsh
         run: ./src-tauri/tests/verify_windows_gui.ps1 -ExecutablePath ./src-tauri/target/release/hexforge.exe
+
+      - name: Smoke-test portable frontend startup
+        shell: pwsh
+        run: ./src-tauri/tests/verify_portable_startup.ps1 -ExecutablePath ./src-tauri/target/release/hexforge.exe
 
       - name: Upload portable executable
         uses: actions/upload-artifact@v6

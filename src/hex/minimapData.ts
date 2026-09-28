@@ -28,6 +28,7 @@ export interface MinimapDataManager {
   update(input: MinimapDataInput): void
   getRow(row: bigint): MinimapRow | null
   applyEditDelta(delta: { offset: bigint; revision: string }): void
+  retry(): void
   dispose(): void
 }
 
@@ -190,6 +191,11 @@ export function createMinimapDataManager(
     update,
     getRow: (row) => cache.get(row) ?? null,
     applyEditDelta,
+    retry() {
+      if (disposed || !current?.enabled) return
+      failedGeneration = -1
+      schedule()
+    },
     dispose() {
       disposed = true
       generation += 1

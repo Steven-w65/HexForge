@@ -260,6 +260,29 @@ describe('HexCanvas', () => {
     } finally { wrapper.unmount(); sparse.mockRestore() }
   })
 
+  it('shows an inline retry for a minimap-only failure without opening the app error dialog', async () => {
+    const sparse = vi.spyOn(backend, 'readMinimapSamples')
+      .mockRejectedValueOnce({ code: 'operation_failed', message: 'The preview could not be read.' })
+      .mockImplementation(async (rows) => ({ revision: '1', samples: rows.map((row) => ({
+        row: row.toString(), bytes: Array(16).fill(0x41), modifiedOffsets: [],
+      })) }))
+    const wrapper = mount(HexCanvas, { props: { ...readyProps, fileSize: 1_000_000n } })
+    try {
+      await resize()
+      const request = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint; length: number; generation: number }
+      await wrapper.setProps({ page: { offset: request.offset.toString(), bytes: Array(request.length).fill(0x41),
+        modifiedOffsets: [], revision: '1', generation: request.generation } })
+      await vi.waitFor(() => expect(wrapper.find('[data-testid="minimap-retry"]').exists()).toBe(true))
+      expect(wrapper.emitted('minimap-error')).toBeUndefined()
+      expect(wrapper.get('canvas').attributes('data-page-revision')).toBe('1')
+
+      const callsBeforeRetry = sparse.mock.calls.length
+      await wrapper.get('[data-testid="minimap-retry"]').trigger('click')
+      await vi.waitFor(() => expect(sparse.mock.calls.length).toBeGreaterThan(callsBeforeRetry))
+      await vi.waitFor(() => expect(wrapper.find('[data-testid="minimap-retry"]').exists()).toBe(false))
+    } finally { wrapper.unmount(); sparse.mockRestore() }
+  })
+
   it('ignores an old sparse batch after switching to another file with the same revision', async () => {
     let resolveOld!: (value: MinimapSamplesResponse) => void
     const sparse = vi.spyOn(backend, 'readMinimapSamples').mockImplementation((_rows, _width, sourceKey) => sourceKey === 'old.bin'

@@ -15,6 +15,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(commands::AppState::default())
         .invoke_handler(tauri::generate_handler![
+            commands::frontend_ready,
             commands::open_file,
             commands::close_file,
             commands::get_file_info,

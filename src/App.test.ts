@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => {
   const backend = {
+    frontendReady: vi.fn(),
     openFile: vi.fn(), closeFile: vi.fn(), getFileInfo: vi.fn(), readPage: vi.fn(), readMinimapSamples: vi.fn(), editByte: vi.fn(), undoEdit: vi.fn(), getDirtyState: vi.fn(), getModifiedOverview: vi.fn(),
     saveAs: vi.fn(), searchBytes: vi.fn(), applyTemplate: vi.fn(), loadTemplate: vi.fn(), saveTemplate: vi.fn(), saveTemplateAs: vi.fn(), unloadTemplateFile: vi.fn(), exportResultsCsv: vi.fn(),
   }
@@ -63,6 +64,16 @@ describe('App desktop orchestration', () => {
     mocks.backend.getModifiedOverview.mockResolvedValue({ binCount: 1024, bins: [] })
     mocks.backend.applyTemplate.mockResolvedValue([])
     mocks.backend.searchBytes.mockResolvedValue({ matches: [], truncated: false })
+    mocks.backend.frontendReady.mockResolvedValue(undefined)
+  })
+
+  it('signals frontend readiness only after the desktop listeners are registered', async () => {
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } })
+    await flushPromises()
+    expect(mocks.closeHandler).toBeTypeOf('function')
+    expect(mocks.dropHandler).toBeTypeOf('function')
+    expect(mocks.backend.frontendReady).toHaveBeenCalledOnce()
+    wrapper.unmount()
   })
 
   it('routes View minimap controls through the existing command path without adding shortcuts', async () => {

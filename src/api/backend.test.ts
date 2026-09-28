@@ -15,6 +15,12 @@ const template: TemplateDefinition = {
 describe('backend IPC contract', () => {
   beforeEach(() => { invoke.mockReset() })
 
+  it('signals that the mounted frontend is ready through a parameterless native command', async () => {
+    invoke.mockResolvedValue(undefined)
+    await backend.frontendReady()
+    expect(invoke).toHaveBeenCalledWith('frontend_ready', {})
+  })
+
   it('serializes bigint offsets without losing precision', async () => {
     const page = { offset: '9007199254740993', bytes: [1], modifiedOffsets: [], revision: '1' }
     invoke.mockResolvedValue(page)

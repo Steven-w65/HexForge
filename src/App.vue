@@ -4,6 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { confirm, message, open, save } from '@tauri-apps/plugin-dialog'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppShell from './components/AppShell.vue'
+import { backend } from './api/backend'
 import { useHexSession } from './composables/useHexSession'
 import { handleCloseRequest, useHotkeys } from './composables/useHotkeys'
 import { useTheme } from './composables/useTheme'
@@ -455,6 +456,9 @@ onMounted(async () => {
       else if (event.payload.type === 'drop') void nativeCall(() => message('Drop exactly one file at a time.', { title: 'HexForge', kind: 'warning' }))
     })
     if (disposed) dropUnlisten(); else disposers.push(dropUnlisten)
+    // CI sets a process-local flag; this native acknowledgment proves that
+    // the bundled Vue frontend and IPC both started in the portable EXE.
+    try { await backend.frontendReady() } catch { /* Startup probe is optional in normal runs. */ }
   } catch (error) {
     session.presentError(error)
     await nativeCall(() => message(error instanceof Error ? error.message : 'Desktop listeners could not be registered.', { title: 'HexForge', kind: 'error' }))

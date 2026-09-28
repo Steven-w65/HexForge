@@ -151,6 +151,7 @@ onBeforeUnmount(() => {
 .editor-header small span { color: var(--modified); }
 .connecting { color: var(--muted); font-size: var(--font-body); }
 .close-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 14px; }
-.close-actions button { width: auto; height: 28px; padding: 0 9px; color: var(--text); background: var(--button); font-size: var(--font-body); }
+.close-actions button { width: auto; height: 27px; padding: 0 9px; color: var(--text); background: var(--button); border: 0; border-radius: 3px; font: inherit; font-size: var(--font-body); }
+.close-actions button:hover:not(:disabled) { background: var(--hover); }
 .close-actions button:disabled { opacity: .4; cursor: default; }
 </style>

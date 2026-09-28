@@ -299,6 +299,19 @@ async fn session_operation<T: Send + 'static>(
     blocking(move || with_session_state(&shared, operation)).await
 }
 
+#[tauri::command]
+pub fn frontend_ready(window: tauri::WebviewWindow) -> Result<(), AppError> {
+    if matches!(
+        std::env::var("HEXFORGE_PORTABLE_SMOKE_TEST").as_deref(),
+        Ok("1")
+    ) {
+        window
+            .set_title("HexForge - Ready")
+            .map_err(|_| operation_failed())?;
+    }
+    Ok(())
+}
+
 #[tauri::command(rename_all = "camelCase")]
 pub async fn open_file(
     state: State<'_, AppState>,

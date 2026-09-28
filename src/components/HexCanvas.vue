@@ -47,6 +47,7 @@ const minimapCanvas = ref<HTMLCanvasElement | null>(null)
 const minimapContent = ref<HTMLElement | null>(null)
 const renderedRevision = ref<string>()
 const size = reactive({ width: 1, height: 1 })
+const minimapHeight = ref(1)
 const canvasWidth = ref(1)
 let layout: HexLayout = createLayout(size.width, props.bytesPerRow)
 const gutterWidth = ref(layout.hexX - layout.charWidth + 1)
@@ -80,6 +81,7 @@ let minimapPointerId: number | null = null
 const visualMinimapTopPx = ref<number | null>(null)
 const minimapHovered = ref(false)
 const minimapDragging = ref(false)
+const minimapWarning = ref<string | null>(null)
 
 const THUMB_HEIGHT = 24
 const MINIMAP_PREVIEW_WIDTH = 84
@@ -98,13 +100,13 @@ const thumbHeight = computed(() => {
 const thumbTop = computed(() => `${rowToThumb(scrollRow.value, maxScrollRow.value + 1n, Math.max(0, size.height - thumbHeight.value))}px`)
 const horizontalOverflow = computed(() => canvasWidth.value > size.width)
 const miniGeometry = computed(() => createMinimapGeometry({
-  mode: settings.value.mode, totalRows: totalRows.value, heightPx: Math.max(1, Math.floor(size.height)),
+  mode: settings.value.mode, totalRows: totalRows.value, heightPx: minimapHeight.value,
   rowPx: settings.value.scale * 2, topRow: scrollRow.value,
   visibleMainRows: BigInt(fullyVisibleRows.value), visualTopPx: visualMinimapTopPx.value,
 }))
 const markers = computed(() => collectMinimapMarkers(props.matches, props.matchLength ?? 1, props.templateFields ?? [],
   props.modifiedOverview ?? { binCount: 0, bins: [] }, props.fileSize, props.bytesPerRow))
-const overviewMarks = computed(() => projectOverviewMarkers(markers.value, totalRows.value, Math.floor(size.height)))
+const overviewMarks = computed(() => projectOverviewMarkers(markers.value, totalRows.value, minimapHeight.value))
 const searchMarks = computed(() => overviewMarks.value.filter((mark) => mark.kind === 'search'))
 const templateMarks = computed(() => overviewMarks.value.filter((mark) => mark.kind === 'template'))
 const modifiedMarks = computed(() => overviewMarks.value.filter((mark) => mark.kind === 'modified'))
@@ -159,7 +161,24 @@ function paintCurrentMinimap(): void {
 function ensureMiniRenderer(): void {
   if (!settings.value.enabled || !minimapCanvas.value || miniRenderer) return
   try { miniRenderer = new MinimapRenderer(createMinimapCanvasLayers(minimapCanvas.value)) }
-  catch (error) { emit('minimap-error', error) }
+  catch (error) { handleMinimapError(error) }
+}
+
+function handleMinimapError(error: unknown): void {
+  // A changed source invalidates the main editor too, so retain its normal
+  // dialog. An optional preview failure must not interrupt byte inspection.
+  if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'source_changed') {
+    emit('minimap-error', error)
+    return
+  }
+  minimapWarning.value = typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string'
+    ? error.message : 'The minimap preview could not be loaded.'
+}
+
+function retryMinimap(): void {
+  minimapWarning.value = null
+  ensureMiniRenderer()
+  miniData?.retry()
 }
 
 function visibleByteInterval(): { start: bigint; end: bigint } {
@@ -272,6 +291,10 @@ function resize(width: number, height: number): void {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return
   size.width = width
   size.height = height
+  // Horizontal overflow shortens the hex viewport by its scrollbar height,
+  // but the separate minimap column still fills the whole editor frame.
+  const measuredMinimapHeight = minimapContent.value?.getBoundingClientRect().height ?? 0
+  minimapHeight.value = Math.max(1, Math.ceil(measuredMinimapHeight > 0 ? measuredMinimapHeight : height))
   measured = true
   rebuildLayout(width)
   if (gutterCanvas.value && gutterContext) {
@@ -511,6 +534,7 @@ watch(() => props.fileSize, () => {
 watch([() => props.sourceIdentity, () => props.sourceKey, () => props.sourceRevision], ([nextIdentity, nextKey], [previousIdentity, previousKey]) => {
   invalidateAcceptedPage()
   if (nextIdentity !== previousIdentity || nextKey !== previousKey) {
+    minimapWarning.value = null
     cancelPendingMinimapInput()
     miniInteraction?.endDrag()
     minimapPointerId = null
@@ -560,7 +584,7 @@ onMounted(async () => {
   ensureMiniRenderer()
   miniData = createMinimapDataManager(backend,
     (rows) => { miniRenderer?.invalidateRows(rows); minimapDirty = true; schedule() },
-    (error) => emit('minimap-error', error))
+    handleMinimapError)
   miniInteraction = createMinimapInteractionController({
     geometry: () => miniGeometry.value, visibleMainRows: () => BigInt(fullyVisibleRows.value),
     getMainRow: () => pendingMinimapMainRow ?? scrollRow.value,
@@ -617,6 +641,8 @@ onBeforeUnmount(() => {
         @pointerdown="onMinimapPointerDown" @pointermove="onMinimapPointerMove" @pointerup="onMinimapPointerUp" @pointercancel="onMinimapPointerUp"
         @lostpointercapture="onMinimapPointerUp"
       />
+      <button v-if="minimapWarning" type="button" class="minimap-retry" data-testid="minimap-retry"
+        :title="`${minimapWarning} Click to retry.`" aria-label="Retry minimap preview" @click.stop="retryMinimap">↻</button>
     </div>
     <div class="virtual-scrollbar" aria-label="Full-file scrollbar" @pointerdown="onScrollbarPointerDown" @pointermove="onScrollbarPointerMove" @pointerup="onScrollbarPointerUp" @pointercancel="onScrollbarPointerUp">
         <div class="minimap__markers">
@@ -641,6 +667,8 @@ canvas { display: block; width: 100%; height: 100%; cursor: default; }
 .minimap-content canvas { width: 84px; cursor: pointer; touch-action: none; }
 .minimap-content.is-box-hover canvas { cursor: grab; }
 .minimap-content.is-box-dragging canvas { cursor: grabbing; }
+.minimap-retry { position: absolute; z-index: 2; top: 6px; right: 6px; width: 24px; height: 24px; padding: 0; color: var(--text); background: var(--panel); border: 1px solid var(--border-strong); border-radius: 4px; cursor: pointer; }
+.minimap-retry:hover { background: var(--hover); }
 .virtual-scrollbar { position: relative; flex: 0 0 12px; background: color-mix(in srgb, currentColor 8%, transparent); border-left: 1px solid var(--border); touch-action: none; cursor: pointer; }
 .minimap__markers { position: absolute; inset: 0; pointer-events: none; }
 .minimap__match, .minimap__template, .minimap__modified { position: absolute; left: 0; right: 0; min-height: 2px; border-radius: 1px; }
