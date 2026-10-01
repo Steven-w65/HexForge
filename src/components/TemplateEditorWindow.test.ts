@@ -101,6 +101,20 @@ describe('TemplateEditorWindow', () => {
     wrapper.unmount()
   })
 
+  it('accepts authoritative theme updates without replacing an unacknowledged editor draft', async () => {
+    const wrapper = mount(TemplateEditorWindow); await flushPromises()
+    await wrapper.get('[data-field="template-name"]').setValue('Unsaved title'); await flushPromises()
+    await mocks.handlers.get('hexforge:template:snapshot')?.({ ...initial, revision: 2, theme: 'dark' })
+    await flushPromises()
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect((wrapper.get('[data-field="template-name"]').element as HTMLInputElement).value).toBe('Unsaved title')
+    await mocks.handlers.get('hexforge:template:snapshot')?.({ ...initial, revision: 3, theme: 'light' })
+    await flushPromises()
+    expect(document.documentElement.dataset.theme).toBe('light')
+    expect((wrapper.get('[data-field="template-name"]').element as HTMLInputElement).value).toBe('Unsaved title')
+    wrapper.unmount()
+  })
+
   it('shows one editor without a format badge or selector', async () => {
     const wrapper = mount(TemplateEditorWindow); await flushPromises()
     expect(wrapper.findAll('.editor-header [role="group"]')).toHaveLength(0)

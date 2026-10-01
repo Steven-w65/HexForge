@@ -47,11 +47,13 @@ vi.mock('./templateWindow/tauriBus', () => ({ tauriBus: {
 import App from './App.vue'
 import AppShell from './components/AppShell.vue'
 import type { ParsedNode, TemplateDefinition } from './types'
+import { installSystemTheme } from '../tests/helpers/systemTheme'
 
 const file = { name: 'firmware.bin', path: 'C:/firmware.bin', size: '32', revision: '1', dirty: false }
 const page = { offset: '0', bytes: [0x41], modifiedOffsets: [], revision: '1' }
 
 describe('App desktop orchestration', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
   beforeEach(() => {
     localStorage.clear()
     Object.values(mocks.backend).forEach((mock) => mock.mockReset())
@@ -999,6 +1001,39 @@ describe('App desktop orchestration', () => {
     press('e', { ctrlKey: true, shiftKey: true }); await flushPromises()
     expect(mocks.backend.exportResultsCsv).toHaveBeenCalledWith('C:/wide.csv', template, expect.any(Function))
     wrapper.unmount()
+  })
+
+  it('synchronizes the system theme and manual toggle with the hex canvas and editor snapshots', async () => {
+    const system = installSystemTheme(false)
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    press('o', { ctrlKey: true }); await flushPromises()
+    await mocks.busHandlers.get('hexforge:template:ready')?.({ sessionId: 'theme-editor' })
+    await flushPromises()
+    const editorTheme = () => mocks.busSent.mock.calls.filter(([event]) => event === 'hexforge:template:snapshot').at(-1)?.[1]?.theme
+    expect(document.documentElement.dataset.theme).toBe('light')
+    expect(wrapper.findComponent({ name: 'HexCanvas' }).props('theme')).toBe('light')
+    expect(editorTheme()).toBe('light')
+
+    press('t', { ctrlKey: true, altKey: true }); await flushPromises()
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(wrapper.findComponent({ name: 'HexCanvas' }).props('theme')).toBe('dark')
+    expect(editorTheme()).toBe('dark')
+
+    system.setDark(true)
+    system.setDark(false)
+    await flushPromises()
+    expect(document.documentElement.dataset.theme).toBe('light')
+    expect(wrapper.findComponent({ name: 'HexCanvas' }).props('theme')).toBe('light')
+    expect(editorTheme()).toBe('light')
+
+    await wrapper.get('[data-menu="view"]').trigger('click')
+    await wrapper.get('[data-menu-command="theme-toggle"]').trigger('click'); await flushPromises()
+    expect(editorTheme()).toBe('dark')
+    wrapper.unmount()
+    system.setDark(true)
+    system.setDark(false)
+    expect(document.documentElement.dataset.theme).toBe('dark')
   })
 
   it('routes the simplified View shortcuts without binding direct themes or panel visibility', async () => {

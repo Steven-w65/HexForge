@@ -25,7 +25,7 @@
 - ✏️ **Experiment without touching the source.** Edit a selected byte in memory, see changes highlighted in orange, and undo an edit. **Save As** writes a new binary; the original is never overwritten.
 - 🧩 **Make structure visible.** Apply a local JSON template to decode fields, jump from a parsed result to its bytes, and export results as CSV.
 
-The dark-first interface includes a light theme and bundles JetBrains Mono locally. Search, parsing, and export keep the interface responsive.
+The interface follows your system's light or dark theme automatically and bundles JetBrains Mono locally. Toggle Theme (`Ctrl+Alt+T`) keeps a manual choice until the next system-theme change or app restart. Search, parsing, and export keep the interface responsive.
 
 Everything stays local: HexForge never uploads your files, bytes, paths, templates, or parsed results. There are no cloud accounts, telemetry, or auto-updates.
 
