@@ -15,9 +15,9 @@ fn operations_report_each_chunk_field_and_row() {
     assert_eq!(searched, [2, 4, 5]);
 
     let definition: template::TemplateDefinition = serde_json::from_value(serde_json::json!({
-        "version":1,"name":"Header","defaultEndianness":"little","fields":[
-            {"name":"first","offset":"0","type":"u8","comment":""},
-            {"name":"second","offset":"1","type":"u8","comment":""}
+        "name":"Header","defaultEndianness":"little","fields":[
+            {"name":"first","type":"u8","placement":{"mode":"absolute","offset":"0"}},
+            {"name":"second","type":"u8","placement":{"mode":"absolute","offset":"1"}}
         ]
     }))
     .unwrap();
@@ -27,9 +27,9 @@ fn operations_report_each_chunk_field_and_row() {
     })
     .unwrap();
     assert_eq!(parsed, [1, 2]);
-    assert_eq!(fields[1].value, "2");
+    assert_eq!(fields[1].value.as_deref(), Some("2"));
     let mut rows = Vec::new();
-    export::export_csv_create_new_with_progress(
+    export::export_results_csv_with_progress(
         &directory.path().join("fields.csv"),
         &fields,
         &mut |value| rows.push(value),

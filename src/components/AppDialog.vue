@@ -1,24 +1,34 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { lockModalFocus } from '../ui/modalFocus'
 
 const props = defineProps<{ open: boolean; title?: string; message?: string }>()
 defineEmits<{ close: [] }>()
 const dialog = ref<HTMLElement | null>(null)
+const backdrop = ref<HTMLElement | null>(null)
+let release: (() => void) | undefined
+let generation = 0
 
 async function focusInitialControl(): Promise<void> {
   if (!props.open) return
+  const current = ++generation
+  const invoking = document.activeElement instanceof HTMLElement ? document.activeElement : null
   await nextTick()
-  const target = dialog.value?.querySelector<HTMLElement>('[autofocus]') ??
-    dialog.value?.querySelector<HTMLElement>('input, select, textarea, button')
-  target?.focus()
+  if (!props.open || current !== generation || !backdrop.value) return
+  release?.()
+  release = lockModalFocus(backdrop.value, invoking)
 }
 
-watch(() => props.open, (open) => { if (open) void focusInitialControl() })
+watch(() => props.open, (open) => {
+  if (open) void focusInitialControl()
+  else { generation += 1; release?.(); release = undefined }
+})
 onMounted(() => { void focusInitialControl() })
+onBeforeUnmount(() => { generation += 1; release?.() })
 </script>
 
 <template>
-  <div v-if="open" class="dialog-backdrop" role="presentation" @click.self="$emit('close')">
+  <div v-if="open" ref="backdrop" class="dialog-backdrop" role="presentation" tabindex="-1" @click.self="$emit('close')">
     <section ref="dialog" class="dialog" role="dialog" aria-modal="true" :aria-label="title ?? 'HexForge dialog'" @keydown.esc.stop.prevent="$emit('close')">
       <header><strong>{{ title }}</strong><button type="button" aria-label="Close dialog" @click="$emit('close')">×</button></header>
       <p v-if="message">{{ message }}</p>

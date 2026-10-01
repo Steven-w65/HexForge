@@ -1,544 +1,10 @@
-#[cfg(test)]
-mod tests {
-    use super::{
-        decode, load_template_file, parse_template, save_template_file_create_new, validate_field,
-        validate_template, Endian, FieldType, TemplateDefinition, TemplateField,
-        TemplateFileSession,
-    };
-    use crate::session::{FileSession, MAX_READ_RANGE};
+//! Strict, unversioned template schema and bounded, ordered interpreter.
 
-    fn field(name: &str, offset: u64, field_type: FieldType, length: Option<u64>) -> TemplateField {
-        TemplateField {
-            name: name.to_owned(),
-            offset: offset.to_string(),
-            field_type,
-            length,
-            endianness: None,
-            comment: String::new(),
-        }
-    }
-
-    fn valid_template() -> TemplateDefinition {
-        TemplateDefinition {
-            version: 1,
-            name: "Header".to_owned(),
-            default_endianness: Endian::Little,
-            fields: vec![field("count", 0, FieldType::U16, None)],
-        }
-    }
-
-    #[test]
-    fn bytes_requires_positive_length_and_numeric_rejects_length() {
-        let bytes = field("blob", 0, FieldType::Bytes, None);
-        assert_eq!(
-            validate_field(&bytes, Endian::Little, 16)
-                .unwrap_err()
-                .code(),
-            "invalid_template"
-        );
-        let number = field("count", 0, FieldType::U32, Some(4));
-        assert_eq!(
-            validate_field(&number, Endian::Little, 16)
-                .unwrap_err()
-                .code(),
-            "invalid_template"
-        );
-    }
-
-    #[test]
-    fn rejects_field_past_end_without_clamping() {
-        let field = field("tail", 14, FieldType::U32, None);
-        assert_eq!(
-            validate_field(&field, Endian::Little, 16)
-                .unwrap_err()
-                .code(),
-            "template_out_of_bounds"
-        );
-    }
-
-    #[test]
-    fn template_validation_rejects_runtime_version_names_and_bad_offsets() {
-        let mut template = valid_template();
-        template.version = 2;
-        assert_eq!(
-            validate_template(&template, 16).unwrap_err().code(),
-            "invalid_template"
-        );
-
-        template.version = 1;
-        template.name = " \t".to_owned();
-        assert_eq!(
-            validate_template(&template, 16).unwrap_err().code(),
-            "invalid_template"
-        );
-
-        template.name = "Header".to_owned();
-        template.fields[0].name = " ".to_owned();
-        assert_eq!(
-            validate_template(&template, 16).unwrap_err().code(),
-            "invalid_template"
-        );
-
-        template.fields[0].name = "count".to_owned();
-        template.fields[0].offset = "12x".to_owned();
-        assert_eq!(
-            validate_template(&template, 16).unwrap_err().code(),
-            "invalid_template"
-        );
-    }
-
-    #[test]
-    fn template_validation_rejects_duplicate_names_offset_overflow_and_zero_length() {
-        let mut template = valid_template();
-        template.fields.push(field("count", 2, FieldType::U8, None));
-        assert_eq!(
-            validate_template(&template, 16).unwrap_err().code(),
-            "invalid_template"
-        );
-
-        template.fields.truncate(1);
-        template.fields[0].offset = u64::MAX.to_string();
-        assert_eq!(
-            validate_template(&template, 16).unwrap_err().code(),
-            "template_out_of_bounds"
-        );
-
-        template.fields[0] = field("text", 0, FieldType::String, Some(0));
-        assert_eq!(
-            validate_template(&template, 16).unwrap_err().code(),
-            "invalid_template"
-        );
-    }
-
-    #[test]
-    fn decodes_signed_unsigned_float_string_and_bytes() {
-        assert_eq!(
-            decode(FieldType::U16, &[0x34, 0x12], Endian::Little).unwrap(),
-            "4660"
-        );
-        assert_eq!(
-            decode(FieldType::I16, &[0xff, 0xfe], Endian::Big).unwrap(),
-            "-2"
-        );
-        assert_eq!(
-            decode(FieldType::F32, &1.5f32.to_be_bytes(), Endian::Big).unwrap(),
-            "1.5"
-        );
-        assert_eq!(
-            decode(FieldType::String, b"ROM\0\0", Endian::Little).unwrap(),
-            "ROM"
-        );
-        assert_eq!(
-            decode(FieldType::Bytes, &[0xde, 0xad], Endian::Little).unwrap(),
-            "DE AD"
-        );
-    }
-
-    #[test]
-    fn decodes_every_numeric_type_in_both_endian_modes() {
-        let cases = [
-            (FieldType::U8, vec![0xfe], Endian::Little, "254"),
-            (FieldType::U8, vec![0xfe], Endian::Big, "254"),
-            (FieldType::U16, vec![0x34, 0x12], Endian::Little, "4660"),
-            (FieldType::U16, vec![0x12, 0x34], Endian::Big, "4660"),
-            (
-                FieldType::U32,
-                vec![0x78, 0x56, 0x34, 0x12],
-                Endian::Little,
-                "305419896",
-            ),
-            (
-                FieldType::U32,
-                vec![0x12, 0x34, 0x56, 0x78],
-                Endian::Big,
-                "305419896",
-            ),
-            (FieldType::I8, vec![0xfe], Endian::Little, "-2"),
-            (FieldType::I8, vec![0xfe], Endian::Big, "-2"),
-            (FieldType::I16, vec![0xfe, 0xff], Endian::Little, "-2"),
-            (FieldType::I16, vec![0xff, 0xfe], Endian::Big, "-2"),
-            (
-                FieldType::I32,
-                vec![0xfe, 0xff, 0xff, 0xff],
-                Endian::Little,
-                "-2",
-            ),
-            (
-                FieldType::I32,
-                vec![0xff, 0xff, 0xff, 0xfe],
-                Endian::Big,
-                "-2",
-            ),
-            (
-                FieldType::F32,
-                1.5f32.to_le_bytes().to_vec(),
-                Endian::Little,
-                "1.5",
-            ),
-            (
-                FieldType::F32,
-                1.5f32.to_be_bytes().to_vec(),
-                Endian::Big,
-                "1.5",
-            ),
-            (
-                FieldType::F64,
-                1.5f64.to_le_bytes().to_vec(),
-                Endian::Little,
-                "1.5",
-            ),
-            (
-                FieldType::F64,
-                1.5f64.to_be_bytes().to_vec(),
-                Endian::Big,
-                "1.5",
-            ),
-        ];
-
-        for (field_type, bytes, endian, expected) in cases {
-            assert_eq!(decode(field_type, &bytes, endian).unwrap(), expected);
-        }
-    }
-
-    #[test]
-    fn decode_rejects_wrong_numeric_byte_width() {
-        assert_eq!(
-            decode(FieldType::U32, &[1, 2], Endian::Little)
-                .unwrap_err()
-                .code(),
-            "invalid_template"
-        );
-    }
-
-    #[test]
-    fn parse_validates_all_fields_before_reading_and_uses_sparse_edits() {
-        let file = tempfile::NamedTempFile::new().unwrap();
-        std::fs::write(file.path(), [0x34, 0x12, 0, 0]).unwrap();
-        let mut session = FileSession::open(file.path().to_path_buf(), 2, 2).unwrap();
-        session.edit_byte(1, 0x56).unwrap();
-        let cache_len_before_parse = session.cache_len();
-
-        let mut template = valid_template();
-        template
-            .fields
-            .push(field("past-end", 3, FieldType::U16, None));
-        assert_eq!(
-            parse_template(&mut session, &template).unwrap_err().code(),
-            "template_out_of_bounds"
-        );
-        assert_eq!(session.cache_len(), cache_len_before_parse);
-
-        template.fields.truncate(1);
-        let parsed = parse_template(&mut session, &template).unwrap();
-        assert_eq!(parsed[0].value, "22068");
-        assert_eq!(session.cache_len(), cache_len_before_parse);
-    }
-
-    #[test]
-    fn template_file_io_reports_invalid_json_and_refuses_overwrite() {
-        let dir = tempfile::tempdir().unwrap();
-        let missing = dir.path().join("missing.json");
-        assert_eq!(
-            load_template_file(&missing).unwrap_err().code(),
-            "file_not_found"
-        );
-
-        let invalid = dir.path().join("invalid.json");
-        std::fs::write(&invalid, "{not json}").unwrap();
-        assert_eq!(
-            load_template_file(&invalid).unwrap_err().code(),
-            "invalid_template"
-        );
-
-        let existing = dir.path().join("existing.json");
-        std::fs::write(&existing, "keep").unwrap();
-        let definition = valid_template();
-        assert_eq!(
-            save_template_file_create_new(&existing, &definition)
-                .unwrap_err()
-                .code(),
-            "destination_exists"
-        );
-        assert_eq!(std::fs::read_to_string(existing).unwrap(), "keep");
-    }
-
-    #[test]
-    fn template_file_io_loads_valid_json_and_enforces_version_at_runtime() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("template.json");
-        std::fs::write(
-            &path,
-            r#"{"version":2,"name":"bad","defaultEndianness":"little","fields":[]}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            load_template_file(&path).unwrap_err().code(),
-            "invalid_template"
-        );
-
-        let definition = valid_template();
-        let output = dir.path().join("created.json");
-        save_template_file_create_new(&output, &definition).unwrap();
-        assert!(std::fs::read_to_string(&output)
-            .unwrap()
-            .contains("\"version\": 1"));
-        assert_eq!(load_template_file(&output).unwrap(), definition);
-    }
-
-    #[test]
-    fn saving_loaded_template_detects_external_edits_and_preserves_them_until_confirmed() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("header.json");
-        let original = valid_template();
-        save_template_file_create_new(&path, &original).unwrap();
-        let mut files = TemplateFileSession::default();
-        assert_eq!(files.load(&path).unwrap(), original);
-        std::fs::write(&path, b"external change").unwrap();
-        let mut edited = original.clone();
-        edited.name = "Edited".into();
-
-        assert_eq!(
-            files.save(&edited, false, None).unwrap_err().code(),
-            "external_modification"
-        );
-        assert_eq!(std::fs::read(&path).unwrap(), b"external change");
-        files.save(&edited, true, None).unwrap();
-        assert_eq!(load_template_file(&path).unwrap(), edited);
-        // Successful writes become the new external-change baseline.
-        files.save(&edited, false, None).unwrap();
-    }
-
-    #[test]
-    fn saving_loaded_template_recreates_a_deleted_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("header.json");
-        let definition = valid_template();
-        save_template_file_create_new(&path, &definition).unwrap();
-        let mut files = TemplateFileSession::default();
-        files.load(&path).unwrap();
-        std::fs::remove_file(&path).unwrap();
-
-        files.save(&definition, false, None).unwrap();
-        assert_eq!(load_template_file(&path).unwrap(), definition);
-    }
-
-    #[test]
-    fn save_as_requires_confirmation_for_existing_target_and_updates_the_binding_only_after_success(
-    ) {
-        let dir = tempfile::tempdir().unwrap();
-        let original_path = dir.path().join("original.json");
-        let target_path = dir.path().join("target.json");
-        let definition = valid_template();
-        save_template_file_create_new(&original_path, &definition).unwrap();
-        std::fs::write(&target_path, b"keep").unwrap();
-        let mut files = TemplateFileSession::default();
-        files.load(&original_path).unwrap();
-
-        assert_eq!(
-            files
-                .save_as(&target_path, &definition, false, None)
-                .unwrap_err()
-                .code(),
-            "destination_exists"
-        );
-        assert_eq!(std::fs::read(&target_path).unwrap(), b"keep");
-        assert_eq!(
-            files.path(),
-            Some(original_path.canonicalize().unwrap().as_path())
-        );
-        files
-            .save_as(&target_path, &definition, true, None)
-            .unwrap();
-        assert_eq!(
-            files.path(),
-            Some(target_path.canonicalize().unwrap().as_path())
-        );
-        assert_eq!(load_template_file(&target_path).unwrap(), definition);
-    }
-
-    #[test]
-    fn template_saves_never_overwrite_the_open_binary_source() {
-        let dir = tempfile::tempdir().unwrap();
-        let binary = dir.path().join("source.bin");
-        std::fs::write(&binary, b"ROM").unwrap();
-        let mut files = TemplateFileSession::default();
-
-        assert_eq!(
-            files
-                .save_as(&binary, &valid_template(), true, Some(&binary))
-                .unwrap_err()
-                .code(),
-            "destination_is_source"
-        );
-        assert_eq!(std::fs::read(&binary).unwrap(), b"ROM");
-    }
-
-    #[test]
-    fn unloading_template_clears_its_saved_path() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("header.json");
-        let definition = valid_template();
-        save_template_file_create_new(&path, &definition).unwrap();
-        let mut files = TemplateFileSession::default();
-        files.load(&path).unwrap();
-
-        files.clear();
-        assert_eq!(files.path(), None);
-        assert_eq!(
-            files.save(&definition, false, None).unwrap_err().code(),
-            "invalid_path"
-        );
-    }
-
-    #[test]
-    fn malformed_field_type_is_rejected_by_json_loading() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("invalid-type.json");
-        std::fs::write(
-            &path,
-            r#"{"version":1,"name":"bad","defaultEndianness":"little","fields":[{"name":"x","offset":"0","type":"u64"}]}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            load_template_file(&path).unwrap_err().code(),
-            "invalid_template"
-        );
-    }
-
-    #[test]
-    fn json_loading_rejects_unknown_root_field_and_nested_keys() {
-        let dir = tempfile::tempdir().unwrap();
-        let cases = [
-            (
-                "unknown-root.json",
-                r#"{"version":1,"name":"Header","defaultEndianness":"little","fields":[],"metadata":"ignored"}"#,
-            ),
-            (
-                "field-condition.json",
-                r#"{"version":1,"name":"Header","defaultEndianness":"little","fields":[{"name":"x","offset":"0","type":"u8","comment":"","condition":"never"}]}"#,
-            ),
-            (
-                "nested-fields.json",
-                r#"{"version":1,"name":"Header","defaultEndianness":"little","fields":[{"name":"x","offset":"0","type":"u8","comment":"","fields":[]}]}"#,
-            ),
-        ];
-
-        for (name, json) in cases {
-            let path = dir.path().join(name);
-            std::fs::write(&path, json).unwrap();
-            assert_eq!(
-                load_template_file(&path).unwrap_err().code(),
-                "invalid_template"
-            );
-        }
-    }
-
-    #[test]
-    fn loading_rejects_template_json_larger_than_the_bounded_input_limit() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("too-large.json");
-        let comment = "x".repeat(MAX_READ_RANGE as usize);
-        let json = format!(
-            r#"{{"version":1,"name":"Header","defaultEndianness":"little","fields":[{{"name":"byte","offset":"0","type":"u8","comment":"{comment}"}}]}}"#
-        );
-        std::fs::write(&path, json).unwrap();
-
-        assert_eq!(
-            load_template_file(&path).unwrap_err().code(),
-            "invalid_template"
-        );
-    }
-
-    #[test]
-    fn rejects_excessive_field_count_before_session_reads() {
-        let file = tempfile::NamedTempFile::new().unwrap();
-        std::fs::write(file.path(), vec![0_u8; 8192]).unwrap();
-        let mut session = FileSession::open(file.path().to_path_buf(), 256, 2).unwrap();
-        let mut template = valid_template();
-        template.fields = (0..=super::MAX_TEMPLATE_FIELDS)
-            .map(|index| field(&format!("f{index}"), index as u64, FieldType::U8, None))
-            .collect();
-
-        assert_eq!(
-            parse_template(&mut session, &template).unwrap_err().code(),
-            "invalid_template"
-        );
-        assert_eq!(session.cache_len(), 0);
-        assert_eq!(session.test_read_count(), 0);
-    }
-
-    #[test]
-    fn rejects_aggregate_decoded_budget_before_session_reads() {
-        let field_length = MAX_READ_RANGE;
-        let field_count = super::MAX_TEMPLATE_DECODED_BYTES / (field_length * 4) + 1;
-        let file = tempfile::NamedTempFile::new().unwrap();
-        file.as_file().set_len(field_length * field_count).unwrap();
-        let mut session = FileSession::open(file.path().to_path_buf(), 256, 2).unwrap();
-        let template = TemplateDefinition {
-            version: 1,
-            name: "Adversarial".into(),
-            default_endianness: Endian::Little,
-            fields: (0..field_count)
-                .map(|index| {
-                    field(
-                        &format!("blob{index}"),
-                        index * field_length,
-                        FieldType::Bytes,
-                        Some(field_length),
-                    )
-                })
-                .collect(),
-        };
-
-        let error = parse_template(&mut session, &template).unwrap_err();
-        assert_eq!(error.code(), "invalid_template");
-        assert!(error.message.contains("decoded data budget"));
-        assert_eq!(session.cache_len(), 0);
-        assert_eq!(session.test_read_count(), 0);
-    }
-}
 use crate::error::{AppError, ErrorCode};
 use crate::session::{FileSession, MAX_READ_RANGE};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use tempfile::NamedTempFile;
-
-/// Templates are intentionally flat and bounded so validation, parsing, and CSV export
-/// have a predictable memory ceiling even when a file contains many valid ranges.
-pub const MAX_TEMPLATE_FIELDS: usize = 4096;
-/// Maximum combined input buffers plus worst-case decoded value strings (16 MiB).
-pub const MAX_TEMPLATE_DECODED_BYTES: u64 = 16 * 1024 * 1024;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum FieldType {
-    U8,
-    U16,
-    U32,
-    I8,
-    I16,
-    I32,
-    F32,
-    F64,
-    String,
-    Bytes,
-}
-
-impl FieldType {
-    fn fixed_width(&self) -> Option<u64> {
-        match self {
-            Self::U8 | Self::I8 => Some(1),
-            Self::U16 | Self::I16 => Some(2),
-            Self::U32 | Self::I32 | Self::F32 => Some(4),
-            Self::F64 => Some(8),
-            Self::String | Self::Bytes => None,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -547,160 +13,1945 @@ pub enum Endian {
     Big,
 }
 
+pub const MAX_TEMPLATE_DEPTH: usize = 8;
+pub const MAX_TEMPLATE_DEFINITIONS: u64 = 4096;
+pub const MAX_TEMPLATE_EXPANDED_NODES: u64 = 10_000;
+pub const MAX_TEMPLATE_DECODED_BYTES: u64 = 16 * 1024 * 1024;
+const PARSER_CACHE_BYTES: usize = 64 * 1024;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TemplateDefinition {
-    pub version: u32,
     pub name: String,
     pub default_endianness: Endian,
     pub fields: Vec<TemplateField>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FieldType {
+    U8,
+    U16,
+    U32,
+    U64,
+    I8,
+    I16,
+    I32,
+    I64,
+    F32,
+    F64,
+    Bool,
+    String,
+    Bytes,
+    Struct,
+    Array,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TextEncoding {
+    Ascii,
+    Utf8,
+    Utf16le,
+    Utf16be,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlacementMode {
+    Absolute,
+    Relative,
+    Sequential,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Placement {
+    pub mode: PlacementMode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<OffsetSpec>,
+}
+
+/// Literal offsets remain decimal strings. Referenced offsets stay u64 from
+/// decode through checked addition; no JavaScript/float expression evaluation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum OffsetSpec {
+    Literal(String),
+    Reference(OffsetReference),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OffsetReference {
+    #[serde(rename = "ref")]
+    pub reference: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub add: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum LengthSpec {
+    Fixed(u64),
+    Reference(LengthReference),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LengthReference {
+    #[serde(rename = "ref")]
+    pub reference: String,
+    pub max: u64,
+}
+impl LengthSpec {
+    fn bound(&self) -> u64 {
+        match self {
+            Self::Fixed(value) => *value,
+            Self::Reference(value) => value.max,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "type",
+    content = "value",
+    rename_all = "lowercase",
+    deny_unknown_fields
+)]
+pub enum ExpectedValue {
+    Unsigned(String),
+    Signed(String),
+    Float(String),
+    Bool(bool),
+    String(String),
+    Bytes(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum Expectation {
+    Equals {
+        value: ExpectedValue,
+    },
+    OneOf {
+        values: Vec<ExpectedValue>,
+    },
+    Range {
+        min: ExpectedValue,
+        max: ExpectedValue,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CountSpec {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fixed: Option<u64>,
+    #[serde(rename = "ref", skip_serializing_if = "Option::is_none")]
+    pub reference: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Comparison {
+    Eq,
+    Ne,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "type",
+    content = "value",
+    rename_all = "lowercase",
+    deny_unknown_fields
+)]
+pub enum ConditionValue {
+    Unsigned(String),
+    Signed(String),
+    Bool(bool),
+    String(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Condition {
+    #[serde(rename = "ref")]
+    pub reference: String,
+    pub op: Comparison,
+    pub value: ConditionValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BitFlag {
+    pub bit: u8,
+    pub name: String,
+}
+
+/// Named fields belong to a root or struct. The element of an array is unnamed.
+/// Cross-type combinations are rejected in `validate_template`, not ignored.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TemplateField {
-    pub name: String,
-    pub offset: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     #[serde(rename = "type")]
     pub field_type: FieldType,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub length: Option<u64>,
+    pub placement: Option<Placement>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub align: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub endianness: Option<Endian>,
-    pub comment: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub length: Option<LengthSpec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoding: Option<TextEncoding>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fields: Option<Vec<TemplateField>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub element: Option<Box<TemplateField>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<CountSpec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub condition: Option<Condition>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enum_labels: Option<BTreeMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bit_flags: Option<Vec<BitFlag>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expect: Option<Expectation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ParsedField {
+pub struct Diagnostic {
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParsedNode {
+    pub kind: String,
     pub name: String,
-    pub offset: String,
+    pub path: String,
     #[serde(rename = "type")]
     pub field_type: FieldType,
-    pub length: u64,
-    pub endianness: Endian,
-    pub value: String,
+    pub offset: Option<String>,
+    pub length: Option<String>,
+    pub value: Option<String>,
+    pub endianness: Option<Endian>,
     pub comment: String,
+    pub enum_label: Option<String>,
+    pub flags: Vec<String>,
+    pub diagnostics: Vec<Diagnostic>,
+    pub children: Vec<ParsedNode>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ValidatedField {
-    pub name: String,
-    pub offset: u64,
-    pub field_type: FieldType,
-    pub length: u64,
-    pub endianness: Endian,
-    pub comment: String,
+fn error(path: &str, code: ErrorCode, message: impl Into<String>) -> AppError {
+    AppError::new(
+        code,
+        format!("{path}: {}", message.into()),
+        Some(path.to_owned()),
+    )
 }
 
-pub fn validate_template(
-    template: &TemplateDefinition,
-    file_size: u64,
-) -> Result<Vec<ValidatedField>, AppError> {
-    if template.version != 1 {
-        return Err(invalid_template("Only template version 1 is supported."));
-    }
-    if template.name.trim().is_empty() {
-        return Err(invalid_template("Template names must not be empty."));
-    }
-    if template.fields.len() > MAX_TEMPLATE_FIELDS {
-        return Err(invalid_template(
-            "Templates may contain at most 4096 fields.",
+fn decimal_u64(value: &str, path: &str, label: &str) -> Result<u64, AppError> {
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(error(
+            path,
+            ErrorCode::InvalidTemplate,
+            format!("{label} must be an unsigned decimal string."),
         ));
     }
-
-    let mut names = HashSet::with_capacity(template.fields.len());
-    let mut validated = Vec::with_capacity(template.fields.len());
-    let mut decoded_budget = 0_u64;
-    for field in &template.fields {
-        if field.name.trim().is_empty() {
-            return Err(invalid_template("Field names must not be empty."));
-        }
-        if !names.insert(field.name.as_str()) {
-            return Err(invalid_template("Template field names must be unique."));
-        }
-        let validated_field = validate_field(field, template.default_endianness, file_size)?;
-        decoded_budget = decoded_budget
-            .checked_add(decoded_allocation_budget(&validated_field))
-            .ok_or_else(|| invalid_template("The template decoded data budget is too large."))?;
-        if decoded_budget > MAX_TEMPLATE_DECODED_BYTES {
-            return Err(invalid_template(
-                "The template exceeds the 16 MiB decoded data budget.",
-            ));
-        }
-        validated.push(validated_field);
-    }
-    Ok(validated)
+    value.parse().map_err(|_| {
+        error(
+            path,
+            ErrorCode::InvalidTemplate,
+            format!("{label} exceeds u64."),
+        )
+    })
 }
 
-fn decoded_allocation_budget(field: &ValidatedField) -> u64 {
-    let output = match field.field_type {
-        // Lossy UTF-8 can replace each invalid source byte with a three-byte replacement.
-        FieldType::String => field.length.saturating_mul(3),
-        // "FF " needs at most three output bytes for every source byte.
-        FieldType::Bytes => field.length.saturating_mul(3),
-        // Numeric formatting is small, but reserve enough for sign/exponent/precision.
-        _ => 32,
-    };
-    field.length.saturating_add(output)
+fn decimal_i64(value: &str, path: &str, label: &str) -> Result<i64, AppError> {
+    if value.is_empty()
+        || value == "-"
+        || !value
+            .trim_start_matches('-')
+            .bytes()
+            .all(|byte| byte.is_ascii_digit())
+    {
+        return Err(error(
+            path,
+            ErrorCode::InvalidTemplate,
+            format!("{label} must be a signed decimal string."),
+        ));
+    }
+    value.parse().map_err(|_| {
+        error(
+            path,
+            ErrorCode::InvalidTemplate,
+            format!("{label} exceeds i64."),
+        )
+    })
+}
+
+fn width(kind: FieldType) -> Option<u64> {
+    match kind {
+        FieldType::U8 | FieldType::I8 | FieldType::Bool => Some(1),
+        FieldType::U16 | FieldType::I16 => Some(2),
+        FieldType::U32 | FieldType::I32 | FieldType::F32 => Some(4),
+        FieldType::U64 | FieldType::I64 | FieldType::F64 => Some(8),
+        _ => None,
+    }
+}
+
+fn unsigned_type(kind: FieldType) -> bool {
+    matches!(
+        kind,
+        FieldType::U8 | FieldType::U16 | FieldType::U32 | FieldType::U64
+    )
+}
+fn signed_type(kind: FieldType) -> bool {
+    matches!(
+        kind,
+        FieldType::I8 | FieldType::I16 | FieldType::I32 | FieldType::I64
+    )
+}
+fn integer_type(kind: FieldType) -> bool {
+    unsigned_type(kind) || signed_type(kind)
+}
+
+fn bounded_read(length: Option<u64>, path: &str, label: &str) -> Result<u64, AppError> {
+    match length {
+        Some(1..=MAX_READ_RANGE) => Ok(length.unwrap()),
+        _ => Err(error(
+            path,
+            ErrorCode::InvalidTemplate,
+            format!("{label} must be 1..={MAX_READ_RANGE} bytes."),
+        )),
+    }
+}
+
+fn checked_budget_add(left: u64, right: u64, path: &str) -> Result<u64, AppError> {
+    left.checked_add(right)
+        .filter(|value| *value <= MAX_TEMPLATE_DECODED_BYTES)
+        .ok_or_else(|| {
+            error(
+                path,
+                ErrorCode::InvalidTemplate,
+                "The decoded-data limit is 16 MiB.",
+            )
+        })
+}
+
+fn checked_node_add(left: u64, right: u64, path: &str) -> Result<u64, AppError> {
+    left.checked_add(right)
+        .filter(|value| *value <= MAX_TEMPLATE_EXPANDED_NODES)
+        .ok_or_else(|| {
+            error(
+                path,
+                ErrorCode::InvalidTemplate,
+                "The expanded-result limit is 10000 nodes.",
+            )
+        })
+}
+
+#[derive(Default)]
+struct StaticLimits {
+    definitions: u64,
+}
+
+/// Structural and fixed-count preflight. No binary read occurs before this succeeds.
+pub fn validate_template(template: &TemplateDefinition) -> Result<(), AppError> {
+    if template.name.trim().is_empty() {
+        return Err(error(
+            "template",
+            ErrorCode::InvalidTemplate,
+            "The template name must not be empty.",
+        ));
+    }
+    let mut limits = StaticLimits::default();
+    let (nodes, decoded) = validate_fields(&template.fields, "", 1, &mut limits)?;
+    checked_node_add(0, nodes, "template")?;
+    checked_budget_add(0, decoded, "template")?;
+    validate_references(&template.fields, "", &mut HashMap::new())?;
+    Ok(())
+}
+
+// Symbolic array scopes use `[]`; existence of a concrete index or a
+// conditionally skipped value still has to be proven at runtime.
+fn validate_references(
+    fields: &[TemplateField],
+    scope: &str,
+    seen: &mut HashMap<String, FieldType>,
+) -> Result<(), AppError> {
+    for field in fields {
+        let name = field.name.as_deref().unwrap_or("");
+        let path = if scope.is_empty() {
+            name.to_owned()
+        } else {
+            format!("{scope}.{name}")
+        };
+        validate_field_references(field, &path, seen)?;
+        if unsigned_type(field.field_type)
+            || signed_type(field.field_type)
+            || matches!(field.field_type, FieldType::Bool | FieldType::String)
+        {
+            seen.insert(path, field.field_type);
+        }
+    }
+    Ok(())
+}
+
+fn check_reference_type(
+    reference: &str,
+    path: &str,
+    seen: &HashMap<String, FieldType>,
+    allowed: impl Fn(FieldType) -> bool,
+) -> Result<(), AppError> {
+    let mut scope = parent_scope(path);
+    let mut actual = None;
+    while let Some(prefix) = scope {
+        actual = seen.get(&format!("{prefix}.{reference}"));
+        if actual.is_some() {
+            break;
+        }
+        scope = parent_scope(prefix);
+    }
+    actual = actual.or_else(|| seen.get(reference));
+    match actual {
+        Some(kind) if allowed(*kind) => Ok(()),
+        Some(_) => Err(error(path, ErrorCode::InvalidTemplate, format!("Reference '{reference}' has the wrong type; an earlier compatible value is required."))),
+        None if reference.contains('[') => Ok(()),
+        None => Err(error(path, ErrorCode::InvalidTemplate, format!("Reference '{reference}' must identify an earlier field."))),
+    }
+}
+
+fn validate_field_references(
+    field: &TemplateField,
+    path: &str,
+    seen: &mut HashMap<String, FieldType>,
+) -> Result<(), AppError> {
+    if let Some(LengthSpec::Reference(value)) = &field.length {
+        check_reference_type(&value.reference, path, seen, unsigned_type)?;
+    }
+    if let Some(OffsetSpec::Reference(value)) = field
+        .placement
+        .as_ref()
+        .and_then(|value| value.offset.as_ref())
+    {
+        check_reference_type(&value.reference, path, seen, unsigned_type)?;
+    }
+    if let Some(condition) = &field.condition {
+        check_reference_type(&condition.reference, path, seen, |kind| {
+            match condition.value {
+                ConditionValue::Unsigned(_) => unsigned_type(kind),
+                ConditionValue::Signed(_) => signed_type(kind),
+                ConditionValue::Bool(_) => kind == FieldType::Bool,
+                ConditionValue::String(_) => kind == FieldType::String,
+            }
+        })?;
+    }
+    if let Some(reference) = field
+        .count
+        .as_ref()
+        .and_then(|value| value.reference.as_deref())
+    {
+        check_reference_type(reference, path, seen, unsigned_type)?;
+    }
+    if let Some(children) = &field.fields {
+        validate_references(children, path, seen)?;
+    }
+    if let Some(element) = &field.element {
+        validate_field_references(element, &format!("{path}[]"), seen)?;
+    }
+    Ok(())
+}
+
+fn validate_fields(
+    fields: &[TemplateField],
+    scope: &str,
+    depth: usize,
+    limits: &mut StaticLimits,
+) -> Result<(u64, u64), AppError> {
+    let mut names = HashSet::new();
+    let mut nodes = 0;
+    let mut decoded = 0;
+    for field in fields {
+        let name = field.name.as_deref().unwrap_or("");
+        let path = if scope.is_empty() {
+            name.to_owned()
+        } else {
+            format!("{scope}.{name}")
+        };
+        if name.trim().is_empty() || name.contains(['.', '[', ']']) {
+            return Err(error(
+                &path,
+                ErrorCode::InvalidTemplate,
+                "Field names must be nonempty and cannot contain '.', '[' or ']'.",
+            ));
+        }
+        if !names.insert(name) {
+            return Err(error(
+                &path,
+                ErrorCode::InvalidTemplate,
+                "Field names must be unique within their structure.",
+            ));
+        }
+        let (field_nodes, field_decoded) = validate_field(field, &path, depth, false, limits)?;
+        nodes = checked_node_add(nodes, field_nodes, &path)?;
+        decoded = checked_budget_add(decoded, field_decoded, &path)?;
+    }
+    Ok((nodes, decoded))
 }
 
 fn validate_field(
     field: &TemplateField,
-    default_endianness: Endian,
-    file_size: u64,
-) -> Result<ValidatedField, AppError> {
-    if field.name.trim().is_empty() {
-        return Err(invalid_template("Field names must not be empty."));
-    }
+    path: &str,
+    depth: usize,
+    element: bool,
+    limits: &mut StaticLimits,
+) -> Result<(u64, u64), AppError> {
+    let (nodes, decoded) = validate_field_body(field, path, depth, element, limits)?;
+    Ok((
+        nodes,
+        checked_budget_add(decoded, metadata_cost(field, path)?, path)?,
+    ))
+}
 
-    let offset = parse_decimal_offset(&field.offset)?;
-    let length = match field.field_type.fixed_width() {
-        Some(width) => {
-            if field.length.is_some() {
-                return Err(invalid_template(
-                    "Fixed-width numeric fields must not specify a length.",
-                ));
-            }
-            width
+/// Arrays duplicate comments, labels and paths for every result. Charge that
+/// output alongside value formatting, not just the bytes read from the file.
+fn metadata_cost(field: &TemplateField, path: &str) -> Result<u64, AppError> {
+    let mut cost = checked_budget_add(
+        128,
+        (path.len() as u64).checked_mul(2).ok_or_else(|| {
+            error(
+                path,
+                ErrorCode::InvalidTemplate,
+                "Result path budget overflows.",
+            )
+        })?,
+        path,
+    )?;
+    cost = checked_budget_add(
+        cost,
+        field.comment.as_ref().map_or(0, |value| value.len() as u64),
+        path,
+    )?;
+    if let Some(labels) = &field.enum_labels {
+        cost = checked_budget_add(
+            cost,
+            labels
+                .values()
+                .map(|value| value.len() as u64)
+                .max()
+                .unwrap_or(0),
+            path,
+        )?;
+    }
+    if let Some(flags) = &field.bit_flags {
+        for flag in flags {
+            cost = checked_budget_add(cost, flag.name.len() as u64, path)?;
         }
-        None => {
-            let Some(length) = field.length else {
-                return Err(invalid_template(
-                    "String and bytes fields require a positive length.",
-                ));
-            };
-            if length == 0 || length > MAX_READ_RANGE {
-                return Err(invalid_template(
-                    "String and bytes field lengths must be between 1 and 1048576 bytes.",
-                ));
-            }
-            length
-        }
-    };
-    let end = offset.checked_add(length).ok_or_else(|| {
-        template_out_of_bounds("The template field range overflows the supported file size.")
-    })?;
-    if end > file_size {
-        return Err(template_out_of_bounds(
-            "The template field range extends beyond the file.",
+    }
+    Ok(cost)
+}
+
+fn validate_field_body(
+    field: &TemplateField,
+    path: &str,
+    depth: usize,
+    element: bool,
+    limits: &mut StaticLimits,
+) -> Result<(u64, u64), AppError> {
+    if depth > MAX_TEMPLATE_DEPTH {
+        return Err(error(
+            path,
+            ErrorCode::InvalidTemplate,
+            "The nesting limit is 8.",
         ));
     }
+    limits.definitions = limits
+        .definitions
+        .checked_add(1)
+        .filter(|count| *count <= MAX_TEMPLATE_DEFINITIONS)
+        .ok_or_else(|| {
+            error(
+                path,
+                ErrorCode::InvalidTemplate,
+                "The definition limit is 4096 fields.",
+            )
+        })?;
+    if element && (field.name.is_some() || field.placement.is_some() || field.condition.is_some()) {
+        return Err(error(
+            path,
+            ErrorCode::InvalidTemplate,
+            "Array elements must be unnamed, sequential and unconditional.",
+        ));
+    }
+    if let Some(placement) = &field.placement {
+        match placement.mode {
+            PlacementMode::Sequential if placement.offset.is_some() => {
+                return Err(error(
+                    path,
+                    ErrorCode::InvalidTemplate,
+                    "Sequential placement cannot have an offset.",
+                ))
+            }
+            PlacementMode::Absolute | PlacementMode::Relative => match &placement.offset {
+                Some(OffsetSpec::Literal(value)) => {
+                    decimal_u64(value, path, "Placement offset")?;
+                }
+                Some(OffsetSpec::Reference(value)) => {
+                    if value.reference.trim().is_empty() {
+                        return Err(error(
+                            path,
+                            ErrorCode::InvalidTemplate,
+                            "Offset ref must name an earlier unsigned field.",
+                        ));
+                    }
+                    if let Some(add) = &value.add {
+                        decimal_u64(add, path, "Offset addition")?;
+                    }
+                }
+                None => {
+                    return Err(error(
+                        path,
+                        ErrorCode::InvalidTemplate,
+                        "Placement requires an offset.",
+                    ))
+                }
+            },
+            _ => {}
+        }
+    }
+    if let Some(LengthSpec::Reference(value)) = &field.length {
+        if value.reference.trim().is_empty() {
+            return Err(error(
+                path,
+                ErrorCode::InvalidTemplate,
+                "Length ref must name an earlier unsigned field.",
+            ));
+        }
+    }
+    if let Some(expectation) = &field.expect {
+        validate_expectation(expectation, field.field_type, path)?;
+    }
+    if let Some(align) = field.align {
+        if align == 0 || !align.is_power_of_two() || align > MAX_READ_RANGE {
+            return Err(error(
+                path,
+                ErrorCode::InvalidTemplate,
+                "Alignment must be a power of two between 1 and 1048576.",
+            ));
+        }
+    }
+    if let Some(condition) = &field.condition {
+        if condition.reference.trim().is_empty() {
+            return Err(error(
+                path,
+                ErrorCode::InvalidTemplate,
+                "Condition ref must name an earlier parsed value.",
+            ));
+        }
+        match &condition.value {
+            ConditionValue::Unsigned(value) => {
+                decimal_u64(value, path, "Condition value")?;
+            }
+            ConditionValue::Signed(value) => {
+                decimal_i64(value, path, "Condition value")?;
+            }
+            ConditionValue::Bool(_) | ConditionValue::String(_) => {
+                if !matches!(condition.op, Comparison::Eq | Comparison::Ne) {
+                    return Err(error(
+                        path,
+                        ErrorCode::InvalidTemplate,
+                        "Boolean and text conditions support eq/ne only.",
+                    ));
+                }
+            }
+        }
+    }
+    if field.enum_labels.is_some() && !integer_type(field.field_type) {
+        return Err(error(
+            path,
+            ErrorCode::InvalidTemplate,
+            "Enum labels require an integer field.",
+        ));
+    }
+    if let Some(labels) = &field.enum_labels {
+        for (value, label) in labels {
+            let bits = width(field.field_type).expect("enum labels require integers") * 8;
+            let fits = if unsigned_type(field.field_type) {
+                let number = decimal_u64(value, path, "Enum key")?;
+                bits == 64 || number < (1_u64 << bits)
+            } else {
+                let number = decimal_i64(value, path, "Enum key")?;
+                bits == 64 || (number >= -(1_i64 << (bits - 1)) && number < (1_i64 << (bits - 1)))
+            };
+            if !fits {
+                return Err(error(
+                    path,
+                    ErrorCode::InvalidTemplate,
+                    "Enum key exceeds its integer field width.",
+                ));
+            }
+            if label.trim().is_empty() {
+                return Err(error(
+                    path,
+                    ErrorCode::InvalidTemplate,
+                    "Enum labels cannot be empty.",
+                ));
+            }
+        }
+    }
+    if field.bit_flags.is_some() && !unsigned_type(field.field_type) {
+        return Err(error(
+            path,
+            ErrorCode::InvalidTemplate,
+            "Bit flags require an unsigned integer field.",
+        ));
+    }
+    if let Some(flags) = &field.bit_flags {
+        let mut bits = HashSet::new();
+        let mut names = HashSet::new();
+        for flag in flags {
+            if flag.bit as u64 >= width(field.field_type).unwrap() * 8
+                || !bits.insert(flag.bit)
+                || flag.name.trim().is_empty()
+                || !names.insert(flag.name.as_str())
+            {
+                return Err(error(
+                    path,
+                    ErrorCode::InvalidTemplate,
+                    "Bit flags need unique in-range bit numbers and nonempty names.",
+                ));
+            }
+        }
+    }
+    let scalar_extras = field.length.is_some()
+        || field.max_length.is_some()
+        || field.encoding.is_some()
+        || field.fields.is_some()
+        || field.element.is_some()
+        || field.count.is_some();
+    if width(field.field_type).is_some() {
+        if scalar_extras {
+            return Err(error(
+                path,
+                ErrorCode::InvalidTemplate,
+                "Numeric and bool fields cannot have text, byte or container properties.",
+            ));
+        }
+        if field.field_type == FieldType::Bool
+            && (field.endianness.is_some()
+                || field.enum_labels.is_some()
+                || field.bit_flags.is_some())
+        {
+            return Err(error(
+                path,
+                ErrorCode::InvalidTemplate,
+                "Bool fields cannot have endian, enum or flag properties.",
+            ));
+        }
+        return Ok((1, width(field.field_type).unwrap() * 4));
+    }
+    if field.enum_labels.is_some() || field.bit_flags.is_some() {
+        return Err(error(
+            path,
+            ErrorCode::InvalidTemplate,
+            "Only integer fields support labels and flags.",
+        ));
+    }
+    match field.field_type {
+        FieldType::String => {
+            if field.endianness.is_some()
+                || field.fields.is_some()
+                || field.element.is_some()
+                || field.count.is_some()
+                || field.encoding.is_none()
+                || (field.length.is_some() == field.max_length.is_some())
+            {
+                return Err(error(
+                    path,
+                    ErrorCode::InvalidTemplate,
+                    "Text needs encoding and exactly one of length or maxLength.",
+                ));
+            }
+            let length = bounded_read(
+                field
+                    .length
+                    .as_ref()
+                    .map(LengthSpec::bound)
+                    .or(field.max_length),
+                path,
+                "Text bound",
+            )?;
+            if matches!(
+                field.encoding,
+                Some(TextEncoding::Utf16le | TextEncoding::Utf16be)
+            ) && length % 2 != 0
+            {
+                return Err(error(
+                    path,
+                    ErrorCode::InvalidTemplate,
+                    "UTF-16 byte bounds must be even.",
+                ));
+            }
+            Ok((
+                1,
+                length.checked_mul(4).ok_or_else(|| {
+                    error(path, ErrorCode::InvalidTemplate, "Text budget overflow.")
+                })?,
+            ))
+        }
+        FieldType::Bytes => {
+            if field.endianness.is_some()
+                || field.max_length.is_some()
+                || field.encoding.is_some()
+                || field.fields.is_some()
+                || field.element.is_some()
+                || field.count.is_some()
+            {
+                return Err(error(
+                    path,
+                    ErrorCode::InvalidTemplate,
+                    "Bytes fields require only length.",
+                ));
+            }
+            let length = bounded_read(
+                field.length.as_ref().map(LengthSpec::bound),
+                path,
+                "Byte length",
+            )?;
+            Ok((
+                1,
+                length.checked_mul(4).ok_or_else(|| {
+                    error(path, ErrorCode::InvalidTemplate, "Byte budget overflow.")
+                })?,
+            ))
+        }
+        FieldType::Struct => {
+            if field.length.is_some()
+                || field.max_length.is_some()
+                || field.encoding.is_some()
+                || field.element.is_some()
+                || field.count.is_some()
+            {
+                return Err(error(
+                    path,
+                    ErrorCode::InvalidTemplate,
+                    "Struct fields require only fields.",
+                ));
+            }
+            let children = field.fields.as_deref().ok_or_else(|| {
+                error(path, ErrorCode::InvalidTemplate, "Struct requires fields.")
+            })?;
+            let (child_nodes, decoded) = validate_fields(children, path, depth + 1, limits)?;
+            Ok((checked_node_add(1, child_nodes, path)?, decoded))
+        }
+        FieldType::Array => {
+            if field.length.is_some()
+                || field.max_length.is_some()
+                || field.encoding.is_some()
+                || field.fields.is_some()
+            {
+                return Err(error(
+                    path,
+                    ErrorCode::InvalidTemplate,
+                    "Array fields require count and element.",
+                ));
+            }
+            let count = field
+                .count
+                .as_ref()
+                .ok_or_else(|| error(path, ErrorCode::InvalidTemplate, "Array requires count."))?;
+            if count.fixed.is_some() == count.reference.is_some()
+                || count
+                    .reference
+                    .as_ref()
+                    .is_some_and(|value| value.trim().is_empty())
+            {
+                return Err(error(
+                    path,
+                    ErrorCode::InvalidTemplate,
+                    "Array count needs exactly one fixed or ref value.",
+                ));
+            }
+            let item = field.element.as_ref().ok_or_else(|| {
+                error(path, ErrorCode::InvalidTemplate, "Array requires element.")
+            })?;
+            let (item_nodes, item_decoded) =
+                validate_field(item, &format!("{path}[]"), depth + 1, true, limits)?;
+            let fixed = count.fixed.unwrap_or(1);
+            let nodes = item_nodes.checked_mul(fixed).ok_or_else(|| {
+                error(
+                    path,
+                    ErrorCode::InvalidTemplate,
+                    "Array node count overflows.",
+                )
+            })?;
+            let decoded = item_decoded.checked_mul(fixed).ok_or_else(|| {
+                error(
+                    path,
+                    ErrorCode::InvalidTemplate,
+                    "Array decoded data overflows.",
+                )
+            })?;
+            Ok((
+                checked_node_add(1, nodes, path)?,
+                checked_budget_add(0, decoded, path)?,
+            ))
+        }
+        _ => unreachable!("fixed-width variants returned above"),
+    }
+}
 
-    Ok(ValidatedField {
-        name: field.name.clone(),
-        offset,
-        field_type: field.field_type.clone(),
-        length,
-        endianness: field.endianness.unwrap_or(default_endianness),
-        comment: field.comment.clone(),
+#[derive(Clone)]
+enum ReferenceValue {
+    Unsigned(u64),
+    Signed(i64),
+    Bool(bool),
+    Text(String),
+}
+
+fn hex_value(value: &str, path: &str) -> Result<Vec<u8>, AppError> {
+    value
+        .split_whitespace()
+        .map(|part| {
+            if part.len() != 2 || !part.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                return Err(error(
+                    path,
+                    ErrorCode::InvalidTemplate,
+                    "Expected bytes must use two-digit hex pairs separated by spaces.",
+                ));
+            }
+            u8::from_str_radix(part, 16)
+                .map_err(|_| error(path, ErrorCode::InvalidTemplate, "Invalid expected byte."))
+        })
+        .collect()
+}
+
+fn compare_expected(
+    actual: &str,
+    expected: &ExpectedValue,
+    path: &str,
+) -> Result<Option<std::cmp::Ordering>, AppError> {
+    Ok(match expected {
+        ExpectedValue::Unsigned(value) => actual
+            .parse::<u64>()
+            .ok()
+            .map(|number| number.cmp(&value.parse::<u64>().unwrap())),
+        ExpectedValue::Signed(value) => actual
+            .parse::<i64>()
+            .ok()
+            .map(|number| number.cmp(&value.parse::<i64>().unwrap())),
+        ExpectedValue::Float(value) => actual
+            .parse::<f64>()
+            .ok()
+            .filter(|value| value.is_finite())
+            .and_then(|number| number.partial_cmp(&value.parse::<f64>().unwrap())),
+        ExpectedValue::Bool(value) => Some((actual == "true").cmp(value)),
+        ExpectedValue::String(value) => Some(actual.cmp(value)),
+        ExpectedValue::Bytes(value) => Some(hex_value(actual, path)?.cmp(&hex_value(value, path)?)),
     })
+}
+
+fn validate_expected_value(
+    value: &ExpectedValue,
+    kind: FieldType,
+    path: &str,
+) -> Result<(), AppError> {
+    let compatible = match value {
+        ExpectedValue::Unsigned(value) => {
+            let number = decimal_u64(value, path, "Expected value")?;
+            unsigned_type(kind)
+                && (kind == FieldType::U64 || number < (1u64 << (width(kind).unwrap_or(8) * 8)))
+        }
+        ExpectedValue::Signed(value) => {
+            let number = decimal_i64(value, path, "Expected value")?;
+            let bits = width(kind).unwrap_or(8) * 8;
+            signed_type(kind)
+                && (bits == 64
+                    || (number >= -(1i64 << (bits - 1)) && number < (1i64 << (bits - 1))))
+        }
+        ExpectedValue::Float(value) => {
+            matches!(kind, FieldType::F32 | FieldType::F64)
+                && value.parse::<f64>().is_ok_and(|value| value.is_finite())
+        }
+        ExpectedValue::Bool(_) => kind == FieldType::Bool,
+        ExpectedValue::String(value) => {
+            kind == FieldType::String && value.len() as u64 <= MAX_READ_RANGE
+        }
+        ExpectedValue::Bytes(value) => {
+            kind == FieldType::Bytes && hex_value(value, path)?.len() as u64 <= MAX_READ_RANGE
+        }
+    };
+    if !compatible {
+        return Err(error(
+            path,
+            ErrorCode::InvalidTemplate,
+            "Expected value must match the field type and width.",
+        ));
+    }
+    Ok(())
+}
+
+fn expected_text(value: &ExpectedValue) -> String {
+    match value {
+        ExpectedValue::Unsigned(value)
+        | ExpectedValue::Signed(value)
+        | ExpectedValue::Float(value)
+        | ExpectedValue::String(value)
+        | ExpectedValue::Bytes(value) => value.clone(),
+        ExpectedValue::Bool(value) => value.to_string(),
+    }
+}
+
+fn validate_expectation(
+    expectation: &Expectation,
+    kind: FieldType,
+    path: &str,
+) -> Result<(), AppError> {
+    match expectation {
+        Expectation::Equals { value } => validate_expected_value(value, kind, path),
+        Expectation::OneOf { values } => {
+            if values.is_empty() || values.len() > 256 {
+                return Err(error(
+                    path,
+                    ErrorCode::InvalidTemplate,
+                    "oneOf requires 1..=256 typed values.",
+                ));
+            }
+            for value in values {
+                validate_expected_value(value, kind, path)?;
+            }
+            Ok(())
+        }
+        Expectation::Range { min, max } => {
+            if !integer_type(kind) && !matches!(kind, FieldType::F32 | FieldType::F64) {
+                return Err(error(
+                    path,
+                    ErrorCode::InvalidTemplate,
+                    "Expected ranges require numeric fields.",
+                ));
+            }
+            validate_expected_value(min, kind, path)?;
+            validate_expected_value(max, kind, path)?;
+            if compare_expected(&expected_text(min), max, path)?
+                == Some(std::cmp::Ordering::Greater)
+            {
+                return Err(error(
+                    path,
+                    ErrorCode::InvalidTemplate,
+                    "Expected range minimum exceeds maximum.",
+                ));
+            }
+            Ok(())
+        }
+    }
+}
+
+fn check_expectation(
+    expectation: &Expectation,
+    actual: &str,
+    path: &str,
+) -> Result<(), ParseFailure> {
+    use std::cmp::Ordering;
+    let matches = match expectation {
+        Expectation::Equals { value } => {
+            compare_expected(actual, value, path).map_err(ParseFailure::fatal)?
+                == Some(Ordering::Equal)
+        }
+        Expectation::OneOf { values } => {
+            let mut found = false;
+            for value in values {
+                found |= compare_expected(actual, value, path).map_err(ParseFailure::fatal)?
+                    == Some(Ordering::Equal);
+            }
+            found
+        }
+        Expectation::Range { min, max } => {
+            matches!(
+                compare_expected(actual, min, path).map_err(ParseFailure::fatal)?,
+                Some(Ordering::Equal | Ordering::Greater)
+            ) && matches!(
+                compare_expected(actual, max, path).map_err(ParseFailure::fatal)?,
+                Some(Ordering::Equal | Ordering::Less)
+            )
+        }
+    };
+    if matches {
+        Ok(())
+    } else {
+        fn short(value: &str) -> String {
+            let mut chars = value.chars();
+            let mut result: String = chars.by_ref().take(80).collect();
+            if chars.next().is_some() {
+                result.push('…');
+            }
+            result
+        }
+        let expected = match expectation {
+            Expectation::Equals { value } => short(&expected_text(value)),
+            Expectation::OneOf { values } => format!(
+                "one of [{}{}]",
+                values
+                    .iter()
+                    .take(8)
+                    .map(|value| short(&expected_text(value)))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                if values.len() > 8 { ", …" } else { "" }
+            ),
+            Expectation::Range { min, max } => format!(
+                "{}..={}",
+                short(&expected_text(min)),
+                short(&expected_text(max))
+            ),
+        };
+        Err(ParseFailure::field(
+            path,
+            ErrorCode::TemplateExpectationFailed,
+            format!("Expected {expected}; decoded {}.", short(actual)),
+        ))
+    }
+}
+
+#[derive(Clone, Copy)]
+struct AttemptedRange {
+    offset: u64,
+    length: Option<u64>,
+}
+
+enum ParseFailure {
+    Field(AppError, Option<AttemptedRange>),
+    Fatal(AppError),
+}
+
+/// Walk result-path scopes from the innermost instantiated structure outward.
+/// An array index is a scope component too: `records[1].payload` can resolve
+/// `length` against `records[1].length`, not against the first record.
+fn parent_scope(path: &str) -> Option<&str> {
+    if path.ends_with(']') {
+        return path.rfind('[').map(|index| &path[..index]);
+    }
+    path.rfind('.').map(|index| &path[..index])
+}
+
+impl ParseFailure {
+    fn field(path: &str, code: ErrorCode, message: impl Into<String>) -> Self {
+        Self::Field(error(path, code, message), None)
+    }
+    fn fatal(value: AppError) -> Self {
+        Self::Fatal(value)
+    }
+    fn at(self, start: u64, length: u64) -> Self {
+        match self {
+            Self::Field(issue, _) => Self::Field(
+                issue,
+                Some(AttemptedRange {
+                    offset: start,
+                    length: Some(length),
+                }),
+            ),
+            other => other,
+        }
+    }
+}
+
+struct Interpreter<'a> {
+    session: &'a mut FileSession,
+    refs: HashMap<String, ReferenceValue>,
+    decoded: u64,
+    nodes: u64,
+    cache_start: u64,
+    cache: Vec<u8>,
+    last_progress: u64,
+}
+
+impl Interpreter<'_> {
+    fn unsigned_reference(&self, reference: &str, path: &str) -> Result<u64, ParseFailure> {
+        match self.resolve_reference(reference, path)? {
+            ReferenceValue::Unsigned(value) => Ok(*value),
+            _ => Err(ParseFailure::field(
+                path,
+                ErrorCode::InvalidTemplate,
+                "Reference must identify an earlier unsigned integer.",
+            )),
+        }
+    }
+
+    fn length(&self, spec: &LengthSpec, path: &str) -> Result<u64, ParseFailure> {
+        match spec {
+            LengthSpec::Fixed(value) => Ok(*value),
+            LengthSpec::Reference(value) => {
+                let length = self.unsigned_reference(&value.reference, path)?;
+                if length > value.max {
+                    return Err(ParseFailure::field(
+                        path,
+                        ErrorCode::TemplateOutOfBounds,
+                        format!(
+                            "Decoded length {length} exceeds its declared maximum {}.",
+                            value.max
+                        ),
+                    ));
+                }
+                Ok(length)
+            }
+        }
+    }
+
+    fn offset(&self, spec: &OffsetSpec, path: &str) -> Result<u64, ParseFailure> {
+        match spec {
+            OffsetSpec::Literal(value) => {
+                decimal_u64(value, path, "Placement offset").map_err(ParseFailure::fatal)
+            }
+            OffsetSpec::Reference(value) => self
+                .unsigned_reference(&value.reference, path)?
+                .checked_add(
+                    value
+                        .add
+                        .as_deref()
+                        .map(|value| decimal_u64(value, path, "Offset addition"))
+                        .transpose()
+                        .map_err(ParseFailure::fatal)?
+                        .unwrap_or(0),
+                )
+                .ok_or_else(|| {
+                    ParseFailure::field(
+                        path,
+                        ErrorCode::TemplateOutOfBounds,
+                        "Referenced offset addition overflows u64.",
+                    )
+                }),
+        }
+    }
+    fn reserve_node(&mut self, path: &str, field: &TemplateField) -> Result<(), ParseFailure> {
+        self.nodes = checked_node_add(self.nodes, 1, path).map_err(ParseFailure::fatal)?;
+        self.decoded = checked_budget_add(
+            self.decoded,
+            metadata_cost(field, path).map_err(ParseFailure::fatal)?,
+            path,
+        )
+        .map_err(ParseFailure::fatal)?;
+        Ok(())
+    }
+
+    fn reserve_bytes(&mut self, size: u64, path: &str) -> Result<(), ParseFailure> {
+        let worst = size.checked_mul(4).ok_or_else(|| {
+            ParseFailure::fatal(error(
+                path,
+                ErrorCode::InvalidTemplate,
+                "Decoded data overflows.",
+            ))
+        })?;
+        self.decoded =
+            checked_budget_add(self.decoded, worst, path).map_err(ParseFailure::fatal)?;
+        Ok(())
+    }
+
+    fn read(&mut self, start: u64, length: u64, path: &str) -> Result<Vec<u8>, ParseFailure> {
+        let end = start.checked_add(length).ok_or_else(|| {
+            ParseFailure::field(
+                path,
+                ErrorCode::TemplateOutOfBounds,
+                "Byte range overflows u64.",
+            )
+        })?;
+        if end > self.session.info().size {
+            return Err(ParseFailure::field(
+                path,
+                ErrorCode::TemplateOutOfBounds,
+                format!("Requested {length} bytes at offset {start}; {} available. Byte range extends beyond the file.", self.session.info().size.saturating_sub(start)),
+            ));
+        }
+        self.reserve_bytes(length, path)?;
+        if length == 0 {
+            return Ok(Vec::new());
+        }
+        if length <= PARSER_CACHE_BYTES as u64 {
+            let cached_end = self.cache_start + self.cache.len() as u64;
+            if start < self.cache_start || end > cached_end {
+                self.cache_start = start;
+                self.cache.resize(
+                    (self.session.info().size - start).min(PARSER_CACHE_BYTES as u64) as usize,
+                    0,
+                );
+                let read = self
+                    .session
+                    .read_effective_chunk(start, &mut self.cache)
+                    .map_err(ParseFailure::fatal)?;
+                self.cache.truncate(read);
+            }
+            let from = (start - self.cache_start) as usize;
+            return Ok(self.cache[from..from + length as usize].to_vec());
+        }
+        let mut bytes = vec![0; length as usize];
+        let read = self
+            .session
+            .read_effective_chunk(start, &mut bytes)
+            .map_err(ParseFailure::fatal)?;
+        if read != bytes.len() {
+            return Err(ParseFailure::field(
+                path,
+                ErrorCode::TemplateOutOfBounds,
+                "The source was truncated.",
+            ));
+        }
+        Ok(bytes)
+    }
+
+    fn resolve_reference(
+        &self,
+        reference: &str,
+        path: &str,
+    ) -> Result<&ReferenceValue, ParseFailure> {
+        let mut scope = parent_scope(path);
+        while let Some(prefix) = scope {
+            if let Some(value) = self.refs.get(&format!("{prefix}.{reference}")) {
+                return Ok(value);
+            }
+            scope = parent_scope(prefix);
+        }
+        self.refs.get(reference).ok_or_else(|| {
+            ParseFailure::field(
+                path,
+                ErrorCode::InvalidTemplate,
+                format!("Reference '{reference}' is missing or not earlier in parse order."),
+            )
+        })
+    }
+
+    fn evaluate_condition(&self, condition: &Condition, path: &str) -> Result<bool, ParseFailure> {
+        use std::cmp::Ordering;
+        let actual = self.resolve_reference(&condition.reference, path)?;
+        let order = match (actual, &condition.value) {
+            (ReferenceValue::Unsigned(left), ConditionValue::Unsigned(right)) => {
+                left.cmp(&decimal_u64(right, path, "Condition value").map_err(ParseFailure::fatal)?)
+            }
+            (ReferenceValue::Signed(left), ConditionValue::Signed(right)) => {
+                left.cmp(&decimal_i64(right, path, "Condition value").map_err(ParseFailure::fatal)?)
+            }
+            (ReferenceValue::Bool(left), ConditionValue::Bool(right)) => left.cmp(right),
+            (ReferenceValue::Text(left), ConditionValue::String(right)) => left.cmp(right),
+            _ => {
+                return Err(ParseFailure::field(
+                    path,
+                    ErrorCode::InvalidTemplate,
+                    "Condition value type does not match its reference.",
+                ))
+            }
+        };
+        Ok(match condition.op {
+            Comparison::Eq => order == Ordering::Equal,
+            Comparison::Ne => order != Ordering::Equal,
+            Comparison::Lt => order == Ordering::Less,
+            Comparison::Lte => order != Ordering::Greater,
+            Comparison::Gt => order == Ordering::Greater,
+            Comparison::Gte => order != Ordering::Less,
+        })
+    }
+
+    fn start(
+        &self,
+        field: &TemplateField,
+        base: u64,
+        cursor: u64,
+        path: &str,
+    ) -> Result<u64, ParseFailure> {
+        let placed = match field
+            .placement
+            .as_ref()
+            .map(|value| value.mode)
+            .unwrap_or(PlacementMode::Sequential)
+        {
+            PlacementMode::Sequential => cursor,
+            PlacementMode::Absolute => self.offset(
+                field.placement.as_ref().unwrap().offset.as_ref().unwrap(),
+                path,
+            )?,
+            PlacementMode::Relative => base
+                .checked_add(self.offset(
+                    field.placement.as_ref().unwrap().offset.as_ref().unwrap(),
+                    path,
+                )?)
+                .ok_or_else(|| {
+                    ParseFailure::field(
+                        path,
+                        ErrorCode::TemplateOutOfBounds,
+                        "Relative offset overflows u64.",
+                    )
+                })?,
+        };
+        if let Some(align) = field.align {
+            let mask = align - 1;
+            placed
+                .checked_add(mask)
+                .map(|value| value & !mask)
+                .ok_or_else(|| {
+                    ParseFailure::field(
+                        path,
+                        ErrorCode::TemplateOutOfBounds,
+                        "Alignment overflows u64.",
+                    )
+                })
+        } else {
+            Ok(placed)
+        }
+    }
+
+    fn fields(
+        &mut self,
+        fields: &[TemplateField],
+        scope: &str,
+        base: u64,
+        mut cursor: u64,
+        endian: Endian,
+        progress: &mut dyn FnMut(u64),
+        root: bool,
+    ) -> Result<(Vec<ParsedNode>, u64), AppError> {
+        let mut nodes = Vec::with_capacity(fields.len());
+        for field in fields {
+            let name = field.name.as_deref().expect("validated named field");
+            let path = if scope.is_empty() {
+                name.to_owned()
+            } else {
+                format!("{scope}.{name}")
+            };
+            match self.one(field, &path, name, base, cursor, endian, progress) {
+                Ok(Some((node, end))) => {
+                    let failed = !node.diagnostics.is_empty();
+                    cursor = end;
+                    nodes.push(node);
+                    if root {
+                        self.report_progress(progress, fields.len() <= 128);
+                    }
+                    if failed {
+                        break;
+                    }
+                }
+                Ok(None) => {}
+                Err(ParseFailure::Field(issue, range)) => {
+                    nodes.push(ParsedNode {
+                        kind: "error".into(),
+                        name: name.into(),
+                        path,
+                        field_type: field.field_type,
+                        offset: range.map(|value| value.offset.to_string()),
+                        length: range
+                            .and_then(|value| value.length)
+                            .map(|value| value.to_string()),
+                        value: None,
+                        endianness: None,
+                        comment: field.comment.clone().unwrap_or_default(),
+                        enum_label: None,
+                        flags: Vec::new(),
+                        diagnostics: vec![Diagnostic {
+                            code: issue.code().into(),
+                            message: issue.message,
+                        }],
+                        children: Vec::new(),
+                    });
+                    break;
+                }
+                Err(ParseFailure::Fatal(issue)) => return Err(issue),
+            }
+        }
+        Ok((nodes, cursor))
+    }
+
+    fn one(
+        &mut self,
+        field: &TemplateField,
+        path: &str,
+        name: &str,
+        base: u64,
+        cursor: u64,
+        endian: Endian,
+        progress: &mut dyn FnMut(u64),
+    ) -> Result<Option<(ParsedNode, u64)>, ParseFailure> {
+        let before = self.nodes;
+        let result = self
+            .one_inner(field, path, name, base, cursor, endian, progress)
+            .and_then(|parsed| {
+                if let (Some(expectation), Some((node, _))) = (&field.expect, &parsed) {
+                    check_expectation(
+                        expectation,
+                        node.value.as_deref().expect("validated leaf expectation"),
+                        path,
+                    )?;
+                }
+                Ok(parsed)
+            });
+        // Errors before placement/condition evaluation still occupy one result
+        // node. Errors after a read reuse the already-reserved node, not two.
+        if matches!(&result, Err(ParseFailure::Field(_, _))) && self.nodes == before {
+            self.reserve_node(path, field)?;
+        }
+        self.report_progress(progress, false);
+        result.map_err(|failure| match failure {
+            ParseFailure::Field(mut issue, range) => {
+                // Keep the declared/requested length even when the reference
+                // exceeds its cap. This records an attempted range, never a
+                // successful value or permission to perform that read.
+                let size = width(field.field_type).or_else(|| match &field.length {
+                    Some(LengthSpec::Fixed(value)) => Some(*value),
+                    Some(LengthSpec::Reference(value)) => {
+                        self.unsigned_reference(&value.reference, path).ok()
+                    }
+                    None => field.max_length,
+                });
+                let range = range.or_else(|| {
+                    self.start(field, base, cursor, path)
+                        .ok()
+                        .map(|offset| AttemptedRange {
+                            offset,
+                            length: size,
+                        })
+                });
+                if let Some(AttemptedRange {
+                    offset: start,
+                    length: Some(length),
+                }) = range
+                {
+                    if !issue.message.contains("Requested ") {
+                        issue.message = format!(
+                            "{} (offset {start}, requested {length} bytes, {} available).",
+                            issue.message,
+                            self.session.info().size.saturating_sub(start).min(length)
+                        );
+                    }
+                } else if let Some(range) = range {
+                    issue.message =
+                        format!("{} (attempted offset {}).", issue.message, range.offset);
+                }
+                ParseFailure::Field(issue, range)
+            }
+            other => other,
+        })
+    }
+
+    // Nested fields report bounded batches, while ordinary top-level fields
+    // retain their immediate progress notifications. No per-byte IPC flood.
+    fn report_progress(&mut self, progress: &mut dyn FnMut(u64), force: bool) {
+        if self.nodes > self.last_progress && (force || self.nodes - self.last_progress >= 128) {
+            self.last_progress = self.nodes;
+            progress(self.nodes);
+        }
+    }
+
+    fn one_inner(
+        &mut self,
+        field: &TemplateField,
+        path: &str,
+        name: &str,
+        base: u64,
+        cursor: u64,
+        inherited_endian: Endian,
+        progress: &mut dyn FnMut(u64),
+    ) -> Result<Option<(ParsedNode, u64)>, ParseFailure> {
+        if let Some(condition) = &field.condition {
+            if !self.evaluate_condition(condition, path)? {
+                return Ok(None);
+            }
+        }
+        let start = self.start(field, base, cursor, path)?;
+        let endian = field.endianness.unwrap_or(inherited_endian);
+        self.reserve_node(path, field)?;
+        let mut node = ParsedNode {
+            kind: "leaf".into(),
+            name: name.into(),
+            path: path.into(),
+            field_type: field.field_type,
+            offset: Some(start.to_string()),
+            length: None,
+            value: None,
+            endianness: Some(endian),
+            comment: field.comment.clone().unwrap_or_default(),
+            enum_label: None,
+            flags: Vec::new(),
+            diagnostics: Vec::new(),
+            children: Vec::new(),
+        };
+        let end = if let Some(size) = width(field.field_type) {
+            let bytes = self.read(start, size, path)?;
+            let (value, reference) = decode_scalar(field, &bytes, endian, path)?;
+            if let Some(reference) = reference {
+                self.refs.insert(path.into(), reference);
+            }
+            if let Some(labels) = &field.enum_labels {
+                node.enum_label = labels.get(&value).cloned();
+            }
+            if let Some(flags) = &field.bit_flags {
+                let bits = value.parse::<u64>().expect("validated unsigned scalar");
+                node.flags = flags
+                    .iter()
+                    .filter(|flag| bits & (1u64 << flag.bit) != 0)
+                    .map(|flag| flag.name.clone())
+                    .collect();
+            }
+            node.value = Some(value);
+            start.checked_add(size).ok_or_else(|| {
+                ParseFailure::field(
+                    path,
+                    ErrorCode::TemplateOutOfBounds,
+                    "Byte range overflows u64.",
+                )
+            })?
+        } else {
+            match field.field_type {
+                FieldType::Bytes => {
+                    let size =
+                        self.length(field.length.as_ref().expect("validated length"), path)?;
+                    let bytes = self.read(start, size, path)?;
+                    let mut output = String::with_capacity(bytes.len().saturating_mul(3));
+                    for (index, byte) in bytes.iter().enumerate() {
+                        if index > 0 {
+                            output.push(' ');
+                        }
+                        write!(output, "{byte:02X}").expect("string formatting cannot fail");
+                    }
+                    node.value = Some(output);
+                    start.checked_add(size).ok_or_else(|| {
+                        ParseFailure::field(
+                            path,
+                            ErrorCode::TemplateOutOfBounds,
+                            "Byte range overflows u64.",
+                        )
+                    })?
+                }
+                FieldType::String => {
+                    let (bytes, consumed) = if let Some(spec) = &field.length {
+                        let size = self.length(spec, path)?;
+                        (self.read(start, size, path)?, size)
+                    } else {
+                        let maximum = field.max_length.expect("validated bound");
+                        let remaining =
+                            self.session.info().size.checked_sub(start).ok_or_else(|| {
+                                ParseFailure::field(
+                                    path,
+                                    ErrorCode::TemplateOutOfBounds,
+                                    "Text starts beyond the file.",
+                                )
+                            })?;
+                        let bytes = self.read(start, maximum.min(remaining), path)?;
+                        let unit = if matches!(
+                            field.encoding,
+                            Some(TextEncoding::Utf16le | TextEncoding::Utf16be)
+                        ) {
+                            2
+                        } else {
+                            1
+                        };
+                        let position = bytes
+                            .chunks_exact(unit)
+                            .position(|part| part.iter().all(|byte| *byte == 0))
+                            .ok_or_else(|| {
+                                ParseFailure::field(
+                                    path,
+                                    ErrorCode::TemplateOutOfBounds,
+                                    "A bounded null terminator was not found.",
+                                )
+                            })?;
+                        let prefix = position * unit;
+                        (bytes[..prefix].to_vec(), (prefix + unit) as u64)
+                    };
+                    let value =
+                        decode_text(&bytes, field.encoding.expect("validated encoding"), path)
+                            .map_err(|failure| failure.at(start, consumed))?;
+                    self.refs
+                        .insert(path.into(), ReferenceValue::Text(value.clone()));
+                    node.value = Some(value);
+                    start.checked_add(consumed).ok_or_else(|| {
+                        ParseFailure::field(
+                            path,
+                            ErrorCode::TemplateOutOfBounds,
+                            "Text range overflows u64.",
+                        )
+                    })?
+                }
+                FieldType::Struct => {
+                    node.kind = "struct".into();
+                    let (children, _) = self
+                        .fields(
+                            field.fields.as_deref().expect("validated struct"),
+                            path,
+                            start,
+                            start,
+                            endian,
+                            progress,
+                            false,
+                        )
+                        .map_err(ParseFailure::fatal)?;
+                    let end = child_end(start, &children)?;
+                    if has_diagnostics(&children) {
+                        node.diagnostics.push(Diagnostic {
+                            code: "child_error".into(),
+                            message: format!(
+                                "{path}: One or more child fields could not be parsed."
+                            ),
+                        });
+                    }
+                    node.children = children;
+                    end
+                }
+                FieldType::Array => {
+                    node.kind = "array".into();
+                    let count =
+                        self.array_count(field.count.as_ref().expect("validated count"), path)?;
+                    if count > MAX_TEMPLATE_EXPANDED_NODES {
+                        return Err(ParseFailure::fatal(error(
+                            path,
+                            ErrorCode::InvalidTemplate,
+                            "The expanded-result limit is 10000 nodes.",
+                        )));
+                    }
+                    let element = field.element.as_ref().expect("validated element");
+                    let mut item_cursor = start;
+                    for index in 0..count {
+                        let item_path = format!("{path}[{index}]");
+                        let item_name = format!("[{index}]");
+                        match self.one(
+                            element,
+                            &item_path,
+                            &item_name,
+                            item_cursor,
+                            item_cursor,
+                            endian,
+                            progress,
+                        ) {
+                            Ok(Some((item, end))) => {
+                                let failed = has_diagnostics(std::slice::from_ref(&item));
+                                if end <= item_cursor && index + 1 < count {
+                                    return Err(ParseFailure::field(
+                                        &item_path,
+                                        ErrorCode::InvalidTemplate,
+                                        "Array element has zero width.",
+                                    ));
+                                }
+                                item_cursor = end;
+                                node.children.push(item);
+                                if failed {
+                                    break;
+                                }
+                            }
+                            Ok(None) => unreachable!("array elements are unconditional"),
+                            Err(ParseFailure::Field(issue, range)) => {
+                                node.children.push(ParsedNode {
+                                    kind: "error".into(),
+                                    name: item_name,
+                                    path: item_path,
+                                    field_type: element.field_type,
+                                    offset: range.map(|value| value.offset.to_string()),
+                                    length: range
+                                        .and_then(|value| value.length)
+                                        .map(|value| value.to_string()),
+                                    value: None,
+                                    endianness: None,
+                                    comment: element.comment.clone().unwrap_or_default(),
+                                    enum_label: None,
+                                    flags: Vec::new(),
+                                    diagnostics: vec![Diagnostic {
+                                        code: issue.code().into(),
+                                        message: issue.message,
+                                    }],
+                                    children: Vec::new(),
+                                });
+                                break;
+                            }
+                            Err(ParseFailure::Fatal(issue)) => {
+                                return Err(ParseFailure::Fatal(issue))
+                            }
+                        }
+                    }
+                    if has_diagnostics(&node.children) {
+                        node.diagnostics.push(Diagnostic {
+                            code: "child_error".into(),
+                            message: format!(
+                                "{path}: One or more array elements could not be parsed."
+                            ),
+                        });
+                    }
+                    item_cursor
+                }
+                _ => unreachable!("fixed-width variants handled above"),
+            }
+        };
+        node.length = Some((end - start).to_string());
+        Ok(Some((node, end)))
+    }
+
+    fn array_count(&self, count: &CountSpec, path: &str) -> Result<u64, ParseFailure> {
+        if let Some(fixed) = count.fixed {
+            return Ok(fixed);
+        }
+        let reference = count.reference.as_deref().expect("validated count ref");
+        match self.resolve_reference(reference, path)? {
+            ReferenceValue::Unsigned(value) => Ok(*value),
+            _ => Err(ParseFailure::field(
+                path,
+                ErrorCode::InvalidTemplate,
+                "Array count ref must identify an earlier unsigned integer.",
+            )),
+        }
+    }
+}
+
+fn child_end(start: u64, children: &[ParsedNode]) -> Result<u64, ParseFailure> {
+    let mut end = start;
+    for child in children {
+        if let (Some(offset), Some(length)) = (&child.offset, &child.length) {
+            let candidate = offset
+                .parse::<u64>()
+                .unwrap()
+                .checked_add(length.parse::<u64>().unwrap())
+                .ok_or_else(|| {
+                    ParseFailure::field(
+                        &child.path,
+                        ErrorCode::TemplateOutOfBounds,
+                        "Child range overflows u64.",
+                    )
+                })?;
+            end = end.max(candidate);
+        }
+    }
+    Ok(end)
+}
+
+fn has_diagnostics(nodes: &[ParsedNode]) -> bool {
+    nodes
+        .iter()
+        .any(|node| !node.diagnostics.is_empty() || has_diagnostics(&node.children))
+}
+
+fn decode_text(bytes: &[u8], encoding: TextEncoding, path: &str) -> Result<String, ParseFailure> {
+    let output = match encoding {
+        TextEncoding::Ascii => {
+            if !bytes.is_ascii() {
+                return Err(ParseFailure::field(
+                    path,
+                    ErrorCode::TemplateDataInvalid,
+                    "ASCII text contains a non-ASCII byte.",
+                ));
+            }
+            String::from_utf8(bytes.to_vec()).expect("ASCII is UTF-8")
+        }
+        TextEncoding::Utf8 => String::from_utf8(bytes.to_vec()).map_err(|_| {
+            ParseFailure::field(
+                path,
+                ErrorCode::TemplateDataInvalid,
+                "Text is not valid UTF-8.",
+            )
+        })?,
+        TextEncoding::Utf16le | TextEncoding::Utf16be => {
+            if bytes.len() % 2 != 0 {
+                return Err(ParseFailure::field(
+                    path,
+                    ErrorCode::TemplateDataInvalid,
+                    "UTF-16 text has an odd byte length.",
+                ));
+            }
+            let units: Vec<u16> = bytes
+                .chunks_exact(2)
+                .map(|pair| match encoding {
+                    TextEncoding::Utf16le => u16::from_le_bytes([pair[0], pair[1]]),
+                    _ => u16::from_be_bytes([pair[0], pair[1]]),
+                })
+                .collect();
+            String::from_utf16(&units).map_err(|_| {
+                ParseFailure::field(
+                    path,
+                    ErrorCode::TemplateDataInvalid,
+                    "Text is not valid UTF-16.",
+                )
+            })?
+        }
+    };
+    Ok(output.trim_end_matches('\0').to_owned())
+}
+
+fn decode_scalar(
+    field: &TemplateField,
+    bytes: &[u8],
+    endian: Endian,
+    path: &str,
+) -> Result<(String, Option<ReferenceValue>), ParseFailure> {
+    let read_unsigned = || {
+        let mut padded = [0u8; 8];
+        if endian == Endian::Little {
+            padded[..bytes.len()].copy_from_slice(bytes);
+            u64::from_le_bytes(padded)
+        } else {
+            padded[8 - bytes.len()..].copy_from_slice(bytes);
+            u64::from_be_bytes(padded)
+        }
+    };
+    let result = match field.field_type {
+        FieldType::U8 | FieldType::U16 | FieldType::U32 | FieldType::U64 => {
+            let value = read_unsigned();
+            (value.to_string(), Some(ReferenceValue::Unsigned(value)))
+        }
+        FieldType::I8 | FieldType::I16 | FieldType::I32 | FieldType::I64 => {
+            let unsigned = read_unsigned();
+            let bits = (bytes.len() * 8) as u32;
+            let value = if bits == 64 {
+                unsigned as i64
+            } else {
+                ((unsigned << (64 - bits)) as i64) >> (64 - bits)
+            };
+            (value.to_string(), Some(ReferenceValue::Signed(value)))
+        }
+        FieldType::Bool => match bytes[0] {
+            0 => ("false".into(), Some(ReferenceValue::Bool(false))),
+            1 => ("true".into(), Some(ReferenceValue::Bool(true))),
+            _ => {
+                return Err(ParseFailure::field(
+                    path,
+                    ErrorCode::TemplateDataInvalid,
+                    "Bool byte must be 0 or 1.",
+                ))
+            }
+        },
+        FieldType::F32 => {
+            let raw: [u8; 4] = bytes.try_into().expect("validated width");
+            let value = if endian == Endian::Little {
+                f32::from_le_bytes(raw)
+            } else {
+                f32::from_be_bytes(raw)
+            };
+            (value.to_string(), None)
+        }
+        FieldType::F64 => {
+            let raw: [u8; 8] = bytes.try_into().expect("validated width");
+            let value = if endian == Endian::Little {
+                f64::from_le_bytes(raw)
+            } else {
+                f64::from_be_bytes(raw)
+            };
+            (value.to_string(), None)
+        }
+        _ => unreachable!("scalar decoder called for a container"),
+    };
+    Ok(result)
 }
 
 pub fn parse_template(
     session: &mut FileSession,
     template: &TemplateDefinition,
-) -> Result<Vec<ParsedField>, AppError> {
+) -> Result<Vec<ParsedNode>, AppError> {
     parse_template_with_progress(session, template, &mut |_| {})
 }
 
@@ -708,322 +1959,32 @@ pub fn parse_template_with_progress(
     session: &mut FileSession,
     template: &TemplateDefinition,
     progress: &mut dyn FnMut(u64),
-) -> Result<Vec<ParsedField>, AppError> {
-    let fields = validate_template(template, session.info().size)?;
-    let mut parsed = Vec::with_capacity(fields.len());
-
-    for field in fields {
-        let mut bytes = vec![0; field.length as usize];
-        let read = session.read_effective_chunk(field.offset, &mut bytes)?;
-        if read != bytes.len() {
-            return Err(template_out_of_bounds(
-                "The template field range extends beyond the file.",
-            ));
-        }
-        let value = decode(field.field_type.clone(), &bytes, field.endianness)?;
-        parsed.push(ParsedField {
-            name: field.name,
-            offset: field.offset.to_string(),
-            field_type: field.field_type,
-            length: field.length,
-            endianness: field.endianness,
-            value,
-            comment: field.comment,
-        });
-        progress(parsed.len() as u64);
-    }
-
-    Ok(parsed)
-}
-
-pub fn decode(field_type: FieldType, bytes: &[u8], endian: Endian) -> Result<String, AppError> {
-    match field_type {
-        FieldType::U8 => Ok(expect_array::<1>(bytes)?
-            .first()
-            .copied()
-            .unwrap()
-            .to_string()),
-        FieldType::U16 => Ok(match endian {
-            Endian::Little => u16::from_le_bytes(expect_array(bytes)?),
-            Endian::Big => u16::from_be_bytes(expect_array(bytes)?),
-        }
-        .to_string()),
-        FieldType::U32 => Ok(match endian {
-            Endian::Little => u32::from_le_bytes(expect_array(bytes)?),
-            Endian::Big => u32::from_be_bytes(expect_array(bytes)?),
-        }
-        .to_string()),
-        FieldType::I8 => Ok((expect_array::<1>(bytes)?[0] as i8).to_string()),
-        FieldType::I16 => Ok(match endian {
-            Endian::Little => i16::from_le_bytes(expect_array(bytes)?),
-            Endian::Big => i16::from_be_bytes(expect_array(bytes)?),
-        }
-        .to_string()),
-        FieldType::I32 => Ok(match endian {
-            Endian::Little => i32::from_le_bytes(expect_array(bytes)?),
-            Endian::Big => i32::from_be_bytes(expect_array(bytes)?),
-        }
-        .to_string()),
-        FieldType::F32 => Ok(match endian {
-            Endian::Little => f32::from_le_bytes(expect_array(bytes)?),
-            Endian::Big => f32::from_be_bytes(expect_array(bytes)?),
-        }
-        .to_string()),
-        FieldType::F64 => Ok(match endian {
-            Endian::Little => f64::from_le_bytes(expect_array(bytes)?),
-            Endian::Big => f64::from_be_bytes(expect_array(bytes)?),
-        }
-        .to_string()),
-        FieldType::String => Ok(String::from_utf8_lossy(bytes)
-            .trim_end_matches('\0')
-            .to_owned()),
-        FieldType::Bytes => {
-            let capacity = bytes.len().saturating_mul(3).saturating_sub(1);
-            let mut output = String::with_capacity(capacity);
-            for (index, byte) in bytes.iter().enumerate() {
-                if index > 0 {
-                    output.push(' ');
-                }
-                write!(output, "{byte:02X}").expect("writing to a String cannot fail");
-            }
-            Ok(output)
-        }
-    }
-}
-
-pub fn load_template_file(path: &Path) -> Result<TemplateDefinition, AppError> {
-    let metadata = std::fs::metadata(path).map_err(|error| AppError::from_io(error, Some(path)))?;
-    if metadata.len() > MAX_READ_RANGE {
-        return Err(invalid_template(
-            "Template files must not exceed 1048576 bytes.",
-        ));
-    }
-    let contents =
-        std::fs::read_to_string(path).map_err(|error| AppError::from_io(error, Some(path)))?;
-    let template = serde_json::from_str::<TemplateDefinition>(&contents)
-        .map_err(|_| invalid_template("The template JSON is invalid."))?;
-    validate_template(&template, u64::MAX)?;
-    Ok(template)
-}
-
-/// Tracks only the associated JSON file and its last observed bytes. Binary file
-/// contents and template drafts remain in their existing, separate sessions.
-#[derive(Default)]
-pub struct TemplateFileSession {
-    path: Option<PathBuf>,
-    baseline: Vec<u8>,
-}
-
-impl TemplateFileSession {
-    pub fn path(&self) -> Option<&Path> {
-        self.path.as_deref()
-    }
-
-    pub fn clear(&mut self) {
-        self.path = None;
-        self.baseline.clear();
-    }
-
-    pub fn load(&mut self, path: &Path) -> Result<TemplateDefinition, AppError> {
-        let metadata = fs::metadata(path).map_err(|error| AppError::from_io(error, Some(path)))?;
-        if metadata.len() > MAX_READ_RANGE {
-            return Err(invalid_template(
-                "Template files must not exceed 1048576 bytes.",
-            ));
-        }
-        let bytes = fs::read(path).map_err(|error| AppError::from_io(error, Some(path)))?;
-        let definition = serde_json::from_slice::<TemplateDefinition>(&bytes)
-            .map_err(|_| invalid_template("The template JSON is invalid."))?;
-        validate_template(&definition, u64::MAX)?;
-        let canonical =
-            fs::canonicalize(path).map_err(|error| AppError::from_io(error, Some(path)))?;
-        self.path = Some(canonical);
-        self.baseline = bytes;
-        Ok(definition)
-    }
-
-    pub fn save(
-        &mut self,
-        template: &TemplateDefinition,
-        overwrite_external: bool,
-        binary_source: Option<&Path>,
-    ) -> Result<(), AppError> {
-        let path = self.path.as_ref().ok_or_else(|| {
-            AppError::new(
-                ErrorCode::InvalidPath,
-                "This template has no saved file path.",
-                None,
-            )
-        })?;
-        reject_binary_source(path, binary_source)?;
-        let output = serialize_template(template)?;
-        let exists = match fs::read(path) {
-            Ok(current) => {
-                if current != self.baseline && !overwrite_external {
-                    return Err(AppError::new(
-                        ErrorCode::ExternalModification,
-                        "The template file has been modified by another program.",
-                        Some(path.to_string_lossy().into_owned()),
-                    ));
-                }
-                true
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-            Err(error) => return Err(AppError::from_io(error, Some(path))),
-        };
-        persist_template(path, &output, exists)?;
-        self.baseline = output;
-        Ok(())
-    }
-
-    pub fn save_as(
-        &mut self,
-        path: &Path,
-        template: &TemplateDefinition,
-        overwrite: bool,
-        binary_source: Option<&Path>,
-    ) -> Result<(), AppError> {
-        let destination = normalized_template_path(path)?;
-        reject_binary_source(&destination, binary_source)?;
-        let output = serialize_template(template)?;
-        persist_template(&destination, &output, overwrite)?;
-        self.path = Some(
-            fs::canonicalize(&destination)
-                .map_err(|error| AppError::from_io(error, Some(&destination)))?,
-        );
-        self.baseline = output;
-        Ok(())
-    }
-}
-
-fn normalized_template_path(path: &Path) -> Result<PathBuf, AppError> {
-    let name = path.file_name().ok_or_else(|| {
-        AppError::new(ErrorCode::InvalidPath, "Choose a template file name.", None)
-    })?;
-    let parent = path
-        .parent()
-        .filter(|value| !value.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    let parent =
-        fs::canonicalize(parent).map_err(|error| AppError::from_io(error, Some(parent)))?;
-    Ok(parent.join(name))
-}
-
-fn reject_binary_source(destination: &Path, binary_source: Option<&Path>) -> Result<(), AppError> {
-    let Some(source) = binary_source else {
-        return Ok(());
+) -> Result<Vec<ParsedNode>, AppError> {
+    validate_template(template)?;
+    session.ensure_source_unchanged()?;
+    let mut interpreter = Interpreter {
+        session,
+        refs: HashMap::new(),
+        decoded: 0,
+        nodes: 0,
+        cache_start: 0,
+        cache: Vec::new(),
+        last_progress: 0,
     };
-    let source =
-        fs::canonicalize(source).map_err(|error| AppError::from_io(error, Some(source)))?;
-    if fs::canonicalize(destination).is_ok_and(|path| path == source) {
-        return Err(AppError::new(
-            ErrorCode::DestinationIsSource,
-            "A template cannot overwrite the open binary file.",
-            Some(destination.to_string_lossy().into_owned()),
-        ));
-    }
-    Ok(())
-}
-
-fn serialize_template(template: &TemplateDefinition) -> Result<Vec<u8>, AppError> {
-    validate_template(template, u64::MAX)?;
-    let mut bytes = serde_json::to_vec_pretty(template).map_err(|_| {
-        AppError::new(
-            ErrorCode::IoError,
-            "The template file could not be written.",
-            None,
+    let parsed = interpreter
+        .fields(
+            &template.fields,
+            "",
+            0,
+            0,
+            template.default_endianness,
+            progress,
+            true,
         )
-    })?;
-    bytes.push(b'\n');
-    if bytes.len() as u64 > MAX_READ_RANGE {
-        return Err(invalid_template(
-            "Template files must not exceed 1048576 bytes.",
-        ));
-    }
-    Ok(bytes)
-}
-
-fn persist_template(path: &Path, bytes: &[u8], overwrite: bool) -> Result<(), AppError> {
-    let parent = path
-        .parent()
-        .expect("normalized template path has a parent");
-    let mut staged =
-        NamedTempFile::new_in(parent).map_err(|error| AppError::from_io(error, Some(path)))?;
-    staged
-        .write_all(bytes)
-        .map_err(|error| AppError::from_io(error, Some(path)))?;
-    staged
-        .as_file()
-        .sync_all()
-        .map_err(|error| AppError::from_io(error, Some(path)))?;
-    if overwrite {
-        staged
-            .persist(path)
-            .map_err(|error| AppError::from_io(error.error, Some(path)))?;
-    } else {
-        staged
-            .persist_noclobber(path)
-            .map_err(|error| AppError::from_io(error.error, Some(path)))?;
-    }
-    Ok(())
-}
-
-pub fn save_template_file_create_new(
-    path: &Path,
-    template: &TemplateDefinition,
-) -> Result<(), AppError> {
-    validate_template(template, u64::MAX)?;
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(path)
-        .map_err(|error| AppError::from_io(error, Some(path)))?;
-
-    let result = serde_json::to_writer_pretty(&mut file, template)
-        .map_err(|_| {
-            AppError::new(
-                ErrorCode::IoError,
-                "The template file could not be written.",
-                None,
-            )
-        })
-        .and_then(|_| {
-            file.write_all(b"\n")
-                .map_err(|error| AppError::from_io(error, Some(path)))
-        })
-        .and_then(|_| {
-            file.flush()
-                .map_err(|error| AppError::from_io(error, Some(path)))
-        });
-    if let Err(error) = result {
-        drop(file);
-        let _ = std::fs::remove_file(path);
-        return Err(error);
-    }
-    Ok(())
-}
-
-fn expect_array<const N: usize>(bytes: &[u8]) -> Result<[u8; N], AppError> {
-    bytes.try_into().map_err(|_| {
-        invalid_template("The template field data does not match the field type width.")
-    })
-}
-
-fn parse_decimal_offset(value: &str) -> Result<u64, AppError> {
-    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Err(invalid_template(
-            "Template offsets must be unsigned decimal strings.",
-        ));
-    }
-    value
-        .parse::<u64>()
-        .map_err(|_| invalid_template("Template offsets are outside the supported range."))
-}
-
-fn invalid_template(message: &str) -> AppError {
-    AppError::new(ErrorCode::InvalidTemplate, message, None)
-}
-
-fn template_out_of_bounds(message: &str) -> AppError {
-    AppError::new(ErrorCode::TemplateOutOfBounds, message, None)
+        .map(|(nodes, _)| nodes);
+    interpreter.report_progress(progress, true);
+    // Cached effective bytes are valid only for this application. Even a
+    // source change during cache hits must reject the entire result.
+    interpreter.session.ensure_source_unchanged()?;
+    parsed
 }

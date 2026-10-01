@@ -1,6 +1,6 @@
 import { Channel, invoke } from '@tauri-apps/api/core'
 import type {
-  AppError, DirtyState, FileInfo, MinimapSamplesResponse, ModifiedOverview, OperationProgress, PageResponse, ParsedField,
+  AppError, DirtyState, FileInfo, MinimapSamplesResponse, ModifiedOverview, OperationProgress, PageResponse, ParsedResult,
   SaveResponse, SearchResponse, TemplateDefinition, UndoResponse,
 } from '../types'
 import type { BytesPerRow } from '../hex/layout'
@@ -44,7 +44,7 @@ export const backend = {
   getModifiedOverview: () => call<ModifiedOverview>('get_modified_overview'),
   saveAs: (path: string, onProgress: ProgressHandler) => withProgress<SaveResponse>('save_as', { path }, onProgress),
   searchBytes: (pattern: string, onProgress: ProgressHandler) => withProgress<SearchResponse>('search_bytes', { pattern }, onProgress),
-  applyTemplate: (template: TemplateDefinition, onProgress: ProgressHandler) => withProgress<ParsedField[]>('apply_template', { template }, onProgress),
+  applyTemplate: (template: TemplateDefinition, onProgress: ProgressHandler) => withProgress<ParsedResult[]>('apply_template', { template }, onProgress),
   loadTemplate: (path: string) => call<TemplateDefinition>('load_template', { path }),
   saveTemplate: (template: TemplateDefinition, overwriteExternal = false) => call<void>('save_template', { template, overwriteExternal }),
   saveTemplateAs: (path: string, template: TemplateDefinition, overwrite = false) => call<void>('save_template_as', { path, template, overwrite }),

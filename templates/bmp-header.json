@@ -1,0 +1,42 @@
+{
+  "name": "BMP file and BITMAPINFOHEADER",
+  "defaultEndianness": "little",
+  "fields": [
+    {
+      "name": "fileHeader",
+      "type": "struct",
+      "comment": "14-byte bitmap file header; pixel data is not decoded",
+      "fields": [
+        { "name": "signature", "type": "string", "encoding": "ascii", "length": 2, "comment": "Expected BM" },
+        { "name": "fileSize", "type": "u32" },
+        { "name": "reserved1", "type": "u16" },
+        { "name": "reserved2", "type": "u16" },
+        { "name": "pixelDataOffset", "type": "u32", "comment": "Absolute file offset of the pixel array" }
+      ]
+    },
+    {
+      "name": "dibHeader",
+      "type": "struct",
+      "fields": [
+        { "name": "size", "type": "u32", "comment": "Only size 40 is expanded by this template" },
+        {
+          "name": "info",
+          "type": "struct",
+          "condition": { "ref": "dibHeader.size", "op": "eq", "value": { "type": "unsigned", "value": "40" } },
+          "fields": [
+            { "name": "width", "type": "i32" },
+            { "name": "height", "type": "i32", "comment": "Negative height means top-down rows for uncompressed RGB" },
+            { "name": "planes", "type": "u16", "comment": "Expected 1" },
+            { "name": "bitsPerPixel", "type": "u16" },
+            { "name": "compression", "type": "u32", "enumLabels": { "0": "BI_RGB", "1": "BI_RLE8", "2": "BI_RLE4", "3": "BI_BITFIELDS", "4": "BI_JPEG", "5": "BI_PNG" } },
+            { "name": "imageByteLength", "type": "u32" },
+            { "name": "horizontalPixelsPerMeter", "type": "i32" },
+            { "name": "verticalPixelsPerMeter", "type": "i32" },
+            { "name": "colorsUsed", "type": "u32" },
+            { "name": "importantColors", "type": "u32" }
+          ]
+        }
+      ]
+    }
+  ]
+}

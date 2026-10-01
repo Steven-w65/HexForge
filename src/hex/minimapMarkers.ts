@@ -1,4 +1,4 @@
-import type { ModifiedOverview, ParsedField } from '../types'
+import type { ModifiedOverview } from '../types'
 import type { BytesPerRow } from './layout'
 import { MINIMAP_SUBPIXELS, rowEdgeY, type MinimapGeometry } from './minimapGeometry'
 
@@ -26,7 +26,7 @@ function clampOffset(offset: bigint, fileSize: bigint): bigint {
 export function collectMinimapMarkers(
   matches: bigint[],
   matchLength: number,
-  templateFields: ParsedField[],
+  templateFields: Array<{ offset: string; length: number }>,
   modifiedOverview: ModifiedOverview,
   fileSize: bigint,
   bytesPerRow: BytesPerRow,

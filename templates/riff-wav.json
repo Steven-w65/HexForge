@@ -1,0 +1,38 @@
+{
+  "name": "RIFF/WAV PCM first stereo frame",
+  "defaultEndianness": "little",
+  "fields": [
+    {
+      "name": "riff",
+      "type": "struct",
+      "fields": [
+        { "name": "tag", "type": "string", "encoding": "ascii", "length": 4, "expect": { "kind": "equals", "value": { "type": "string", "value": "RIFF" } } },
+        { "name": "fileSizeMinusEight", "type": "u32" },
+        { "name": "waveTag", "type": "string", "encoding": "ascii", "length": 4, "expect": { "kind": "equals", "value": { "type": "string", "value": "WAVE" } } },
+        {
+          "name": "fmt",
+          "type": "struct",
+          "fields": [
+            { "name": "tag", "type": "string", "encoding": "ascii", "length": 4, "expect": { "kind": "equals", "value": { "type": "string", "value": "fmt " } } },
+            { "name": "byteLength", "type": "u32", "expect": { "kind": "equals", "value": { "type": "unsigned", "value": "16" } } },
+            { "name": "audioFormat", "type": "u16", "enumLabels": { "1": "PCM" }, "expect": { "kind": "equals", "value": { "type": "unsigned", "value": "1" } } },
+            { "name": "channels", "type": "u16" },
+            { "name": "sampleRate", "type": "u32" },
+            { "name": "byteRate", "type": "u32" },
+            { "name": "blockAlign", "type": "u16" },
+            { "name": "bitsPerSample", "type": "u16", "expect": { "kind": "equals", "value": { "type": "unsigned", "value": "16" } } }
+          ]
+        },
+        {
+          "name": "data",
+          "type": "struct",
+          "fields": [
+            { "name": "tag", "type": "string", "encoding": "ascii", "length": 4, "expect": { "kind": "equals", "value": { "type": "string", "value": "data" } } },
+            { "name": "byteLength", "type": "u32" },
+            { "name": "samples", "type": "array", "count": { "ref": "riff.fmt.channels" }, "element": { "type": "i16" }, "comment": "First 16-bit stereo frame only" }
+          ]
+        }
+      ]
+    }
+  ]
+}

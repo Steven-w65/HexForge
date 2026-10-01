@@ -74,13 +74,15 @@ A template is an independent local JSON file. **Loading a template is not the sa
 3. Add fields in the separate editor and choose **Apply Template**. You can preview an unsaved draft without first saving its JSON.
 4. Read the parsed results below the hex view. Click a row to jump to and highlight its byte range.
 
-- **Types:** `u8`, `u16`, `u32`, `i8`, `i16`, `i32`, `f32`, `f64`, fixed-length `string`, and `bytes`.
-- **Offsets and byte order:** decimal or `0x`-prefixed offsets; little- or big-endian numeric decoding.
-- **Scope:** flat fields only—no nested structures or conditional logic. Parsing is capped at 4,096 fields and a 16 MiB decoded-data budget.
+- **Types:** signed and unsigned 8/16/32/64-bit integers, `f32`, `f64`, `bool`, encoded `string`, and `bytes`.
+- **Structure:** ordered fields, nested structures, arrays, typed conditions, enum labels, bit flags, and exact decimal offsets. Numeric fields support little- or big-endian decoding.
+- **Safety:** bounded reads and expansion, with diagnostics beside affected fields. Parsing uses the current in-memory bytes, including unsaved edits.
 
 **Save Template** updates an already path-backed JSON file; **Save Template As…** chooses a path. Saving never auto-applies. You can unload a template, and the editor protects unsaved drafts when it closes.
 
-Try a sample: [PNG / IHDR header](templates/png-header.json) · [Firmware header](templates/firmware-header.json)
+Start with the [PNG / IHDR](templates/png-ihdr.json), [RIFF/WAV](templates/riff-wav.json), or [ELF64](templates/elf64-header.json) examples and their matching fixtures. The [bundled template catalog](templates/README.md#bundled-examples) also covers BMP, GIF, ICO, DDS, ZIP, GZIP, SQLite, PCAP in both byte orders, GLB, and UF2, with each template's coverage and limitations documented.
+
+The [template-format guide](templates/README.md) explains the one supported JSON format and its limits. Old JSON files with a top-level `version` property are unsupported; recreate them manually in the Template Editor. HexForge never converts them automatically.
 
 <details>
 <summary><strong>⌨️ Keyboard shortcuts</strong></summary>

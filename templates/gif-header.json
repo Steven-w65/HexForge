@@ -1,0 +1,30 @@
+{
+  "name": "GIF87a / GIF89a logical screen header",
+  "defaultEndianness": "little",
+  "fields": [
+    {
+      "name": "header",
+      "type": "struct",
+      "fields": [
+        { "name": "signature", "type": "string", "encoding": "ascii", "length": 3, "comment": "Expected GIF" },
+        { "name": "version", "type": "string", "encoding": "ascii", "length": 3, "comment": "Binary format revision: 87a or 89a" }
+      ]
+    },
+    {
+      "name": "screen",
+      "type": "struct",
+      "comment": "Logical screen descriptor only; palettes, frames, and LZW data are not decoded",
+      "fields": [
+        { "name": "width", "type": "u16" },
+        { "name": "height", "type": "u16" },
+        {
+          "name": "packedFlags", "type": "u8",
+          "bitFlags": [ { "bit": 7, "name": "Global color table present" }, { "bit": 3, "name": "Sorted global color table" } ],
+          "comment": "Bits 4-6: color resolution minus 1. Bits 0-2: log2(table entries) minus 1. Packed values are shown raw."
+        },
+        { "name": "backgroundColorIndex", "type": "u8" },
+        { "name": "pixelAspectRatio", "type": "u8", "comment": "0 means unspecified; otherwise ratio is (value + 15) / 64" }
+      ]
+    }
+  ]
+}

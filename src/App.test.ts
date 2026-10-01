@@ -1,5 +1,6 @@
-import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+enableAutoUnmount(afterEach)
 
 const mocks = vi.hoisted(() => {
   const backend = {
@@ -45,7 +46,7 @@ vi.mock('./templateWindow/tauriBus', () => ({ tauriBus: {
 
 import App from './App.vue'
 import AppShell from './components/AppShell.vue'
-import type { TemplateDefinition } from './types'
+import type { ParsedNode, TemplateDefinition } from './types'
 
 const file = { name: 'firmware.bin', path: 'C:/firmware.bin', size: '32', revision: '1', dirty: false }
 const page = { offset: '0', bytes: [0x41], modifiedOffsets: [], revision: '1' }
@@ -65,6 +66,62 @@ describe('App desktop orchestration', () => {
     mocks.backend.applyTemplate.mockResolvedValue([])
     mocks.backend.searchBytes.mockResolvedValue({ matches: [], truncated: false })
     mocks.backend.frontendReady.mockResolvedValue(undefined)
+  })
+
+  it('opens a binary from the empty-state button and replaces the prompt with the file view', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    await wrapper.get('[data-action="empty-open"]').trigger('click'); await flushPromises()
+    expect(wrapper.get('[data-testid="file-info-bar"]').text()).toContain('firmware.bin')
+    expect(wrapper.find('[data-testid="drop-prompt"]').exists()).toBe(false)
+    expect(wrapper.findComponent(AppShell).props('file')).toEqual(file)
+  })
+
+  it('retains the empty-state Open button when the file picker is cancelled', async () => {
+    mocks.open.mockResolvedValue(null)
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    await wrapper.get('[data-action="empty-open"]').trigger('click'); await flushPromises()
+    expect(wrapper.findComponent(AppShell).props('file')).toBeNull()
+    expect(wrapper.get('[data-action="empty-open"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it('reports a successful template save without applying and distinguishes modified results needing reapply', async () => {
+    mocks.open.mockResolvedValueOnce('C:/firmware.bin').mockResolvedValueOnce('C:/header.json')
+    mocks.backend.loadTemplate.mockResolvedValue({ name: 'Header', defaultEndianness: 'little', fields: [{ name: 'id', type: 'u8' }] })
+    mocks.backend.applyTemplate.mockResolvedValue([leafResult('id')])
+    mocks.backend.saveTemplate.mockResolvedValue(undefined)
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    press('o', { ctrlKey: true, altKey: true }); await flushPromises()
+    expect(wrapper.get('[data-testid="template-state"]').text()).toContain('Saved')
+    press('Enter', { ctrlKey: true }); await flushPromises()
+    expect(wrapper.get('[data-testid="completion-notice"]').text()).toContain('Parsed 1 field')
+    await sendEditorDraft({ ...wrapper.findComponent(AppShell).props('template')!, name: 'Edited header' }, true)
+    const state = wrapper.get('[data-testid="template-state"]')
+    expect(state.text()).toContain('Modified')
+    expect(state.text()).toContain('Needs apply')
+    press('s', { ctrlKey: true }); await flushPromises()
+    expect(wrapper.get('[data-testid="completion-notice"]').text()).toContain('Template saved')
+    expect(state.text()).toContain('Saved')
+    expect(state.text()).toContain('Needs apply')
+    expect(mocks.backend.applyTemplate).toHaveBeenCalledOnce()
+    wrapper.unmount()
+  })
+
+  it('does not announce success after a cancelled or failed Save As', async () => {
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
+    mocks.save.mockResolvedValueOnce(null)
+    press('s', { ctrlKey: true, shiftKey: true }); await flushPromises()
+    expect(wrapper.find('[data-testid="completion-notice"]').exists()).toBe(false)
+    mocks.save.mockResolvedValueOnce('C:/header.json')
+    mocks.backend.saveTemplateAs.mockRejectedValueOnce({ code: 'permission_denied', message: 'Cannot write template.' })
+    press('s', { ctrlKey: true, shiftKey: true }); await flushPromises()
+    expect(wrapper.find('[data-testid="completion-notice"]').exists()).toBe(false)
+    expect(wrapper.get('[role="dialog"]').text()).toContain('Cannot write template.')
+    expect(wrapper.findComponent(AppShell).props('templateSource')).toBe('draft')
+    wrapper.unmount()
   })
 
   it('signals frontend readiness only after the desktop listeners are registered', async () => {
@@ -160,7 +217,7 @@ describe('App desktop orchestration', () => {
 
   it('prompts before overwriting an externally changed template and leaves edits dirty on cancel', async () => {
     mocks.open.mockResolvedValue('C:/header.json')
-    mocks.backend.loadTemplate.mockResolvedValue({ version: 1, name: 'Header', defaultEndianness: 'little', fields: [] })
+    mocks.backend.loadTemplate.mockResolvedValue({ name: 'Header', defaultEndianness: 'little', fields: [] })
     mocks.backend.saveTemplate.mockRejectedValueOnce({ code: 'external_modification', message: 'Changed.' })
       .mockRejectedValueOnce({ code: 'external_modification', message: 'Changed.' }).mockResolvedValue(undefined)
     mocks.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
@@ -190,7 +247,7 @@ describe('App desktop orchestration', () => {
 
   it('keeps edits made during Save newer than the saved editor checkpoint', async () => {
     mocks.open.mockResolvedValue('C:/header.json')
-    mocks.backend.loadTemplate.mockResolvedValue({ version: 1, name: 'Header', defaultEndianness: 'little', fields: [] })
+    mocks.backend.loadTemplate.mockResolvedValue({ name: 'Header', defaultEndianness: 'little', fields: [] })
     let completeSave!: () => void
     mocks.backend.saveTemplate.mockImplementation(() => new Promise<void>((resolve) => { completeSave = resolve }))
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
@@ -198,7 +255,7 @@ describe('App desktop orchestration', () => {
     await sendEditorDraft({ ...wrapper.findComponent(AppShell).props('template')!, name: 'Saved draft' }, true)
     const saving = sendEditorAction('save')
     await flushPromises()
-    mocks.lastDraft = { sessionId: 'test-editor', sequence: 2, template: { ...wrapper.findComponent(AppShell).props('template')!, name: 'Later edit' }, valid: true }
+    mocks.lastDraft = { sessionId: 'test-editor', sequence: 2, workspaceRevision: latestWorkspaceRevision(), template: { ...wrapper.findComponent(AppShell).props('template')!, name: 'Later edit' }, valid: true }
     await mocks.busHandlers.get('hexforge:template:draft')?.(mocks.lastDraft)
     completeSave()
     await saving
@@ -220,6 +277,7 @@ describe('App desktop orchestration', () => {
     await sendEditorDraft({ ...before, name: 'Temporary edit' }, true, 1, 'second-editor')
     await sendEditorAction('discard')
     expect(wrapper.findComponent(AppShell).props('template')).toEqual(before)
+    await mocks.busHandlers.get('hexforge:template:closed')?.({ sessionId: 'second-editor' })
     const event = { preventDefault: vi.fn() }
     await mocks.closeHandler?.(event)
     expect(mocks.confirm).toHaveBeenCalledWith(expect.stringContaining('template changes'), expect.any(Object))
@@ -242,10 +300,10 @@ describe('App desktop orchestration', () => {
 
   it('unloads parsed results and the cyan range without closing the binary', async () => {
     mocks.open.mockResolvedValueOnce('C:/firmware.bin').mockResolvedValueOnce('C:/header.json')
-    mocks.backend.loadTemplate.mockResolvedValue({ version: 1, name: 'Header', defaultEndianness: 'little', fields: [
-      { name: 'magic', offset: '0', type: 'u8', comment: '' },
+    mocks.backend.loadTemplate.mockResolvedValue({ name: 'Header', defaultEndianness: 'little', fields: [
+      { name: 'magic', placement: { mode: 'absolute', offset: '0' }, type: 'u8', comment: '' },
     ] })
-    mocks.backend.applyTemplate.mockResolvedValue([{ name: 'magic', offset: '0', type: 'u8', length: 1, endianness: 'little', value: '41', comment: '' }])
+    mocks.backend.applyTemplate.mockResolvedValue([leafResult('magic')])
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('o', { ctrlKey: true, altKey: true }); await flushPromises()
@@ -262,8 +320,8 @@ describe('App desktop orchestration', () => {
 
   it('loads a template from the top menu without auto-opening the editor or binary file', async () => {
     mocks.open.mockResolvedValue('C:/specs/header.json')
-    mocks.backend.loadTemplate.mockResolvedValue({ version: 1, name: 'Internal title', defaultEndianness: 'big', fields: [
-      { name: 'magic', offset: '0', type: 'u8', comment: '' },
+    mocks.backend.loadTemplate.mockResolvedValue({ name: 'Internal title', defaultEndianness: 'big', fields: [
+      { name: 'magic', placement: { mode: 'absolute', offset: '0' }, type: 'u8', comment: '' },
     ] })
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     expect(wrapper.get('[data-testid="results-empty"] p').text()).toBe('No template loaded.')
@@ -282,10 +340,10 @@ describe('App desktop orchestration', () => {
 
   it('transitions from open binary without template to pending, applied, pending, and unloaded', async () => {
     mocks.open.mockResolvedValueOnce('C:/firmware.bin').mockResolvedValueOnce('C:/specs/header.json')
-    mocks.backend.loadTemplate.mockResolvedValue({ version: 1, name: 'Internal title', defaultEndianness: 'little', fields: [
-      { name: 'magic', offset: '0', type: 'u8', comment: '' },
+    mocks.backend.loadTemplate.mockResolvedValue({ name: 'Internal title', defaultEndianness: 'little', fields: [
+      { name: 'magic', placement: { mode: 'absolute', offset: '0' }, type: 'u8', comment: '' },
     ] })
-    mocks.backend.applyTemplate.mockResolvedValue([{ name: 'magic', offset: '0', type: 'u8', length: 1, endianness: 'little', value: '41', comment: '' }])
+    mocks.backend.applyTemplate.mockResolvedValue([leafResult('magic')])
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     expect(wrapper.get('[data-testid="results-empty"] p').text()).toBe('No template loaded. Load or create template from Template menu.')
@@ -309,11 +367,11 @@ describe('App desktop orchestration', () => {
 
   it('applies an unsaved editor draft without saving it to JSON', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
-    mocks.backend.applyTemplate.mockResolvedValue([{ name: 'magic', offset: '0', type: 'u8', length: 1, endianness: 'little', value: '41', comment: '' }])
+    mocks.backend.applyTemplate.mockResolvedValue([leafResult('magic')])
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
-    await sendEditorDraft({ version: 1, name: 'My draft', defaultEndianness: 'little', fields: [
-      { name: 'magic', offset: '0', type: 'u8', comment: '' },
+    await sendEditorDraft({ name: 'My draft', defaultEndianness: 'little', fields: [
+      { name: 'magic', placement: { mode: 'absolute', offset: '0' }, type: 'u8', comment: '' },
     ] }, true)
     expect(wrapper.get('[data-testid="results-empty"] p').text()).toBe('Unsaved template draft: "My draft".')
     expect(wrapper.findAll('.results-content button')).toHaveLength(0)
@@ -327,9 +385,9 @@ describe('App desktop orchestration', () => {
 
   it('brings the main window forward for a template picker requested by the editor', async () => {
     mocks.open.mockResolvedValue('C:/header.json')
-    mocks.backend.loadTemplate.mockResolvedValue({ version: 1, name: 'Loaded', defaultEndianness: 'little', fields: [] })
+    mocks.backend.loadTemplate.mockResolvedValue({ name: 'Loaded', defaultEndianness: 'little', fields: [] })
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
-    await sendEditorDraft({ version: 1, name: 'Untitled', defaultEndianness: 'little', fields: [] }, true)
+    await sendEditorDraft({ name: 'Untitled', defaultEndianness: 'little', fields: [] }, true)
     await mocks.busHandlers.get('hexforge:template:action')?.({ requestId: 1, command: 'load', draft: mocks.lastDraft })
     await flushPromises()
     expect(mocks.windowSetFocus).toHaveBeenCalledOnce()
@@ -338,15 +396,15 @@ describe('App desktop orchestration', () => {
     wrapper.unmount()
   })
 
-  it('preserves a dirty template when loading invalid JSON fails', async () => {
-    mocks.open.mockResolvedValue('C:/bad.json')
+  it('preserves a dirty template when loading a JSON file with a legacy format key fails', async () => {
+    mocks.open.mockResolvedValue('C:/old.json')
     mocks.confirm.mockResolvedValue(true)
-    mocks.backend.loadTemplate.mockRejectedValue({ code: 'invalid_template', message: 'Invalid template JSON.' })
+    mocks.backend.loadTemplate.mockRejectedValue({ code: 'invalid_template', message: 'The template JSON is invalid: unknown field `version`.' })
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     press('o', { ctrlKey: true, altKey: true }); await flushPromises()
     expect(wrapper.findComponent(AppShell).props('template')!.fields).toHaveLength(1)
-    expect(wrapper.get('[role="dialog"]').text()).toContain('Invalid template JSON.')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('unknown field `version`')
     expect(mocks.confirm).toHaveBeenCalledWith(expect.stringContaining('unsaved changes'), expect.any(Object))
     wrapper.unmount()
   })
@@ -370,7 +428,7 @@ describe('App desktop orchestration', () => {
 
   it('blocks the main-window X when the editor cannot synchronize its draft', async () => {
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
-    await sendEditorDraft({ version: 1, name: 'Draft', defaultEndianness: 'little', fields: [] }, true)
+    await sendEditorDraft({ name: 'Draft', defaultEndianness: 'little', fields: [] }, true)
     mocks.failFlush = true
     const event = { preventDefault: vi.fn() }
     await mocks.closeHandler?.(event); await flushPromises()
@@ -578,7 +636,7 @@ describe('App desktop orchestration', () => {
     await wrapper.get('[data-menu="template"]').trigger('click')
     expect(wrapper.get('[data-menu-command="apply-template"]').attributes('disabled')).toBeDefined()
     await sendEditorDraft({ ...wrapper.findComponent(AppShell).props('template')!, fields: [
-      { name: 'fixed', offset: '0', type: 'u8', comment: '' },
+      { name: 'fixed', placement: { mode: 'absolute', offset: '0' }, type: 'u8', comment: '' },
     ] }, true, 2)
     expect(wrapper.get('[data-menu-command="save-template"]').attributes('disabled')).toBeDefined()
     press('s', { ctrlKey: true, shiftKey: true }); await flushPromises()
@@ -603,9 +661,35 @@ describe('App desktop orchestration', () => {
     wrapper.unmount()
   })
 
+  it.each(['Escape', 'ordinary bytes'] as const)('removes the active parsed marker when selecting %s', async (action) => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    mocks.backend.applyTemplate.mockResolvedValue([leafResult('field1')])
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
+    press('Enter', { ctrlKey: true }); await flushPromises()
+    const canvas = wrapper.findComponent({ name: 'HexCanvas' })
+    expect(canvas.props('templateFields')).toEqual([])
+    await wrapper.get('[data-testid="parsed-result"]').trigger('click'); await flushPromises()
+    expect(wrapper.get('[data-testid="parsed-result"]').classes()).toContain('active')
+    expect(canvas.props('templateFields')).toEqual([
+      { name: 'field1', path: 'field1', offset: '0', length: 1, type: 'u8', value: '41' },
+    ])
+
+    if (action === 'Escape') press('Escape')
+    else canvas.vm.$emit('select', { start: 8n, end: 8n, count: 1n })
+    await flushPromises()
+    expect(wrapper.findComponent(AppShell).props('templateRange')).toBeNull()
+    expect(wrapper.findComponent(AppShell).props('selection')).toEqual(action === 'Escape' ? null : { start: 8n, end: 8n, count: 1n })
+    expect(wrapper.get('[data-testid="parsed-result"]').classes()).not.toContain('active')
+    expect(canvas.props('templateFields')).toEqual([])
+    expect(wrapper.findAll('[data-testid="parsed-result"]')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
   it('shows when parsed results need applying again after a template edit', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
-    mocks.backend.applyTemplate.mockResolvedValue([{ name: 'magic', offset: '0', type: 'u8', length: 1, endianness: 'little', value: '41', comment: '' }])
+    mocks.backend.applyTemplate.mockResolvedValue([leafResult('magic')])
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
@@ -634,7 +718,7 @@ describe('App desktop orchestration', () => {
 
   it('clears the prior field highlight after a replacement template loads', async () => {
     mocks.open.mockResolvedValueOnce('C:/firmware.bin').mockResolvedValueOnce('C:/new.json')
-    mocks.backend.loadTemplate.mockResolvedValue({ version: 1, name: 'New', defaultEndianness: 'little', fields: [] })
+    mocks.backend.loadTemplate.mockResolvedValue({ name: 'New', defaultEndianness: 'little', fields: [] })
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     wrapper.findComponent(AppShell).vm.$emit('navigate', { start: 4n, end: 7n }); await flushPromises()
@@ -644,17 +728,34 @@ describe('App desktop orchestration', () => {
     wrapper.unmount()
   })
 
-  it('normalizes a hex editor offset before applying the template through the backend boundary', async () => {
+  it('keeps exact decimal field offsets when applying the template through the backend boundary', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     const template = wrapper.findComponent(AppShell).props('template')!
-    await sendEditorDraft({ ...template, fields: [{ ...template.fields[0]!, offset: '0x20' }] }, true)
+    await sendEditorDraft({ ...template, fields: [{ ...template.fields[0]!, placement: { mode: 'absolute', offset: '9007199254740993' } }] }, true)
     press('Enter', { ctrlKey: true }); await flushPromises()
     expect(mocks.backend.applyTemplate).toHaveBeenCalledWith(
-      expect.objectContaining({ fields: [expect.objectContaining({ offset: '32' })] }), expect.any(Function),
+      expect.objectContaining({ fields: [expect.objectContaining({ placement: { mode: 'absolute', offset: '9007199254740993' } })] }), expect.any(Function),
     )
+    wrapper.unmount()
+  })
+
+  it('shows nested parse work without a misleading top-level denominator', async () => {
+    let resolveParse!: (value: ParsedNode[]) => void
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    mocks.backend.applyTemplate.mockImplementation((_template, progress) => {
+      progress({ operationId: '1', phase: 'parse', processed: '128', total: '0' })
+      return new Promise(resolve => { resolveParse = resolve })
+    })
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
+    press('Enter', { ctrlKey: true }); await flushPromises()
+    expect(wrapper.get('[data-testid="status-progress"]').text()).toContain('128 nodes processed')
+    expect(wrapper.get('[data-testid="status-progress"]').text()).not.toContain('/ 0')
+    resolveParse([]); await flushPromises()
     wrapper.unmount()
   })
 
@@ -771,7 +872,7 @@ describe('App desktop orchestration', () => {
     mocks.save.mockResolvedValueOnce('C:/results.csv').mockResolvedValueOnce('C:/copy.bin')
     mocks.backend.saveAs.mockResolvedValue({ dirty: false, revision: '0', bytesWritten: '32', destination: 'C:/copy.bin',
       file: { name: 'copy.bin', path: 'C:/copy.bin', size: '32', revision: '0', dirty: false } })
-    mocks.backend.applyTemplate.mockResolvedValue([{ name: 'x', offset: '0', type: 'u8', length: 1, endianness: 'little', value: '41', comment: '' }])
+    mocks.backend.applyTemplate.mockResolvedValue([leafResult('x')])
     mocks.backend.exportResultsCsv.mockResolvedValue(undefined); mocks.backend.closeFile.mockResolvedValue(undefined)
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
@@ -848,7 +949,7 @@ describe('App desktop orchestration', () => {
   it('routes the retained Template shortcuts without a main-window Add Field shortcut', async () => {
     mocks.open.mockResolvedValueOnce('C:/firmware.bin').mockResolvedValueOnce('C:/header.json')
     mocks.save.mockResolvedValue('C:/header-copy.json'); mocks.backend.saveTemplateAs.mockResolvedValue(undefined); mocks.backend.saveTemplate.mockResolvedValue(undefined)
-    mocks.backend.loadTemplate.mockResolvedValue({ version: 1, name: 'Loaded', defaultEndianness: 'big', fields: [] })
+    mocks.backend.loadTemplate.mockResolvedValue({ name: 'Loaded', defaultEndianness: 'big', fields: [] })
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('t', { ctrlKey: true, shiftKey: true }); await flushPromises()
@@ -866,8 +967,37 @@ describe('App desktop orchestration', () => {
     press('o', { ctrlKey: true, altKey: true }); await flushPromises()
     expect(mocks.backend.loadTemplate).toHaveBeenCalledWith('C:/header.json')
     expect(mocks.windowOpen).toHaveBeenCalledOnce()
+    mocks.lastDraft = { sessionId: 'test-editor', sequence: 2, workspaceRevision: latestWorkspaceRevision(),
+      template: wrapper.findComponent(AppShell).props('template'), valid: true }
     press('u', { ctrlKey: true, altKey: true }); await flushPromises()
     expect(wrapper.findComponent(AppShell).props('templateSource')).toBe('none')
+    wrapper.unmount()
+  })
+
+  it('loads a structured template without applying, then navigates an exact leaf and exports the tree', async () => {
+    const template = { name: 'Wide', defaultEndianness: 'little' as const, fields: [
+      { name: 'header', type: 'struct' as const, fields: [{ name: 'value', type: 'u64' as const, placement: { mode: 'absolute' as const, offset: '16' } }] },
+    ] }
+    const leaf = { kind: 'leaf', name: 'value', path: 'header.value', type: 'u64', offset: '16', length: '8', value: '9007199254740993',
+      endianness: 'little', comment: '', enumLabel: null, flags: [], diagnostics: [], children: [] }
+    const tree = [{ kind: 'struct', name: 'header', path: 'header', type: 'struct', offset: '0', length: '24', value: null,
+      endianness: 'little', comment: '', enumLabel: null, flags: [], diagnostics: [], children: [leaf] }]
+    mocks.open.mockResolvedValueOnce('C:/firmware.bin').mockResolvedValueOnce('C:/wide.json')
+    mocks.save.mockResolvedValue('C:/wide.csv')
+    mocks.backend.loadTemplate.mockResolvedValue(template)
+    mocks.backend.applyTemplate.mockResolvedValue(tree)
+    mocks.backend.exportResultsCsv.mockResolvedValue(undefined)
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    press('o', { ctrlKey: true, altKey: true }); await flushPromises()
+    expect(mocks.backend.applyTemplate).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="results-empty"]').text()).toContain('pending apply')
+    press('Enter', { ctrlKey: true }); await flushPromises()
+    expect(mocks.backend.applyTemplate).toHaveBeenCalledWith(template, expect.any(Function))
+    await wrapper.get('[data-result-path="header.value"]').trigger('click'); await flushPromises()
+    expect(wrapper.findComponent(AppShell).props('templateRange')).toEqual({ start: 16n, end: 23n, count: 8n })
+    press('e', { ctrlKey: true, shiftKey: true }); await flushPromises()
+    expect(mocks.backend.exportResultsCsv).toHaveBeenCalledWith('C:/wide.csv', template, expect.any(Function))
     wrapper.unmount()
   })
 
@@ -898,9 +1028,14 @@ function press(key: string, options: KeyboardEventInit = {}): KeyboardEvent {
   return event
 }
 
-async function sendEditorDraft(template: TemplateDefinition, valid: boolean, sequence = 1, sessionId = 'test-editor'): Promise<void> {
+function latestWorkspaceRevision(): number {
+  const snapshot = mocks.busSent.mock.calls.filter(([event]) => event === 'hexforge:template:snapshot').at(-1)?.[1] as { workspaceRevision?: number } | undefined
+  return snapshot?.workspaceRevision ?? 0
+}
+
+async function sendEditorDraft(template: TemplateDefinition, valid: boolean, sequence = 1, sessionId = 'test-editor', workspaceRevision?: number): Promise<void> {
   await mocks.busHandlers.get('hexforge:template:ready')?.({ sessionId })
-  mocks.lastDraft = { sessionId, sequence, template, valid }
+  mocks.lastDraft = { sessionId, sequence, workspaceRevision: workspaceRevision ?? latestWorkspaceRevision(), template, valid }
   await mocks.busHandlers.get('hexforge:template:draft')?.(mocks.lastDraft)
   await flushPromises()
 }
@@ -912,6 +1047,11 @@ async function sendEditorAction(command: string): Promise<void> {
 
 async function sendDraftWithField(template: TemplateDefinition): Promise<void> {
   await sendEditorDraft({ ...template, fields: [...template.fields,
-    { name: 'field1', offset: '0', type: 'u8', endianness: template.defaultEndianness, comment: '' },
+    { name: 'field1', type: 'u8', placement: { mode: 'absolute', offset: '0' }, endianness: template.defaultEndianness, comment: '' },
   ] }, true)
+}
+
+function leafResult(name: string, offset = '0', value = '41'): ParsedNode {
+  return { kind: 'leaf', name, path: name, type: 'u8', offset, length: '1', value,
+    endianness: 'little', comment: '', enumLabel: null, flags: [], diagnostics: [], children: [] }
 }

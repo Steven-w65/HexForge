@@ -1,4 +1,5 @@
 import { matchMenuShortcut, type MenuCommand } from '../menu/commands'
+import { isModalOpen } from '../ui/modalFocus'
 
 export interface HotkeyActions {
   invoke(command: MenuCommand): void
@@ -10,6 +11,10 @@ export interface HotkeyActions {
 
 export function useHotkeys(actions: HotkeyActions, target: Window = window): () => void {
   const listener = (event: KeyboardEvent): void => {
+    if (isModalOpen()) {
+      if (matchMenuShortcut(event)) event.preventDefault()
+      return // The top dialog owns Escape; never mutate the background selection/draft.
+    }
     if (event.key === 'Escape') {
       event.preventDefault()
       if (actions.isPopupOpen()) actions.closePopup()

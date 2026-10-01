@@ -1,0 +1,34 @@
+{
+  "name": "ICO image directory",
+  "defaultEndianness": "little",
+  "fields": [
+    {
+      "name": "directory",
+      "type": "struct",
+      "fields": [
+        { "name": "reserved", "type": "u16", "comment": "Expected 0" },
+        { "name": "type", "type": "u16", "enumLabels": { "1": "ICO" }, "comment": "Use with ICO files; CUR entry words have different meanings" },
+        { "name": "imageCount", "type": "u16" }
+      ]
+    },
+    {
+      "name": "entries",
+      "type": "array",
+      "count": { "ref": "directory.imageCount" },
+      "comment": "16-byte entries only; embedded PNG/DIB images are not followed. Parser expansion limits apply.",
+      "element": {
+        "type": "struct",
+        "fields": [
+          { "name": "width", "type": "u8", "comment": "0 encodes 256 pixels" },
+          { "name": "height", "type": "u8", "comment": "0 encodes 256 pixels" },
+          { "name": "colorCount", "type": "u8", "comment": "0 means at least 256 colors or no palette" },
+          { "name": "reserved", "type": "u8" },
+          { "name": "planes", "type": "u16" },
+          { "name": "bitsPerPixel", "type": "u16" },
+          { "name": "imageByteLength", "type": "u32" },
+          { "name": "imageOffset", "type": "u32", "comment": "Absolute file offset of this image" }
+        ]
+      }
+    }
+  ]
+}

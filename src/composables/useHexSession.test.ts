@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { OperationProgress, PageResponse, ParsedField, SaveResponse, TemplateDefinition } from '../types'
+import type { OperationProgress, PageResponse, ParsedNode, SaveResponse, TemplateDefinition } from '../types'
 import { useHexSession, type HexBackend } from './useHexSession'
 
 function deferred<T>() {
@@ -11,6 +11,10 @@ function deferred<T>() {
 
 function pageAt(offset: bigint, revision = '1'): PageResponse {
   return { offset: offset.toString(), bytes: [0x41], modifiedOffsets: [], revision }
+}
+
+function leaf(name: string, offset = '0', length = '1', value = '41', endianness: 'little' | 'big' = 'little'): ParsedNode {
+  return { kind: 'leaf', name, path: name, type: 'u8', offset, length, value, endianness, comment: '', enumLabel: null, flags: [], diagnostics: [], children: [] }
 }
 
 function fakeBackend(): HexBackend {
@@ -197,37 +201,37 @@ describe('useHexSession', () => {
     vi.mocked(backend.loadTemplate).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
     const session = useHexSession(backend)
     const a = session.loadTemplate('old.json'); const b = session.loadTemplate('new.json')
-    second.resolve({ version: 1, name: 'New', defaultEndianness: 'little', fields: [] }); await b
+    second.resolve({ name: 'New', defaultEndianness: 'little', fields: [] }); await b
     expect(session.busy.template).toBe(true)
-    first.resolve({ version: 1, name: 'Old', defaultEndianness: 'big', fields: [] }); await a
+    first.resolve({ name: 'Old', defaultEndianness: 'big', fields: [] }); await a
     expect(session.template.value.name).toBe('New'); expect(session.busy.template).toBe(false)
   })
 
   it('unloads the template and ignores a parse completed afterward', async () => {
-    const backend = fakeBackend(); const parsed = deferred<ParsedField[]>()
+    const backend = fakeBackend(); const parsed = deferred<ParsedNode[]>()
     vi.mocked(backend.applyTemplate).mockReturnValue(parsed.promise)
     const session = useHexSession(backend)
-    session.updateTemplate({ version: 1, name: 'Header', defaultEndianness: 'big', fields: [
-      { name: 'magic', offset: '0', type: 'u8', comment: '' },
+    session.updateTemplate({ name: 'Header', defaultEndianness: 'big', fields: [
+      { name: 'magic', placement: { mode: 'absolute', offset: '0' }, type: 'u8', comment: '' },
     ] })
     const applying = session.applyTemplate()
     session.unloadTemplate()
-    parsed.resolve([{ name: 'magic', offset: '0', type: 'u8', length: 1, endianness: 'big', value: '1', comment: '' }])
+    parsed.resolve([leaf('magic', '0', '1', '1', 'big')])
     await applying
-    expect(session.template.value).toEqual({ version: 1, name: 'Untitled', defaultEndianness: 'little', fields: [] })
+    expect(session.template.value).toEqual({ name: 'Untitled', defaultEndianness: 'little', fields: [] })
     expect(session.results.value).toEqual([])
   })
 
   it('does not publish parse results or progress after the template changes', async () => {
-    const backend = fakeBackend(); const parsed = deferred<ParsedField[]>(); let parseProgress!: (value: OperationProgress) => void
+    const backend = fakeBackend(); const parsed = deferred<ParsedNode[]>(); let parseProgress!: (value: OperationProgress) => void
     vi.mocked(backend.applyTemplate).mockImplementation((_template, progress) => { parseProgress = progress; return parsed.promise })
-    vi.mocked(backend.loadTemplate).mockResolvedValue({ version: 1, name: 'B', defaultEndianness: 'big', fields: [] })
+    vi.mocked(backend.loadTemplate).mockResolvedValue({ name: 'B', defaultEndianness: 'big', fields: [] })
     const session = useHexSession(backend)
-    session.template.value = { version: 1, name: 'A', defaultEndianness: 'little', fields: [] }
+    session.template.value = { name: 'A', defaultEndianness: 'little', fields: [] }
     const apply = session.applyTemplate()
     await session.loadTemplate('b.json')
     parseProgress({ operationId: 'old-parse', phase: 'parse', processed: '1', total: '1' })
-    parsed.resolve([{ name: 'old', offset: '0', type: 'u8', length: 1, endianness: 'little', value: '41', comment: '' }]); await apply
+    parsed.resolve([leaf('old')]); await apply
     expect(session.template.value.name).toBe('B'); expect(session.results.value).toEqual([]); expect(session.progress.value).toBeNull()
   })
 
@@ -312,7 +316,7 @@ describe('useHexSession', () => {
   })
 
   it('invalidates pending parse results when an older edit succeeds and newer undo is a no-op', async () => {
-    const backend = fakeBackend(); const parsed = deferred<ParsedField[]>(); const firstEdit = deferred<{ dirty: boolean; revision: string }>(); const undo = deferred<{ dirty: boolean; revision: string; undone: boolean }>()
+    const backend = fakeBackend(); const parsed = deferred<ParsedNode[]>(); const firstEdit = deferred<{ dirty: boolean; revision: string }>(); const undo = deferred<{ dirty: boolean; revision: string; undone: boolean }>()
     vi.mocked(backend.applyTemplate).mockReturnValue(parsed.promise); vi.mocked(backend.editByte).mockReturnValue(firstEdit.promise); vi.mocked(backend.undoEdit).mockReturnValue(undo.promise)
     const session = useHexSession(backend)
     session.file.value = { name: 'input.bin', path: 'input.bin', size: '2', revision: '1', dirty: false }
@@ -320,7 +324,7 @@ describe('useHexSession', () => {
     const parse = session.applyTemplate(); const older = session.editSelectedByte('42'); const newer = session.undo()
     firstEdit.resolve({ dirty: true, revision: '2' }); await older
     undo.resolve({ dirty: true, revision: '2', undone: false }); await newer
-    parsed.resolve([{ name: 'old', offset: '0', type: 'u8', length: 1, endianness: 'little', value: '41', comment: '' }]); await parse
+    parsed.resolve([leaf('old')]); await parse
     expect(session.results.value).toEqual([])
   })
 
@@ -334,10 +338,10 @@ describe('useHexSession', () => {
     session.page.value = { ...pageAt(0n, 'a1'), generation: 1 }; session.selection.value = { start: 0n, end: 0n, count: 1n }
     const edit = session.editSelectedByte('42')
     await session.openFile('b.bin')
-    session.matches.value = [1n]; session.results.value = [{ name: 'b-field' } as ParsedField]
+    session.matches.value = [1n]; session.results.value = [leaf('b-field')]
     editedA.resolve({ dirty: true, revision: 'a2' }); await edit
     expect(session.file.value).toMatchObject({ name: 'b.bin', revision: 'b1', dirty: false })
-    expect(session.matches.value).toEqual([1n]); expect(session.results.value).toEqual([{ name: 'b-field' }])
+    expect(session.matches.value).toEqual([1n]); expect(session.results.value).toEqual([leaf('b-field')])
     expect(session.page.value).toBeNull(); expect(backend.readPage).not.toHaveBeenCalled()
   })
 
@@ -375,7 +379,7 @@ describe('useHexSession', () => {
     const session = useHexSession(backend)
     session.file.value = { name: 'a.bin', path: 'a.bin', size: '2', revision: 'a1', dirty: false }
     session.page.value = { ...pageAt(0n, 'a1'), generation: 1 }; session.selection.value = { start: 0n, end: 0n, count: 1n }
-    session.matches.value = [0n]; session.results.value = [{ name: 'a-field' } as ParsedField]
+    session.matches.value = [0n]; session.results.value = [leaf('a-field')]
     const edit = session.editSelectedByte('42'); const open = session.openFile('b.bin').catch(() => undefined)
     openedB.reject({ code: 'permission_denied', message: 'B failed.' }); await open
     editedA.resolve({ dirty: true, revision: 'a2' }); await edit
@@ -461,7 +465,7 @@ describe('useHexSession', () => {
     const backend = fakeBackend(); const session = useHexSession(backend)
     session.file.value = { name: 'input.bin', path: 'input.bin', size: '8192', revision: '3', dirty: true }
     session.page.value = { offset: '16', bytes: [0x99], modifiedOffsets: ['16'], revision: '3', generation: 7 }
-    session.matches.value = [16n]; session.results.value = [{ name: 'stale' } as ParsedField]
+    session.matches.value = [16n]; session.results.value = [leaf('stale')]
     await session.saveAs('copy.bin')
     expect(session.file.value).toMatchObject({ path: 'copy.bin', dirty: false, revision: '0' })
     expect(session.page.value).toBeNull()
@@ -511,7 +515,7 @@ describe('useHexSession', () => {
   })
 
   it('restores an older activity after a newer concurrent operation fails', async () => {
-    const backend = fakeBackend(); const parsed = deferred<ParsedField[]>(); const exported = deferred<void>()
+    const backend = fakeBackend(); const parsed = deferred<ParsedNode[]>(); const exported = deferred<void>()
     let parseProgress!: (value: OperationProgress) => void
     vi.mocked(backend.applyTemplate).mockImplementation((_template, progress) => { parseProgress = progress; return parsed.promise })
     vi.mocked(backend.exportResultsCsv).mockReturnValue(exported.promise)
@@ -524,13 +528,13 @@ describe('useHexSession', () => {
     parsed.resolve([]); await parse
   })
 
-  it('normalizes hexadecimal template offsets before backend calls', async () => {
+  it('passes exact decimal template placement offsets to backend calls', async () => {
     const backend = fakeBackend(); const session = useHexSession(backend)
-    session.updateTemplate({ version: 1, name: 'Header', defaultEndianness: 'big', fields: [
-      { name: 'magic', offset: '0x20', type: 'u16', endianness: 'big', comment: '' },
+    session.updateTemplate({ name: 'Header', defaultEndianness: 'big', fields: [
+      { name: 'magic', placement: { mode: 'absolute', offset: '9007199254740993' }, type: 'u16', endianness: 'big', comment: '' },
     ] })
     await session.applyTemplate(); await session.saveTemplate(false); await session.exportCsv('header.csv')
-    const expected = expect.objectContaining({ fields: [expect.objectContaining({ offset: '32' })] })
+    const expected = expect.objectContaining({ fields: [expect.objectContaining({ placement: { mode: 'absolute', offset: '9007199254740993' } })] })
     expect(backend.applyTemplate).toHaveBeenCalledWith(expected, expect.any(Function))
     expect(backend.saveTemplate).toHaveBeenCalledWith(expected, false)
     expect(backend.exportResultsCsv).toHaveBeenCalledWith('header.csv', expected, expect.any(Function))
@@ -544,11 +548,11 @@ describe('useHexSession', () => {
     expect(session.searchTruncated.value).toBe(true)
   })
 
-  it('loads, saves, applies and exports the active flat template', async () => {
+  it('loads, saves, applies and exports the active structured template', async () => {
     const backend = fakeBackend(); const session = useHexSession(backend)
-    const template: TemplateDefinition = { version: 1, name: 'Header', defaultEndianness: 'big', fields: [] }
+    const template: TemplateDefinition = { name: 'Header', defaultEndianness: 'big', fields: [] }
     vi.mocked(backend.loadTemplate).mockResolvedValue(template)
-    vi.mocked(backend.applyTemplate).mockResolvedValue([{ name: 'magic', offset: '0', type: 'u8', length: 1, endianness: 'big', value: '42', comment: '' }])
+    vi.mocked(backend.applyTemplate).mockResolvedValue([leaf('magic', '0', '1', '42', 'big')])
     await session.loadTemplate('header.json'); await session.saveTemplateAs('copy.json', false); await session.applyTemplate(); await session.exportCsv('result.csv')
     expect(session.template.value).toEqual(template); expect(session.results.value).toHaveLength(1)
     expect(backend.saveTemplateAs).toHaveBeenCalledWith('copy.json', template, false)
@@ -559,7 +563,7 @@ describe('useHexSession', () => {
     const backend = fakeBackend(); const session = useHexSession(backend)
     await session.openFile('input.bin')
     session.file.value = { ...session.file.value!, dirty: true }
-    session.updateTemplate({ version: 1, name: 'Draft', defaultEndianness: 'little', fields: [] })
+    session.updateTemplate({ name: 'Draft', defaultEndianness: 'little', fields: [] })
     await session.saveTemplateAs('draft.json', false)
     await session.saveTemplate(true)
     await session.unloadTemplateFile()
@@ -572,7 +576,7 @@ describe('useHexSession', () => {
 
   it('records a successful empty parse as applied and invalidates it when the template changes', async () => {
     const backend = fakeBackend(); const session = useHexSession(backend)
-    const template: TemplateDefinition = { version: 1, name: 'Draft', defaultEndianness: 'little', fields: [] }
+    const template: TemplateDefinition = { name: 'Draft', defaultEndianness: 'little', fields: [] }
     await session.openFile('input.bin')
     session.updateTemplate(template)
     expect(session.templateApplied.value).toBe(false)
@@ -606,15 +610,15 @@ describe('useHexSession', () => {
 
   it('marks parsed results as needing reapplication after a template change', async () => {
     const backend = fakeBackend(); const session = useHexSession(backend)
-    const template: TemplateDefinition = { version: 1, name: 'Header', defaultEndianness: 'little', fields: [
-      { name: 'magic', offset: '0', type: 'u8', comment: '' },
+    const template: TemplateDefinition = { name: 'Header', defaultEndianness: 'little', fields: [
+      { name: 'magic', placement: { mode: 'absolute', offset: '0' }, type: 'u8', comment: '' },
     ] }
-    vi.mocked(backend.applyTemplate).mockResolvedValue([{ name: 'magic', offset: '0', type: 'u8', length: 1, endianness: 'little', value: '41', comment: '' }])
+    vi.mocked(backend.applyTemplate).mockResolvedValue([leaf('magic')])
     session.updateTemplate(template)
     expect(session.resultsNeedRefresh.value).toBe(false)
     await session.applyTemplate()
     expect(session.resultsNeedRefresh.value).toBe(false)
-    session.updateTemplate({ ...template, name: 'Header v2' })
+    session.updateTemplate({ ...template, name: 'Header revised' })
     expect(session.results.value).toEqual([])
     expect(session.resultsNeedRefresh.value).toBe(true)
     await session.applyTemplate()
@@ -623,10 +627,10 @@ describe('useHexSession', () => {
 
   it('resets the reapply state when a different template is loaded', async () => {
     const backend = fakeBackend(); const session = useHexSession(backend)
-    session.results.value = [{ name: 'old', offset: '0', type: 'u8', length: 1, endianness: 'little', value: '41', comment: '' }]
-    session.updateTemplate({ version: 1, name: 'Changed', defaultEndianness: 'little', fields: [] })
+    session.results.value = [leaf('old')]
+    session.updateTemplate({ name: 'Changed', defaultEndianness: 'little', fields: [] })
     expect(session.resultsNeedRefresh.value).toBe(true)
-    vi.mocked(backend.loadTemplate).mockResolvedValue({ version: 1, name: 'New', defaultEndianness: 'little', fields: [] })
+    vi.mocked(backend.loadTemplate).mockResolvedValue({ name: 'New', defaultEndianness: 'little', fields: [] })
     await session.loadTemplate('new.json')
     expect(session.resultsNeedRefresh.value).toBe(false)
   })
@@ -688,7 +692,7 @@ describe('useHexSession', () => {
     await session.openFile('input.bin')
     session.selection.value = { start: 4n, end: 5n, count: 2n }
     session.matches.value = [4n]
-    session.results.value = [{ name: 'x', offset: '4', type: 'u8', length: 1, endianness: 'little', value: '41', comment: '' }]
+    session.results.value = [leaf('x', '4')]
     session.viewportOffset.value = 4n
     session.editMode.value = true
     await session.closeFile(true)

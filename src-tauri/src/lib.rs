@@ -10,6 +10,7 @@ pub mod page_cache;
 pub mod search;
 pub mod session;
 pub mod template;
+pub mod template_file;
 
 pub fn run() {
     tauri::Builder::default()

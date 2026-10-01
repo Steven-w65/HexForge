@@ -22,6 +22,8 @@ pub enum ErrorCode {
     InvalidSearch,
     InvalidTemplate,
     TemplateOutOfBounds,
+    TemplateDataInvalid,
+    TemplateExpectationFailed,
     DestinationIsSource,
 }
 
@@ -44,6 +46,8 @@ impl ErrorCode {
             Self::InvalidSearch => "invalid_search",
             Self::InvalidTemplate => "invalid_template",
             Self::TemplateOutOfBounds => "template_out_of_bounds",
+            Self::TemplateDataInvalid => "template_data_invalid",
+            Self::TemplateExpectationFailed => "template_expectation_failed",
             Self::DestinationIsSource => "destination_is_source",
         }
     }

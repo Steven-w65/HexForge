@@ -1,14 +1,82 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import type { ParsedField } from '../types'
+import type { ParsedNode } from '../types'
 import ParsedResultsPanel from './ParsedResultsPanel.vue'
 
+function leaf(name: string, offset: string, length: string, value: string): ParsedNode {
+  return { kind: 'leaf', name, path: name, type: 'u8', offset, length, value, endianness: 'little', comment: '', enumLabel: null, flags: [], diagnostics: [], children: [] }
+}
+
 describe('ParsedResultsPanel', () => {
-  it('shows flat result columns in the bottom pane while preserving exact navigation', async () => {
-    const result: ParsedField = { name: 'magic', offset: '16', type: 'u32', length: 4, endianness: 'little', value: '0x1234', comment: 'Header' }
+  it('preserves a collapsed container when a new parse retains its path', async () => {
+    const root: ParsedNode = { ...leaf('header', '0', '1', ''), kind: 'struct', type: 'struct', value: null, children: [{ ...leaf('id', '0', '1', '1'), path: 'header.id' }] }
+    const wrapper = mount(ParsedResultsPanel, { props: { results: [root], collapsed: false, hasFile: true, templateSource: 'file', templateApplied: true } })
+    await wrapper.get('[data-result-path="header"]').trigger('click')
+    await wrapper.setProps({ results: [{ ...root, children: [{ ...root.children[0]!, value: '2' }] }] })
+    expect(wrapper.find('[data-result-path="header.id"]').exists()).toBe(false)
+    expect(wrapper.get('[data-result-path="header"]').attributes('aria-expanded')).toBe('false')
+    wrapper.unmount()
+  })
+
+  it('starts a large array collapsed and renders only a bounded window after expanding', async () => {
+    const root: ParsedNode = { ...leaf('items', '0', '1000', ''), kind: 'array', type: 'array', value: null,
+      children: Array.from({ length: 1000 }, (_, index) => ({ ...leaf(String(index), String(index), '1', String(index)), path: `items[${index}]` })) }
+    const wrapper = mount(ParsedResultsPanel, { props: { results: [root], collapsed: false, hasFile: true, templateSource: 'file', templateApplied: true } })
+    expect(wrapper.findAll('[data-testid="parsed-result"]')).toHaveLength(1)
+    await wrapper.get('[data-result-path="items"]').trigger('click')
+    expect(wrapper.findAll('[data-testid="parsed-result"]').length).toBeLessThan(60)
+    const viewport = wrapper.get('.result-list')
+    ;(viewport.element as HTMLElement).scrollTop = 28000
+    await viewport.trigger('scroll')
+    await wrapper.get('[data-result-path="items[999]"]').trigger('click')
+    expect(wrapper.emitted('navigate')?.at(-1)).toEqual([{ start: 999n, end: 999n }])
+    wrapper.unmount()
+  })
+
+  it('uses arrow keys for tree focus, collapse and expansion, and Enter for exact navigation', async () => {
+    const root: ParsedNode = { ...leaf('header', '0', '8', ''), kind: 'struct', type: 'struct', value: null,
+      children: [{ ...leaf('id', '9007199254740993', '8', '42'), path: 'header.id' }] }
+    const wrapper = mount(ParsedResultsPanel, { attachTo: document.body, props: { results: [root], collapsed: false, hasFile: true, templateSource: 'file', templateApplied: true } })
+    await wrapper.get('[data-result-path="header"]').trigger('keydown', { key: 'ArrowDown' })
+    expect((document.activeElement as HTMLElement)?.dataset.resultPath).toBe('header.id')
+    await wrapper.get('[data-result-path="header.id"]').trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('navigate')?.at(-1)).toEqual([{ start: 9007199254740993n, end: 9007199254741000n }])
+    await wrapper.get('[data-result-path="header.id"]').trigger('keydown', { key: 'ArrowLeft' })
+    await wrapper.get('[data-result-path="header"]').trigger('keydown', { key: 'ArrowLeft' })
+    expect(wrapper.find('[data-result-path="header.id"]').exists()).toBe(false)
+    await wrapper.get('[data-result-path="header"]').trigger('keydown', { key: 'ArrowRight' })
+    expect(wrapper.find('[data-result-path="header.id"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('shows full diagnostic details without navigating an incomplete value', async () => {
+    const message = 'payload: requested bytes exceed the declared length bound. '.repeat(20)
+    const issue: ParsedNode = { ...leaf('payload', '10', '8', ''), kind: 'error', value: null, diagnostics: [{ code: 'invalid_template', message }] }
+    const wrapper = mount(ParsedResultsPanel, { props: { results: [issue], collapsed: false, hasFile: true, templateSource: 'file', templateApplied: true } })
+    await wrapper.get('[data-result-path="payload"]').trigger('click')
+    expect(wrapper.get('[data-testid="diagnostic-details"] p').text()).toBe(message.trim())
+    expect(wrapper.emitted('navigate')).toBeUndefined()
+    wrapper.unmount()
+  })
+  it('expands containers, navigates exact leaf bytes, and displays field diagnostics', async () => {
+    const id: ParsedNode = { kind: 'leaf', name: 'id', path: 'records[2].id', type: 'u64', offset: '9007199254740993', length: '8', value: '42', endianness: 'big', comment: '', enumLabel: 'Answer', flags: [], diagnostics: [], children: [] }
+    const issue: ParsedNode = { ...id, kind: 'error', name: 'missing', path: 'records[2].missing', offset: null, length: null, value: null, diagnostics: [{ code: 'template_out_of_bounds', message: 'records[2].missing: beyond file' }] }
+    const root: ParsedNode = { ...id, kind: 'array', name: 'records', path: 'records', type: 'array', value: null, children: [id, issue] }
+    const wrapper = mount(ParsedResultsPanel, { props: { results: [root], collapsed: false, hasFile: true, templateSource: 'file', templateApplied: true } })
+    expect(wrapper.find('[data-testid="result-tree"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('records[2].missing: beyond file')
+    await wrapper.get('[data-result-path="records[2].id"]').trigger('click')
+    expect(wrapper.emitted('navigate')).toEqual([[{ start: 9007199254740993n, end: 9007199254741000n }]])
+    await wrapper.get('[data-result-path="records[2].missing"]').trigger('click')
+    expect(wrapper.emitted('navigate')).toHaveLength(1)
+    await wrapper.get('[data-result-path="records"]').trigger('click')
+    expect(wrapper.find('[data-result-path="records[2].id"]').exists()).toBe(false)
+  })
+  it('shows leaf result columns in the bottom pane while preserving exact navigation', async () => {
+    const result: ParsedNode = { ...leaf('magic', '16', '4', '0x1234'), type: 'u32', comment: 'Header' }
     const wrapper = mount(ParsedResultsPanel, { props: { results: [result], collapsed: false, hasFile: true, templateSource: 'file', templateApplied: true } })
     const row = wrapper.get('[data-testid="parsed-result"]')
-    expect(wrapper.get('.result-columns').text()).toBe('NameValueOffsetSizeType')
+    expect(wrapper.get('.result-columns').text()).toBe('PathValue / DiagnosticOffsetSizeType')
     expect(row.findAll('.result-cell').map((cell) => cell.text())).toEqual(['magic', '0x1234', '0x00000010', '4 B', 'u32 · LE'])
     expect(row.attributes('title')).toBe('Header')
     await row.trigger('click')
@@ -24,9 +92,9 @@ describe('ParsedResultsPanel', () => {
   })
 
   it('marks only the result matching the current template highlight as active', async () => {
-    const fields: ParsedField[] = [
-      { name: 'first', offset: '16', type: 'u32', length: 4, endianness: 'little', value: '1', comment: '' },
-      { name: 'second', offset: '20', type: 'u8', length: 1, endianness: 'little', value: '2', comment: '' },
+    const fields: ParsedNode[] = [
+      { ...leaf('first', '16', '4', '1'), type: 'u32' },
+      leaf('second', '20', '1', '2'),
     ]
     const wrapper = mount(ParsedResultsPanel, { props: {
       results: fields, collapsed: false, hasFile: true, templateSource: 'file', templateApplied: true,

@@ -12,6 +12,7 @@ import type { BytesPerRow } from './hex/layout'
 import { DEFAULT_MINIMAP_SETTINGS, type MinimapSettings } from './hex/minimapGeometry'
 import { commandEnabled, type MenuCommand, type MenuState } from './menu/commands'
 import type { TemplateDefinition } from './types'
+import { flattenResultLeaves, hasResultDiagnostics, validateTemplate } from './template/model'
 import { normalizeSelection, type ByteSelection } from './hex/selection'
 import { createMainBridge } from './templateWindow/mainBridge'
 import { tauriBus } from './templateWindow/tauriBus'
@@ -46,6 +47,18 @@ const gotoError = ref('')
 const gotoFocusKey = ref(0)
 const templateRange = ref<ByteSelection | null>(null)
 const templateValid = ref(true)
+const completionNotice = ref<{ id: number; text: string } | null>(null)
+let noticeId = 0
+let noticeTimer: ReturnType<typeof setTimeout> | undefined
+function clearCompletion(): void { if (noticeTimer) clearTimeout(noticeTimer); completionNotice.value = null }
+function notifyCompletion(text: string): void {
+  clearCompletion()
+  const id = ++noticeId
+  completionNotice.value = { id, text }
+  noticeTimer = setTimeout(() => { if (completionNotice.value?.id === id) completionNotice.value = null }, 5000)
+}
+watch(() => session.error.value, error => { if (error) clearCompletion() })
+onBeforeUnmount(clearCompletion)
 const closeGuard = { confirming: false }
 const disposers: Array<() => void> = []
 let disposed = false
@@ -57,6 +70,8 @@ const templateDirty = computed(() => templateSnapshot(session.template.value) !=
 const templateActive = ref(false)
 const templateFilePath = ref<string | null>(null)
 const templatePersistenceRevision = ref(0)
+const templateWorkspaceRevision = ref(0)
+const templateWorkflowBusy = ref(false)
 let editorCheckpoint: { template: TemplateDefinition; baseline: string; active: boolean; path: string | null } | null = null
 const templateSource = computed(() => !templateActive.value ? 'none' : templateFilePath.value ? 'file' : 'draft')
 const templateDisplayName = computed(() => templateFilePath.value ? filenameFromPath(templateFilePath.value) : session.template.value.name)
@@ -78,7 +93,15 @@ function discardEditorChanges(): void {
   templateValid.value = true
   clearTemplateHighlight()
   templatePersistenceRevision.value += 1
+  templateWorkspaceRevision.value += 1
   checkpointEditor()
+}
+
+async function withTemplateWorkflow<T>(operation: () => Promise<T>): Promise<T | false> {
+  if (templateWorkflowBusy.value) return false
+  templateWorkflowBusy.value = true
+  try { return await operation() }
+  finally { templateWorkflowBusy.value = false }
 }
 
 async function reportFailure(operation: () => Promise<unknown>): Promise<boolean> {
@@ -119,8 +142,9 @@ async function chooseFile(): Promise<void> {
 }
 
 async function chooseSaveAs(): Promise<void> {
+  clearCompletion()
   const path = await nativeCall(() => save({ title: 'Save binary as', defaultPath: session.file.value ? `${session.file.value.name}.copy` : undefined }))
-  if (path) await reportFailure(() => session.saveAs(path))
+  if (path && await reportFailure(() => session.saveAs(path))) notifyCompletion(`Copy saved as ${filenameFromPath(path)}.`)
 }
 
 async function closeCurrentFile(): Promise<void> {
@@ -161,6 +185,7 @@ async function chooseTemplateLoad(flushDraft = true): Promise<void> {
     templateActive.value = true
     templateFilePath.value = path
     templatePersistenceRevision.value += 1
+    templateWorkspaceRevision.value += 1
     checkpointEditor()
   })
 }
@@ -170,6 +195,7 @@ function isErrorCode(error: unknown, code: string): boolean {
 }
 
 async function chooseTemplateSave(flushDraft = true): Promise<boolean> {
+  clearCompletion()
   if (flushDraft) await bridge.flush()
   if (!templateActive.value || !templateFilePath.value) return false
   if (!templateValid.value) { throw { code: 'invalid_template', message: 'Correct the highlighted template field before saving.' } }
@@ -186,10 +212,12 @@ async function chooseTemplateSave(flushDraft = true): Promise<boolean> {
   templateBaseline.value = savedSnapshot
   templatePersistenceRevision.value += 1
   checkpointEditor(definition)
+  notifyCompletion(`Template saved: ${filenameFromPath(templateFilePath.value)}.`)
   return true
 }
 
 async function chooseTemplateSaveAs(flushDraft = true): Promise<boolean> {
+  clearCompletion()
   if (flushDraft) await bridge.flush()
   if (!templateActive.value) return false
   if (!templateValid.value) { throw { code: 'invalid_template', message: 'Correct the highlighted template field before saving.' } }
@@ -209,13 +237,15 @@ async function chooseTemplateSaveAs(flushDraft = true): Promise<boolean> {
     templateFilePath.value = path
     templatePersistenceRevision.value += 1
     checkpointEditor(definition)
+    notifyCompletion(`Template saved as ${filenameFromPath(path)}.`)
     return true
   })
 }
 
 async function chooseCsvExport(): Promise<void> {
+  clearCompletion()
   const path = await nativeCall(() => save({ title: 'Export parsed results', defaultPath: `${session.template.value.name || 'results'}.csv`, filters: [{ name: 'CSV', extensions: ['csv'] }] }))
-  if (path) await reportFailure(() => session.exportCsv(path))
+  if (path && await reportFailure(() => session.exportCsv(path))) notifyCompletion(`CSV exported: ${filenameFromPath(path)}.`)
 }
 
 function showPrompt(kind: PromptKind, title: string, value = ''): void { popup.value = { kind, title, value } }
@@ -293,6 +323,7 @@ function clearTemplateHighlight(): void {
 }
 
 function updateTemplate(value: TemplateDefinition): void {
+  clearCompletion()
   session.updateTemplate(value)
   clearTemplateHighlight()
   templateActive.value = true
@@ -310,20 +341,28 @@ async function unloadTemplate(flushDraft = true): Promise<void> {
   templateActive.value = false
   templateFilePath.value = null
   templatePersistenceRevision.value += 1
+  templateWorkspaceRevision.value += 1
   checkpointEditor()
   clearTemplateHighlight()
   templateValid.value = true
 }
 async function applyValidTemplate(flushDraft = true): Promise<void> {
+  clearCompletion()
   if (flushDraft) await bridge.flush()
   if (!templateValid.value) { throw { code: 'invalid_template', message: 'Correct the highlighted template field before applying.' } }
   await session.applyTemplate()
+  // A newer draft/content change can make an in-flight parse irrelevant.
+  if (session.templateApplied.value) {
+    const count = flattenResultLeaves(session.results.value).length
+    notifyCompletion(hasResultDiagnostics(session.results.value) ? 'Parsing completed with field errors. Inspect parsed results.' : `Parsed ${count} ${count === 1 ? 'field' : 'fields'}.`)
+  }
 }
 function navigateTemplate(range: { start: bigint; end: bigint }): void {
   templateRange.value = normalizeSelection(range.start, range.end)
   session.navigate(range)
 }
 function selectBytes(value: ByteSelection): void { templateRange.value = null; session.selection.value = value }
+function clearSelection(): void { templateRange.value = null; session.clearSelection() }
 
 const activeBusy = computed(() => {
   const labels: Array<[keyof typeof session.busy, string]> = [
@@ -333,9 +372,14 @@ const activeBusy = computed(() => {
   const operation = session.activity.value?.operation
   return operation ? labels.find(([name]) => name === operation)?.[1] ?? '' : ''
 })
-const progressText = computed(() => session.activity.value?.progress
-  ? `${session.activity.value.progress.processed} / ${session.activity.value.progress.total}`
-  : '')
+const progressText = computed(() => {
+  const progress = session.activity.value?.progress
+  if (!progress) return ''
+  // Reference counts/conditions make the final work size data-dependent.
+  // Display actual nested work, not a percentage of top-level definitions.
+  if (progress.phase === 'parse' && progress.total === '0') return `${progress.processed} nodes processed`
+  return `${progress.processed} / ${progress.total}`
+})
 
 const menuState = computed<MenuState>(() => ({
   hasFile: session.file.value !== null,
@@ -344,19 +388,22 @@ const menuState = computed<MenuState>(() => ({
   editMode: session.editMode.value,
   canUndo: session.canUndo.value,
   templateValid: templateValid.value,
+  templateIssueCount: validateTemplate(session.template.value).length,
   templateActive: templateActive.value,
   templateHasPath: templateFilePath.value !== null,
   templateHasFields: session.template.value.fields.length > 0,
-  hasNavigableTemplateFields: session.template.value.fields.length > 0,
-  hasParsedResults: session.results.value.length > 0,
-  operationBusy: session.activity.value !== null,
+  hasParsedResults: flattenResultLeaves(session.results.value).length > 0 && !hasResultDiagnostics(session.results.value),
+  operationBusy: session.activity.value !== null || templateWorkflowBusy.value,
 }))
 
 const bridge = createMainBridge(tauriBus, {
   snapshot: () => ({
     template: session.template.value, results: session.results.value, fileSize: session.file.value?.size ?? null,
     theme: theme.value.value, dirty: templateDirty.value, canApply: commandEnabled('apply-template', menuState.value), active: templateActive.value,
-    templateFilePath: templateFilePath.value, persistenceRevision: templatePersistenceRevision.value,
+    busy: menuState.value.operationBusy,
+    applied: session.templateApplied.value, resultsNeedRefresh: session.resultsNeedRefresh.value,
+    hasDiagnostics: hasResultDiagnostics(session.results.value), notice: completionNotice.value,
+    templateFilePath: templateFilePath.value, persistenceRevision: templatePersistenceRevision.value, workspaceRevision: templateWorkspaceRevision.value,
     checkpointTemplate: editorCheckpoint?.template ?? session.template.value,
   }),
   onReady: checkpointEditor,
@@ -365,15 +412,18 @@ const bridge = createMainBridge(tauriBus, {
     templateValid.value = draft.valid
   },
   onAction: async (action: EditorAction) => {
+    const commands = { load: 'load-template', save: 'save-template', 'save-as': 'save-template-as', apply: 'apply-template', unload: 'unload-template' } as const
+    const command = commands[action.command as keyof typeof commands]
+    if (command && !commandEnabled(command, menuState.value)) return false
     switch (action.command) {
-      case 'load': await chooseTemplateLoad(false); break
-      case 'save': return await chooseTemplateSave(false)
-      case 'save-as': return await chooseTemplateSaveAs(false)
-      case 'apply': await applyValidTemplate(false); break
-      case 'unload': await unloadTemplate(false); break
+      case 'load': return await withTemplateWorkflow(() => chooseTemplateLoad(false))
+      case 'save': return await withTemplateWorkflow(() => chooseTemplateSave(false))
+      case 'save-as': return await withTemplateWorkflow(() => chooseTemplateSaveAs(false))
+      case 'apply': return await withTemplateWorkflow(() => applyValidTemplate(false))
+      case 'unload': return await withTemplateWorkflow(() => unloadTemplate(false))
       case 'navigate': if (action.range) navigateTemplate({ start: BigInt(action.range.start), end: BigInt(action.range.end) }); break
-      case 'discard': discardEditorChanges(); break
-      case 'close': break // The accepted draft remains in the authoritative main session.
+      case 'discard': if (templateWorkflowBusy.value) return false; discardEditorChanges(); break
+      case 'close': if (templateWorkflowBusy.value) return false; break // The accepted draft remains in the authoritative main session.
     }
   },
   onError: (error) => session.presentError(error),
@@ -381,7 +431,8 @@ const bridge = createMainBridge(tauriBus, {
 })
 
 watch(() => [session.template.value, session.results.value, session.file.value?.size, theme.value.value,
-  templateDirty.value, templateActive.value, templateValid.value, templateFilePath.value, templatePersistenceRevision.value, menuState.value.operationBusy],
+  templateDirty.value, templateActive.value, templateValid.value, templateFilePath.value, templatePersistenceRevision.value, menuState.value.operationBusy,
+  session.templateApplied.value, session.resultsNeedRefresh.value, completionNotice.value],
   () => { void bridge.publish().catch((error) => session.presentError(error)) }, { flush: 'post' })
 
 async function openTemplateEditor(): Promise<void> {
@@ -407,11 +458,11 @@ function executeCommand(command: MenuCommand): void {
     case 'goto': openGoto(); break
     case 'search': openSearch(); break
     case 'template-editor': void openTemplateEditor(); break
-    case 'apply-template': void reportFailure(applyValidTemplate); break
-    case 'load-template': void reportFailure(chooseTemplateLoad); break
-    case 'unload-template': void reportFailure(unloadTemplate); break
-    case 'save-template': void reportFailure(chooseTemplateSave); break
-    case 'save-template-as': void reportFailure(chooseTemplateSaveAs); break
+    case 'apply-template': void reportFailure(() => withTemplateWorkflow(applyValidTemplate)); break
+    case 'load-template': void reportFailure(() => withTemplateWorkflow(chooseTemplateLoad)); break
+    case 'unload-template': void reportFailure(() => withTemplateWorkflow(unloadTemplate)); break
+    case 'save-template': void reportFailure(() => withTemplateWorkflow(chooseTemplateSave)); break
+    case 'save-template-as': void reportFailure(() => withTemplateWorkflow(chooseTemplateSaveAs)); break
     case 'theme-toggle': theme.toggle(); break
     case 'row-16': bytesPerRow.value = 16; break
     case 'row-32': bytesPerRow.value = 32; break
@@ -432,7 +483,7 @@ onMounted(async () => {
   disposers.push(useHotkeys({
     invoke: executeCommand, isEnabled: (command) => commandEnabled(command, menuState.value),
     isPopupOpen: () => popup.value !== null || session.error.value !== null || gotoOpen.value || searchOpen.value,
-    closePopup: closeTopLayer, clearSelection: session.clearSelection,
+    closePopup: closeTopLayer, clearSelection,
   }))
   try {
     const closeUnlisten = await getCurrentWindow().onCloseRequested(async (event) => {
@@ -477,6 +528,7 @@ watch(() => session.sourceIdentity.value, () => {
     data-testid="hexforge-app" :file="session.file.value" :source-identity="session.sourceIdentity.value" :page="session.page.value" :selection="session.selection.value"
     :template="session.template.value" :results="session.results.value" :matches="session.matches.value" :modified-overview="session.modifiedOverview.value"
     :template-source="templateSource" :template-display-name="templateDisplayName" :template-applied="session.templateApplied.value"
+    :template-dirty="templateDirty" :results-need-refresh="session.resultsNeedRefresh.value" :completion-notice="completionNotice"
     :match-length="session.searchMatchLength.value" :search-truncated="session.searchTruncated.value" :template-range="templateRange"
     :search-open="searchOpen" :search-value="searchValue" :search-query="session.searchQuery.value" :search-count="session.matches.value.length"
     :search-busy="session.busy.search" :search-error="searchError" :search-focus-key="searchFocusKey"

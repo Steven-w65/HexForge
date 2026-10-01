@@ -2,19 +2,18 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { BytesPerRow } from '../hex/layout'
 import { DEFAULT_MINIMAP_SETTINGS, type MinimapSettings } from '../hex/minimapGeometry'
-import { commandEnabled, type MenuCommand, type MenuState } from '../menu/commands'
-import type { ParsedField, TemplateDefinition, TemplateField } from '../types'
+import { commandEnabled, commandUnavailableReason, type MenuCommand, type MenuState } from '../menu/commands'
+import type { NavigableParsedLeaf, ParsedResult } from '../types'
+import { flattenResultLeaves } from '../template/model'
 
 type MenuId = 'file' | 'edit' | 'navigate' | 'template' | 'view'
-type SubmenuId = 'template-fields' | 'parsed-results' | 'minimap' | null
+type SubmenuId = 'parsed-results' | 'minimap' | null
 type VisibleMenuCommand = Exclude<MenuCommand, 'toggle-right-panel'>
 
 const props = defineProps<{
   state: MenuState
   bytesPerRow: BytesPerRow
-  fileSize: bigint
-  template: TemplateDefinition
-  results: ParsedField[]
+  results: ParsedResult[]
   minimapSettings?: MinimapSettings
 }>()
 const emit = defineEmits<{
@@ -75,7 +74,7 @@ function showSubmenu(submenu: Exclude<SubmenuId, null>, button?: EventTarget | n
   const trigger = button instanceof HTMLElement ? button : root.value?.querySelector<HTMLElement>(`[data-submenu="${submenu}"]`)
   submenuTop.value = trigger?.offsetTop ?? 0
   openSubmenu.value = submenu
-  focusSubmenuItem(submenu === 'template-fields' ? '[data-template-field]' : submenu === 'parsed-results' ? '[data-parsed-result]' : '[data-minimap-command]')
+  focusSubmenuItem(submenu === 'parsed-results' ? '[data-parsed-result]' : '[data-minimap-command]')
 }
 
 function toggleSubmenu(submenu: Exclude<SubmenuId, null>, button: EventTarget | null): void {
@@ -106,29 +105,10 @@ function checked(command: MenuCommand): boolean | undefined {
   }
 }
 
-function fieldLength(field: TemplateField): number | null {
-  if (field.type === 'string' || field.type === 'bytes') return Number.isSafeInteger(field.length) && (field.length ?? 0) > 0 ? field.length! : null
-  if (field.type.endsWith('8')) return 1
-  if (field.type.endsWith('16')) return 2
-  if (field.type.endsWith('32') || field.type === 'f32') return 4
-  return 8
-}
-
-function fieldRange(field: TemplateField): { start: bigint; end: bigint } | null {
-  if (!/^(?:0[xX][0-9a-fA-F]+|[0-9]+)$/.test(field.offset.trim())) return null
-  const length = fieldLength(field)
-  if (length === null) return null
-  try {
-    const start = BigInt(field.offset)
-    const end = start + BigInt(length) - 1n
-    return end < props.fileSize ? { start, end } : null
-  } catch { return null }
-}
-
-const navigableFields = computed(() => props.template.fields.map((field, index) => ({ field, index, range: fieldRange(field) })).filter((entry) => entry.range !== null))
+const resultLeaves = computed(() => flattenResultLeaves(props.results))
 
 function navigate(range: { start: bigint; end: bigint }): void { emit('navigate', range); closeMenus() }
-function resultRange(result: ParsedField): { start: bigint; end: bigint } {
+function resultRange(result: NavigableParsedLeaf): { start: bigint; end: bigint } {
   const start = BigInt(result.offset)
   return { start, end: start + BigInt(result.length) - 1n }
 }
@@ -162,10 +142,7 @@ function onWindowKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); closeMenus(); return }
   if (openMenu.value === 'navigate' && !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey) {
     const key = event.key.toLowerCase()
-    if (key === 't' && navigableFields.value.length > 0) {
-      event.preventDefault(); showSubmenu('template-fields'); return
-    }
-    if (key === 'r' && props.results.length > 0) {
+    if (key === 'r' && resultLeaves.value.length > 0) {
       event.preventDefault(); showSubmenu('parsed-results'); return
     }
   }
@@ -227,40 +204,30 @@ onBeforeUnmount(() => {
     <div v-if="openMenu" class="menu-popup" role="menu" :data-open-menu="openMenu" :style="{ left: `${popupLeft}px` }" @click.stop>
       <template v-if="openMenu === 'file'">
         <MenuCommandItem v-for="command in fileCommands" :key="command" :command="command" :label="labels[command]" :shortcut="shortcutLabels[command]"
-          :disabled="!commandEnabled(command, state)" @invoke="invoke" />
+          :disabled="!commandEnabled(command, state)" :reason="commandUnavailableReason(command, state)" @invoke="invoke" />
       </template>
       <template v-else-if="openMenu === 'edit'">
         <MenuCommandItem v-for="command in editCommands" :key="command" :command="command" :label="labels[command]" :shortcut="shortcutLabels[command]"
-          :disabled="!commandEnabled(command, state)" :checked="checked(command)" @invoke="invoke" />
+          :disabled="!commandEnabled(command, state)" :reason="commandUnavailableReason(command, state)" :checked="checked(command)" @invoke="invoke" />
       </template>
       <template v-else-if="openMenu === 'navigate'">
         <MenuCommandItem v-for="command in navigateCommands" :key="command" :command="command" :label="labels[command]" :shortcut="shortcutLabels[command]"
-          :disabled="!commandEnabled(command, state)" @invoke="invoke" />
+          :disabled="!commandEnabled(command, state)" :reason="commandUnavailableReason(command, state)" @invoke="invoke" />
         <div class="separator" />
-        <button type="button" role="menuitem" class="menu-item submenu-trigger" data-submenu="template-fields"
-          :aria-expanded="openSubmenu === 'template-fields'" :disabled="!state.hasFile || navigableFields.length === 0" @click="toggleSubmenu('template-fields', $event.currentTarget)">
-          <span>Template Fields</span><span>›</span>
-        </button>
-        <div v-if="openSubmenu === 'template-fields'" class="submenu-flyout" role="menu" data-open-submenu="template-fields" :style="{ top: `${submenuTop}px` }">
-          <button v-for="entry in navigableFields" :key="entry.index" type="button" role="menuitem" class="menu-item"
-            :data-template-field="entry.index" @click="navigate(entry.range!)">
-            <span>{{ entry.field.name }}</span><kbd>{{ offsetLabel(entry.field.offset) }}</kbd>
-          </button>
-        </div>
         <button type="button" role="menuitem" class="menu-item submenu-trigger" data-submenu="parsed-results"
-          :aria-expanded="openSubmenu === 'parsed-results'" :disabled="!state.hasFile || results.length === 0" @click="toggleSubmenu('parsed-results', $event.currentTarget)">
+          :aria-expanded="openSubmenu === 'parsed-results'" :disabled="!state.hasFile || resultLeaves.length === 0" @click="toggleSubmenu('parsed-results', $event.currentTarget)">
           <span>Parsed Results</span><span>›</span>
         </button>
         <div v-if="openSubmenu === 'parsed-results'" class="submenu-flyout" role="menu" data-open-submenu="parsed-results" :style="{ top: `${submenuTop}px` }">
-          <button v-for="(result, index) in results" :key="`${result.offset}-${result.name}-${index}`" type="button" role="menuitem" class="menu-item"
+          <button v-for="(result, index) in resultLeaves" :key="`${result.offset}-${result.path}-${index}`" type="button" role="menuitem" class="menu-item"
             :data-parsed-result="index" @click="navigate(resultRange(result))">
-            <span>{{ result.name }}</span><kbd>{{ offsetLabel(result.offset) }}</kbd>
+            <span>{{ result.path }}</span><kbd>{{ offsetLabel(result.offset) }}</kbd>
           </button>
         </div>
       </template>
       <template v-else-if="openMenu === 'template'">
         <MenuCommandItem v-for="command in templateCommands" :key="command" :command="command" :label="labels[command]" :shortcut="shortcutLabels[command]"
-          :disabled="!commandEnabled(command, state)" @invoke="invoke" />
+          :disabled="!commandEnabled(command, state)" :reason="commandUnavailableReason(command, state)" @invoke="invoke" />
       </template>
       <template v-else>
         <MenuCommandItem v-for="command in viewCommands" :key="command" :command="command" :label="labels[command]" :shortcut="shortcutLabels[command]"
@@ -290,6 +257,7 @@ const MenuCommandItem = defineComponent({
     label: { type: String, required: true },
     shortcut: String,
     disabled: Boolean,
+    reason: { type: String as PropType<string | null>, default: null },
     checked: { type: Boolean, default: undefined },
   },
   emits: { invoke: (_command: Command) => true },
@@ -300,6 +268,7 @@ const MenuCommandItem = defineComponent({
       class: 'menu-item',
       'data-menu-command': props.command,
       disabled: props.disabled,
+      title: props.reason ?? (props.shortcut ? `${props.label} (${props.shortcut})` : props.label),
       'aria-checked': props.checked === undefined ? undefined : String(props.checked),
       onClick: () => { if (!props.disabled) emit('invoke', props.command) },
     }, [

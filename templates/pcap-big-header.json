@@ -1,0 +1,19 @@
+{
+  "name": "PCAP big-endian global header",
+  "defaultEndianness": "big",
+  "fields": [
+    {
+      "name": "header", "type": "struct",
+      "comment": "Classic PCAP 24-byte global header only; not PCAPNG or packet decoding",
+      "fields": [
+        { "name": "magic", "type": "bytes", "length": 4, "comment": "A1 B2 C3 D4: microseconds. A1 B2 3C 4D: nanoseconds. Use the little-endian template for reversed magic." },
+        { "name": "majorVersion", "type": "u16" },
+        { "name": "minorVersion", "type": "u16" },
+        { "name": "reserved1", "type": "u32", "comment": "Historical timezone field; ignored by current readers" },
+        { "name": "reserved2", "type": "u32", "comment": "Historical timestamp accuracy field; ignored by current readers" },
+        { "name": "snapshotLength", "type": "u32" },
+        { "name": "linkTypeAndFlags", "type": "u32", "enumLabels": { "1": "Ethernet" }, "comment": "Low 16 bits identify link type; high bits may carry FCS metadata. Displayed raw." }
+      ]
+    }
+  ]
+}

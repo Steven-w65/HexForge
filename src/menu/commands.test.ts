@@ -11,7 +11,6 @@ const readyState = (): MenuState => ({
   templateActive: true,
   templateHasPath: true,
   templateHasFields: true,
-  hasNavigableTemplateFields: true,
   hasParsedResults: true,
   operationBusy: false,
 })
@@ -77,7 +76,7 @@ describe('menu commands', () => {
   it('disables file-dependent commands without a file while leaving template and view commands available', () => {
     const state: MenuState = {
       ...readyState(), hasFile: false, hasBytes: false, singleByteSelected: false, editMode: false,
-      canUndo: false, templateHasFields: false, hasNavigableTemplateFields: false, hasParsedResults: false,
+      canUndo: false, templateHasFields: false, hasParsedResults: false,
     }
     for (const command of ['close-file', 'save-as', 'export', 'edit-selected', 'toggle-edit', 'undo', 'goto', 'search', 'apply-template'] as const) {
       expect(commandEnabled(command, state), command).toBe(false)
@@ -96,7 +95,8 @@ describe('menu commands', () => {
     expect(commandEnabled('export', { ...readyState(), hasParsedResults: false })).toBe(false)
     expect(commandEnabled('apply-template', { ...readyState(), templateValid: false })).toBe(false)
     expect(commandEnabled('apply-template', { ...readyState(), templateHasFields: false })).toBe(false)
-    expect(commandEnabled('save-template', { ...readyState(), templateValid: false })).toBe(true)
+    expect(commandEnabled('save-template', { ...readyState(), templateValid: false })).toBe(false)
+    expect(commandEnabled('save-template-as', { ...readyState(), templateValid: false })).toBe(false)
     expect(commandEnabled('open', { ...readyState(), operationBusy: true })).toBe(false)
     expect(commandEnabled('theme-toggle', { ...readyState(), operationBusy: true })).toBe(true)
     expect(commandEnabled('exit', { ...readyState(), operationBusy: true })).toBe(true)

@@ -9,7 +9,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 import { backend } from './backend'
 
 const template: TemplateDefinition = {
-  version: 1, name: 'Header', defaultEndianness: 'little', fields: [],
+  name: 'Header', defaultEndianness: 'little', fields: [],
 }
 
 describe('backend IPC contract', () => {

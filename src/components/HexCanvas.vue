@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import type { ColorTheme, ModifiedOverview, PageRequest, ParsedField, ViewportPage } from '../types'
+import type { ColorTheme, ModifiedOverview, PageRequest, ViewportPage } from '../types'
 import { backend } from '../api/backend'
 import { contentWidth, createLayout, hitTestByte, visibleRange, type BytesPerRow, type HexLayout } from '../hex/layout'
 import { normalizeSelection, type ByteSelection } from '../hex/selection'
@@ -22,7 +22,7 @@ const props = defineProps<{
   selection: ByteSelection | null
   matches: bigint[]
   modifiedOverview?: ModifiedOverview
-  templateFields?: ParsedField[]
+  templateFields?: Array<{ offset: string; length: number }>
   matchLength?: number
   templateRange: ByteSelection | null
   editMode: boolean

@@ -1,0 +1,66 @@
+{
+  "name": "DDS texture header and optional DX10 extension",
+  "defaultEndianness": "little",
+  "fields": [
+    { "name": "magic", "type": "string", "encoding": "ascii", "length": 4, "comment": "Expected DDS followed by a space" },
+    {
+      "name": "header",
+      "type": "struct",
+      "comment": "124-byte DDS_HEADER; texture pixels and mipmaps are not decoded",
+      "fields": [
+        { "name": "size", "type": "u32", "comment": "Expected 124" },
+        {
+          "name": "flags", "type": "u32",
+          "bitFlags": [
+            { "bit": 0, "name": "Caps valid" }, { "bit": 1, "name": "Height valid" },
+            { "bit": 2, "name": "Width valid" }, { "bit": 3, "name": "Pitch valid" },
+            { "bit": 12, "name": "Pixel format valid" }, { "bit": 17, "name": "Mipmap count valid" },
+            { "bit": 19, "name": "Linear size valid" }, { "bit": 23, "name": "Depth valid" }
+          ]
+        },
+        { "name": "height", "type": "u32" },
+        { "name": "width", "type": "u32" },
+        { "name": "pitchOrLinearSize", "type": "u32" },
+        { "name": "depth", "type": "u32" },
+        { "name": "mipMapCount", "type": "u32" },
+        { "name": "reserved", "type": "array", "count": { "fixed": 11 }, "element": { "type": "u32" } },
+        {
+          "name": "pixelFormat", "type": "struct",
+          "fields": [
+            { "name": "size", "type": "u32", "comment": "Expected 32" },
+            {
+              "name": "flags", "type": "u32",
+              "bitFlags": [
+                { "bit": 0, "name": "Alpha pixels" }, { "bit": 1, "name": "Alpha only" },
+                { "bit": 2, "name": "FourCC valid" }, { "bit": 6, "name": "RGB" },
+                { "bit": 9, "name": "YUV" }, { "bit": 17, "name": "Luminance" }
+              ]
+            },
+            { "name": "fourCC", "type": "string", "encoding": "ascii", "length": 4, "comment": "DXT1/DXT3/DXT5/DX10 etc.; empty for uncompressed RGB" },
+            { "name": "rgbBitCount", "type": "u32" },
+            { "name": "redMask", "type": "u32" },
+            { "name": "greenMask", "type": "u32" },
+            { "name": "blueMask", "type": "u32" },
+            { "name": "alphaMask", "type": "u32" }
+          ]
+        },
+        { "name": "caps", "type": "u32", "bitFlags": [ { "bit": 3, "name": "Complex" }, { "bit": 12, "name": "Texture" }, { "bit": 22, "name": "Mipmaps" } ] },
+        { "name": "caps2", "type": "u32", "bitFlags": [ { "bit": 9, "name": "Cubemap" }, { "bit": 21, "name": "Volume" } ] },
+        { "name": "caps3", "type": "u32" },
+        { "name": "caps4", "type": "u32" },
+        { "name": "reserved2", "type": "u32" }
+      ]
+    },
+    {
+      "name": "dx10", "type": "struct",
+      "condition": { "ref": "header.pixelFormat.fourCC", "op": "eq", "value": { "type": "string", "value": "DX10" } },
+      "fields": [
+        { "name": "dxgiFormat", "type": "u32", "enumLabels": { "28": "R8G8B8A8_UNORM", "71": "BC1_UNORM", "77": "BC3_UNORM", "98": "BC7_UNORM" } },
+        { "name": "resourceDimension", "type": "u32", "enumLabels": { "2": "Texture1D", "3": "Texture2D", "4": "Texture3D" } },
+        { "name": "miscFlag", "type": "u32", "bitFlags": [ { "bit": 2, "name": "Texture cube" } ] },
+        { "name": "arraySize", "type": "u32" },
+        { "name": "miscFlags2", "type": "u32", "comment": "Low 3 bits encode alpha mode; displayed raw" }
+      ]
+    }
+  ]
+}

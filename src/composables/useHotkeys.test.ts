@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MenuCommand } from '../menu/commands'
 import { handleCloseRequest, useHotkeys, type HotkeyActions } from './useHotkeys'
+import { lockModalFocus } from '../ui/modalFocus'
 
 function actions(popupOpen = false): HotkeyActions {
   return {
@@ -88,6 +89,21 @@ describe('useHotkeys', () => {
   it('clears selection with Escape when no popup is open', () => {
     const target = actions(); cleanups.push(useHotkeys(target)); keydown('Escape')
     expect(target.clearSelection).toHaveBeenCalledOnce()
+  })
+
+  it('does not run background commands or clear selection through a modal', () => {
+    const target = actions(); cleanups.push(useHotkeys(target))
+    const modal = document.createElement('div'); document.body.append(modal)
+    const release = lockModalFocus(modal, null)
+    try {
+      expect(keydown('o', { ctrlKey: true }).defaultPrevented).toBe(true)
+      expect(keydown('s', { ctrlKey: true }).defaultPrevented).toBe(true)
+      keydown('Escape')
+      expect(target.invoke).not.toHaveBeenCalled()
+      expect(target.clearSelection).not.toHaveBeenCalled()
+    } finally { release(); modal.remove() }
+    keydown('o', { ctrlKey: true })
+    expect(target.invoke).toHaveBeenCalledWith('open')
   })
 
   it('prevents a dirty close only when discard is declined', async () => {

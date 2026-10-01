@@ -1,0 +1,31 @@
+{
+  "name": "ZIP first local file header",
+  "defaultEndianness": "little",
+  "fields": [
+    {
+      "name": "localHeader", "type": "struct",
+      "comment": "Starts at offset 0; not for empty ZIPs or self-extracting archives with a leading executable",
+      "fields": [
+        { "name": "signature", "type": "bytes", "length": 4, "expect": { "kind": "equals", "value": { "type": "bytes", "value": "50 4B 03 04" } }, "comment": "Local file header signature is validated" },
+        { "name": "versionNeeded", "type": "u16", "comment": "ZIP extraction revision multiplied by 10" },
+        { "name": "flags", "type": "u16", "bitFlags": [ { "bit": 0, "name": "Encrypted" }, { "bit": 3, "name": "Data descriptor follows data" }, { "bit": 6, "name": "Strong encryption" }, { "bit": 11, "name": "UTF-8 names" } ] },
+        { "name": "compressionMethod", "type": "u16", "enumLabels": { "0": "Stored", "8": "Deflate", "12": "BZIP2", "93": "Zstandard" } },
+        { "name": "modificationTime", "type": "u16", "comment": "Packed DOS time; displayed raw" },
+        { "name": "modificationDate", "type": "u16", "comment": "Packed DOS date; displayed raw" },
+        { "name": "crc32", "type": "u32", "comment": "May be 0 when flag bit 3 is set; no checksum validation is performed" },
+        { "name": "compressedSize", "type": "u32", "comment": "May be deferred or the ZIP64 sentinel 4294967295" },
+        { "name": "uncompressedSize", "type": "u32", "comment": "ZIP64 extra data is not interpreted" },
+        { "name": "fileNameLength", "type": "u16" },
+        { "name": "extraFieldLength", "type": "u16" }
+      ]
+    },
+    {
+      "name": "fileNameBytes", "type": "array", "count": { "ref": "localHeader.fileNameLength" },
+      "element": { "type": "u8" }, "comment": "Raw encoded filename bytes; parser node limits apply"
+    },
+    {
+      "name": "extraFieldBytes", "type": "array", "count": { "ref": "localHeader.extraFieldLength" },
+      "element": { "type": "u8" }, "comment": "Raw extra bytes only; compressed data and central directory are not parsed"
+    }
+  ]
+}

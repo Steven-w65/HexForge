@@ -1,0 +1,38 @@
+{
+  "name": "ELF64 little-endian file header",
+  "defaultEndianness": "little",
+  "fields": [
+    {
+      "name": "header",
+      "type": "struct",
+      "fields": [
+        {
+          "name": "ident",
+          "type": "struct",
+          "fields": [
+            { "name": "magic", "type": "bytes", "length": 4, "expect": { "kind": "equals", "value": { "type": "bytes", "value": "7F 45 4C 46" } } },
+            { "name": "class", "type": "u8", "enumLabels": { "2": "ELF64" }, "expect": { "kind": "equals", "value": { "type": "unsigned", "value": "2" } } },
+            { "name": "data", "type": "u8", "enumLabels": { "1": "Little endian" }, "expect": { "kind": "equals", "value": { "type": "unsigned", "value": "1" } } },
+            { "name": "version", "type": "u8" },
+            { "name": "osAbi", "type": "u8" },
+            { "name": "abiVersion", "type": "u8" },
+            { "name": "padding", "type": "bytes", "length": 7 }
+          ]
+        },
+        { "name": "fileType", "type": "u16", "enumLabels": { "2": "Executable" } },
+        { "name": "machine", "type": "u16", "enumLabels": { "62": "x86-64" } },
+        { "name": "version", "type": "u32" },
+        { "name": "entry", "type": "u64" },
+        { "name": "programHeaderOffset", "type": "u64" },
+        { "name": "sectionHeaderOffset", "type": "u64" },
+        { "name": "flags", "type": "u32" },
+        { "name": "headerSize", "type": "u16" },
+        { "name": "programHeaderEntrySize", "type": "u16" },
+        { "name": "programHeaderCount", "type": "u16" },
+        { "name": "sectionHeaderEntrySize", "type": "u16" },
+        { "name": "sectionHeaderCount", "type": "u16" },
+        { "name": "sectionNameStringIndex", "type": "u16" }
+      ]
+    }
+  ]
+}

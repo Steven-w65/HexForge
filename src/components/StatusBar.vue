@@ -6,6 +6,7 @@ defineProps<{
   fileSize: bigint; selected: { offset: bigint; value: number | null } | null; selectedCount: bigint
   bytesPerRow: BytesPerRow; editMode: boolean; endianness: Endian; dirty: boolean
   busyLabel?: string; progressText?: string
+  completionNotice?: { id: number; text: string } | null
 }>()
 const emit = defineEmits<{ 'update:bytesPerRow': [value: BytesPerRow] }>()
 
@@ -29,6 +30,7 @@ function ascii(value: number): string { return value >= 0x20 && value <= 0x7e ? 
     <span>{{ editMode ? 'Edit' : 'Read-only' }}</span>
     <span>Parse: {{ endianness === 'little' ? 'LE' : 'BE' }}</span>
     <span v-if="busyLabel" data-testid="status-progress" class="progress" role="status">{{ busyLabel }}<template v-if="progressText"> · {{ progressText }}</template></span>
+    <span v-else-if="completionNotice" :key="completionNotice.id" data-testid="completion-notice" class="progress" role="status" :title="completionNotice.text">{{ completionNotice.text }}</span>
     <span :class="{ modified: dirty }">{{ dirty ? 'Modified' : 'Clean' }}</span>
   </footer>
 </template>

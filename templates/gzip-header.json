@@ -1,0 +1,25 @@
+{
+  "name": "GZIP fixed member header",
+  "defaultEndianness": "little",
+  "fields": [
+    {
+      "name": "header", "type": "struct",
+      "comment": "First 10 bytes only; optional fields, compressed stream, and trailer are not decoded",
+      "fields": [
+        { "name": "magic", "type": "bytes", "length": 2, "comment": "Expected 1F 8B" },
+        { "name": "compressionMethod", "type": "u8", "enumLabels": { "8": "Deflate" } },
+        {
+          "name": "flags", "type": "u8",
+          "bitFlags": [
+            { "bit": 0, "name": "Text hint" }, { "bit": 1, "name": "Header CRC present" },
+            { "bit": 2, "name": "Extra field present" }, { "bit": 3, "name": "Original name present" },
+            { "bit": 4, "name": "Comment present" }
+          ]
+        },
+        { "name": "modifiedTime", "type": "u32", "comment": "Unix seconds; 0 means no timestamp" },
+        { "name": "extraFlags", "type": "u8", "enumLabels": { "2": "Maximum compression", "4": "Fastest compression" } },
+        { "name": "operatingSystem", "type": "u8", "enumLabels": { "0": "FAT", "3": "Unix", "7": "Macintosh", "11": "NTFS", "255": "Unknown" } }
+      ]
+    }
+  ]
+}

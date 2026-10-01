@@ -1,0 +1,22 @@
+{
+  "name": "UF2 first firmware block",
+  "defaultEndianness": "little",
+  "fields": [
+    {
+      "name": "block", "type": "struct",
+      "comment": "First 512-byte block only; this template never flashes or executes firmware",
+      "fields": [
+        { "name": "startMagic0", "type": "bytes", "length": 4, "comment": "Expected 55 46 32 0A" },
+        { "name": "startMagic1", "type": "bytes", "length": 4, "comment": "Expected 57 51 5D 9E" },
+        { "name": "flags", "type": "u32", "bitFlags": [ { "bit": 0, "name": "Not main flash" }, { "bit": 12, "name": "File container" }, { "bit": 13, "name": "Family ID present" }, { "bit": 14, "name": "MD5 checksum present" }, { "bit": 15, "name": "Extension tags present" } ] },
+        { "name": "targetAddress", "type": "u32" },
+        { "name": "payloadSize", "type": "u32", "comment": "Number of used payload bytes; commonly 256, at most 476" },
+        { "name": "blockNumber", "type": "u32" },
+        { "name": "totalBlocks", "type": "u32" },
+        { "name": "fileSizeOrFamilyId", "type": "u32", "comment": "Meaning depends on flags; raw value only" },
+        { "name": "payload", "type": "bytes", "length": 476, "comment": "Entire data area including padding, optional extension tags, or checksum data; not decoded further" },
+        { "name": "endMagic", "type": "bytes", "length": 4, "comment": "Expected 30 6F B1 0A" }
+      ]
+    }
+  ]
+}

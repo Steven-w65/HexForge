@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createMainBridge } from './mainBridge'
 import { createEditorBridge } from './editorBridge'
-import type { LocalBus, TemplateSnapshot } from './protocol'
+import { events, type LocalBus, type TemplateSnapshot } from './protocol'
 import type { TemplateDefinition } from '../types'
 
-const empty: TemplateDefinition = { version: 1, name: 'Untitled', defaultEndianness: 'little', fields: [] }
+const empty: TemplateDefinition = { name: 'Untitled', defaultEndianness: 'little', fields: [] }
 
 function bus(): LocalBus {
   const handlers = new Map<string, Set<(payload: unknown) => void>>()
@@ -15,7 +15,7 @@ function bus(): LocalBus {
 }
 
 function snapshot(): Omit<TemplateSnapshot, 'revision' | 'ackSequence'> {
-  return { template: empty, checkpointTemplate: empty, results: [], fileSize: null, theme: 'dark', dirty: false, canApply: false, active: false, templateFilePath: null, persistenceRevision: 0 }
+  return { template: empty, checkpointTemplate: empty, results: [], fileSize: null, theme: 'dark', dirty: false, canApply: false, active: false, templateFilePath: null, persistenceRevision: 0, workspaceRevision: 0 }
 }
 
 describe('local template-window bridge', () => {
@@ -91,5 +91,110 @@ describe('local template-window bridge', () => {
     } finally {
       main.dispose(); editor.dispose(); vi.useRealTimers()
     }
+  })
+
+  it('replaces an unacknowledged old draft on a workspace replacement and ignores late snapshots and acknowledgements', async () => {
+    const underlying = bus()
+    const transport: LocalBus = {
+      listen: underlying.listen,
+      send: (target, event, payload) => event === events.draft ? Promise.resolve() : underlying.send(target, event, payload),
+    }
+    let state = snapshot()
+    const main = createMainBridge(transport, { snapshot: () => state, onDraft: vi.fn(), onAction: vi.fn() })
+    const editor = createEditorBridge(transport, { onSnapshot: vi.fn(), onError: vi.fn() })
+    const fresh: TemplateSnapshot['template'] = { name: 'Untitled', defaultEndianness: 'little', fields: [] }
+    await main.start(); await editor.start()
+    await editor.sendDraft({ ...empty, name: 'Old unsent draft' }, true)
+    state = { ...state, workspaceRevision: 1, persistenceRevision: 1, template: fresh, checkpointTemplate: fresh }
+    await main.publish()
+    expect(editor.state()?.template).toEqual(fresh)
+
+    await underlying.send('template-editor', events.snapshot, { ...snapshot(), revision: 999, ackSequence: 100, workspaceRevision: 0 })
+    await underlying.send('template-editor', events.ack, { sessionId: editor.draft().sessionId, sequence: 100, workspaceRevision: 0 })
+    await editor.sendDraft({ ...fresh, name: 'New workspace edit' }, true)
+    expect(editor.state()?.template.name).toBe('New workspace edit')
+    expect(editor.isAcknowledged()).toBe(false)
+    main.dispose(); editor.dispose()
+  })
+
+  it('does not accept late draft or action messages from a discarded workspace', async () => {
+    const transport = bus()
+    const onDraft = vi.fn()
+    const onAction = vi.fn()
+    const fresh: TemplateSnapshot['template'] = { name: 'Untitled', defaultEndianness: 'little', fields: [] }
+    let state = { ...snapshot(), workspaceRevision: 1, template: fresh }
+    const main = createMainBridge(transport, { snapshot: () => state, onDraft: (draft) => { onDraft(draft); state = { ...state, template: draft.template } }, onAction })
+    const editor = createEditorBridge(transport, { onSnapshot: vi.fn(), onError: vi.fn() })
+    await main.start(); await editor.start()
+    const oldDraft = { sessionId: editor.draft().sessionId, sequence: 1, workspaceRevision: 0, template: { ...empty, name: 'Discarded' }, valid: true }
+    await transport.send('main', events.draft, oldDraft)
+    await transport.send('main', events.action, { requestId: 77, command: 'save', draft: oldDraft })
+    expect(onDraft).not.toHaveBeenCalled()
+    expect(onAction).not.toHaveBeenCalled()
+    expect(state.template).toEqual(fresh)
+    main.dispose(); editor.dispose()
+  })
+
+  it('completes a confirmed discard even though restoring the draft replaces the workspace', async () => {
+    const transport = bus()
+    let state = { ...snapshot(), template: { ...empty, name: 'Unsaved edit' }, checkpointTemplate: empty, dirty: true }
+    const main = createMainBridge(transport, {
+      snapshot: () => state,
+      onDraft: vi.fn(),
+      onAction: async (action) => {
+        if (action.command === 'discard') state = { ...state, template: empty, dirty: false, workspaceRevision: state.workspaceRevision + 1 }
+      },
+    })
+    const editor = createEditorBridge(transport, { onSnapshot: vi.fn(), onError: vi.fn() })
+    await main.start(); await editor.start()
+
+    expect(await editor.requestAction('discard')).toBe(true)
+    expect(editor.state()?.template).toEqual(empty)
+    main.dispose(); editor.dispose()
+  })
+
+  it('does not complete an old action from a late reply after the workspace changed', async () => {
+    const underlying = bus()
+    const transport: LocalBus = {
+      listen: underlying.listen,
+      send: (target, event, payload) => event === events.action ? Promise.resolve() : underlying.send(target, event, payload),
+    }
+    let state = snapshot()
+    const main = createMainBridge(transport, { snapshot: () => state, onDraft: vi.fn(), onAction: vi.fn() })
+    const editor = createEditorBridge(transport, { onSnapshot: vi.fn(), onError: vi.fn() })
+    await main.start(); await editor.start()
+    const oldSave = editor.requestAction('save')
+    const fresh: TemplateSnapshot['template'] = { name: 'Untitled', defaultEndianness: 'little', fields: [] }
+    state = { ...state, workspaceRevision: 1, template: fresh }
+    await main.publish()
+    await underlying.send('template-editor', events.reply, {
+      requestId: 1, ok: true, completed: true,
+      snapshot: { ...snapshot(), revision: 999, ackSequence: 100, workspaceRevision: 0 },
+    })
+    expect(await oldSave).toBe(false)
+    expect(editor.state()?.template).toEqual(fresh)
+    main.dispose(); editor.dispose()
+  })
+
+  it('keeps a late discard reply from closing an editor that has moved to another workspace', async () => {
+    const underlying = bus()
+    const transport: LocalBus = {
+      listen: underlying.listen,
+      send: (target, event, payload) => event === events.action ? Promise.resolve() : underlying.send(target, event, payload),
+    }
+    let state = snapshot()
+    const main = createMainBridge(transport, { snapshot: () => state, onDraft: vi.fn(), onAction: vi.fn() })
+    const editor = createEditorBridge(transport, { onSnapshot: vi.fn(), onError: vi.fn() })
+    await main.start(); await editor.start()
+    const pendingDiscard = editor.requestAction('discard')
+    state = { ...state, workspaceRevision: 1, template: { ...empty, name: 'New workspace' } }
+    await main.publish()
+    await underlying.send('template-editor', events.reply, {
+      requestId: 1, ok: true, completed: true,
+      snapshot: { ...snapshot(), revision: 999, ackSequence: 100, workspaceRevision: 0 },
+    })
+    expect(await pendingDiscard).toBe(false)
+    expect(editor.state()?.template.name).toBe('New workspace')
+    main.dispose(); editor.dispose()
   })
 })

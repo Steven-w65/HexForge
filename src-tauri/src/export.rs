@@ -1,7 +1,7 @@
 use crate::edit_buffer::EditBuffer;
 use crate::error::{AppError, ErrorCode};
 use crate::session::{FileSession, MAX_READ_RANGE};
-use crate::template::{Endian, FieldType, ParsedField};
+use crate::template::{Endian, FieldType, ParsedNode};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
@@ -109,34 +109,66 @@ where
     })
 }
 
-pub fn export_csv_create_new(path: &Path, fields: &[ParsedField]) -> Result<(), AppError> {
-    export_csv_create_new_with_progress(path, fields, &mut |_| {})
+/// Refuse incomplete results rather than writing a misleading partial CSV.
+pub fn export_results_csv(path: &Path, results: &[ParsedNode]) -> Result<(), AppError> {
+    export_results_csv_with_progress(path, results, &mut |_| {})
 }
 
-pub fn export_csv_create_new_with_progress(
+pub fn export_results_csv_with_progress(
     path: &Path,
-    fields: &[ParsedField],
+    results: &[ParsedNode],
     progress: &mut dyn FnMut(u64),
 ) -> Result<(), AppError> {
-    export_csv_create_new_with_stage_progress(path, fields, create_staged_file, progress)
+    export_parsed_csv(path, results, progress)
+}
+
+fn collect_leaves<'a>(
+    nodes: &'a [ParsedNode],
+    leaves: &mut Vec<&'a ParsedNode>,
+) -> Result<(), AppError> {
+    for node in nodes {
+        if let Some(diagnostic) = node.diagnostics.first() {
+            return Err(AppError::new(
+                ErrorCode::InvalidTemplate,
+                format!(
+                    "Cannot export incomplete result '{}': {}",
+                    node.path, diagnostic.message
+                ),
+                Some(node.path.clone()),
+            ));
+        }
+        if node.kind == "leaf" {
+            leaves.push(node);
+        }
+        collect_leaves(&node.children, leaves)?;
+    }
+    Ok(())
+}
+
+fn export_parsed_csv(
+    path: &Path,
+    nodes: &[ParsedNode],
+    progress: &mut dyn FnMut(u64),
+) -> Result<(), AppError> {
+    export_parsed_csv_with_stage_progress(path, nodes, create_staged_file, progress)
 }
 
 #[cfg(test)]
-fn export_csv_create_new_with_stage<S, F>(
+fn export_parsed_csv_with_stage<S, F>(
     path: &Path,
-    fields: &[ParsedField],
+    nodes: &[ParsedNode],
     create_stage: F,
 ) -> Result<(), AppError>
 where
     S: OwnedStagedOutput,
     F: FnOnce(&Path) -> Result<S, AppError>,
 {
-    export_csv_create_new_with_stage_progress(path, fields, create_stage, &mut |_| {})
+    export_parsed_csv_with_stage_progress(path, nodes, create_stage, &mut |_| {})
 }
 
-fn export_csv_create_new_with_stage_progress<S, F>(
+fn export_parsed_csv_with_stage_progress<S, F>(
     path: &Path,
-    fields: &[ParsedField],
+    nodes: &[ParsedNode],
     create_stage: F,
     progress: &mut dyn FnMut(u64),
 ) -> Result<(), AppError>
@@ -144,27 +176,93 @@ where
     S: OwnedStagedOutput,
     F: FnOnce(&Path) -> Result<S, AppError>,
 {
+    let mut leaves = Vec::new();
+    collect_leaves(nodes, &mut leaves)?;
     let destination = normalized_destination(path)?;
     refuse_existing_destination(&destination)?;
     let parent = destination
         .parent()
         .expect("normalized destination has a parent");
     let mut output = create_stage(parent)?;
-    let result = write_csv(&mut output, fields, &destination, progress).and_then(|_| {
+    let result = write_parsed_csv(&mut output, &leaves, &destination, progress).and_then(|_| {
         output
             .sync_all()
-            .map_err(|error| AppError::from_io(error, Some(&destination)))
+            .map_err(|issue| AppError::from_io(issue, Some(&destination)))
     });
-    if let Err(error) = result {
-        return Err(cleanup_owned_stage(output, error));
+    if let Err(issue) = result {
+        return Err(cleanup_owned_stage(output, issue));
     }
-    if let Err((output, error)) = output.persist_noclobber(&destination) {
+    if let Err((output, issue)) = output.persist_noclobber(&destination) {
         return Err(cleanup_owned_stage(
             output,
-            AppError::from_io(error, Some(&destination)),
+            AppError::from_io(issue, Some(&destination)),
         ));
     }
     Ok(())
+}
+
+fn write_parsed_csv<W: Write>(
+    output: &mut W,
+    leaves: &[&ParsedNode],
+    path: &Path,
+    progress: &mut dyn FnMut(u64),
+) -> Result<(), AppError> {
+    let mut writer = csv::WriterBuilder::new().from_writer(output);
+    writer
+        .write_record([
+            "path",
+            "name",
+            "offset",
+            "length",
+            "type",
+            "endianness",
+            "value",
+            "comment",
+            "enumLabel",
+            "flags",
+        ])
+        .map_err(|issue| csv_error(issue, path))?;
+    for (index, node) in leaves.iter().enumerate() {
+        let flags = node.flags.join("|");
+        writer
+            .write_record([
+                node.path.as_str(),
+                node.name.as_str(),
+                node.offset.as_deref().unwrap_or(""),
+                node.length.as_deref().unwrap_or(""),
+                field_type_name(node.field_type),
+                node.endianness.map(endian_name).unwrap_or(""),
+                node.value.as_deref().unwrap_or(""),
+                node.comment.as_str(),
+                node.enum_label.as_deref().unwrap_or(""),
+                flags.as_str(),
+            ])
+            .map_err(|issue| csv_error(issue, path))?;
+        progress(index as u64 + 1);
+    }
+    writer
+        .flush()
+        .map_err(|issue| AppError::from_io(issue, Some(path)))
+}
+
+fn field_type_name(field_type: FieldType) -> &'static str {
+    match field_type {
+        FieldType::U8 => "u8",
+        FieldType::U16 => "u16",
+        FieldType::U32 => "u32",
+        FieldType::U64 => "u64",
+        FieldType::I8 => "i8",
+        FieldType::I16 => "i16",
+        FieldType::I32 => "i32",
+        FieldType::I64 => "i64",
+        FieldType::F32 => "f32",
+        FieldType::F64 => "f64",
+        FieldType::Bool => "bool",
+        FieldType::String => "string",
+        FieldType::Bytes => "bytes",
+        FieldType::Struct => "struct",
+        FieldType::Array => "array",
+    }
 }
 
 fn normalized_destination(destination: &Path) -> Result<PathBuf, AppError> {
@@ -238,59 +336,6 @@ pub(crate) fn copy_effective<R: Read + Seek, W: Write>(
 
     output.flush().map_err(AppError::from)?;
     Ok(processed)
-}
-
-fn write_csv<W: Write>(
-    output: &mut W,
-    fields: &[ParsedField],
-    path: &Path,
-    progress: &mut dyn FnMut(u64),
-) -> Result<(), AppError> {
-    let mut writer = csv::WriterBuilder::new().from_writer(output);
-    writer
-        .write_record([
-            "name",
-            "offset",
-            "length",
-            "type",
-            "endianness",
-            "value",
-            "comment",
-        ])
-        .map_err(|error| csv_error(error, path))?;
-    for (index, field) in fields.iter().enumerate() {
-        let length = field.length.to_string();
-        writer
-            .write_record([
-                field.name.as_str(),
-                field.offset.as_str(),
-                length.as_str(),
-                field_type_name(&field.field_type),
-                endian_name(field.endianness),
-                field.value.as_str(),
-                field.comment.as_str(),
-            ])
-            .map_err(|error| csv_error(error, path))?;
-        progress(index as u64 + 1);
-    }
-    writer
-        .flush()
-        .map_err(|error| AppError::from_io(error, Some(path)))
-}
-
-fn field_type_name(field_type: &FieldType) -> &'static str {
-    match field_type {
-        FieldType::U8 => "u8",
-        FieldType::U16 => "u16",
-        FieldType::U32 => "u32",
-        FieldType::I8 => "i8",
-        FieldType::I16 => "i16",
-        FieldType::I32 => "i32",
-        FieldType::F32 => "f32",
-        FieldType::F64 => "f64",
-        FieldType::String => "string",
-        FieldType::Bytes => "bytes",
-    }
 }
 
 fn endian_name(endianness: Endian) -> &'static str {
@@ -381,14 +426,14 @@ fn cleanup_owned_stage<S: OwnedStagedOutput>(stage: S, error: AppError) -> AppEr
 #[cfg(test)]
 mod tests {
     use super::{
-        copy_effective, export_csv_create_new, export_csv_create_new_with_stage,
-        normalized_destination, save_session_as, save_session_as_with_progress,
-        save_session_as_with_stage, OwnedStagedOutput,
+        copy_effective, export_parsed_csv_with_stage, export_results_csv, normalized_destination,
+        save_session_as, save_session_as_with_progress, save_session_as_with_stage,
+        OwnedStagedOutput,
     };
     use crate::edit_buffer::EditBuffer;
     use crate::error::ErrorCode;
     use crate::session::FileSession;
-    use crate::template::{Endian, FieldType, ParsedField};
+    use crate::template::{Endian, FieldType, ParsedNode};
     use std::io::{self, Cursor, Write};
     use std::path::{Path, PathBuf};
 
@@ -519,15 +564,21 @@ mod tests {
         }
     }
 
-    fn parsed_field() -> ParsedField {
-        ParsedField {
+    fn parsed_field() -> ParsedNode {
+        ParsedNode {
+            kind: "leaf".to_owned(),
             name: "field, \"quoted\"\nline".to_owned(),
-            offset: "7".to_owned(),
+            path: "field, \"quoted\"\nline".to_owned(),
+            offset: Some("7".to_owned()),
             field_type: FieldType::U16,
-            length: 2,
-            endianness: Endian::Big,
-            value: "value, \"quoted\"\nline".to_owned(),
+            length: Some("2".to_owned()),
+            endianness: Some(Endian::Big),
+            value: Some("value, \"quoted\"\nline".to_owned()),
             comment: "comment, \"quoted\"\nline".to_owned(),
+            enum_label: None,
+            flags: vec![],
+            diagnostics: vec![],
+            children: vec![],
         }
     }
 
@@ -731,7 +782,7 @@ mod tests {
 
         for fault in [StageFault::Write, StageFault::Flush, StageFault::Sync] {
             let output = dir.path().join(format!("csv-{fault:?}.csv"));
-            let error = export_csv_create_new_with_stage(&output, &[parsed_field()], |parent| {
+            let error = export_parsed_csv_with_stage(&output, &[parsed_field()], |parent| {
                 Ok(TestStage::new(parent, fault))
             })
             .unwrap_err();
@@ -742,7 +793,7 @@ mod tests {
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 
         let output = dir.path().join("persist.csv");
-        let error = export_csv_create_new_with_stage(&output, &[parsed_field()], |parent| {
+        let error = export_parsed_csv_with_stage(&output, &[parsed_field()], |parent| {
             Ok(TestStage::new(parent, StageFault::PersistReplacement))
         })
         .unwrap_err();
@@ -755,7 +806,7 @@ mod tests {
     fn cleanup_failure_keeps_the_original_error_code_and_records_the_owned_temp_path() {
         let dir = tempfile::tempdir().unwrap();
         let output = dir.path().join("cleanup.csv");
-        let error = export_csv_create_new_with_stage(&output, &[parsed_field()], |parent| {
+        let error = export_parsed_csv_with_stage(&output, &[parsed_field()], |parent| {
             Ok(TestStage::new(parent, StageFault::Cleanup))
         })
         .unwrap_err();
@@ -770,14 +821,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let output = dir.path().join("fields.csv");
 
-        export_csv_create_new(&output, &[parsed_field()]).unwrap();
+        export_results_csv(&output, &[parsed_field()]).unwrap();
 
         assert_eq!(
             std::fs::read_to_string(&output).unwrap(),
-            "name,offset,length,type,endianness,value,comment\n\"field, \"\"quoted\"\"\nline\",7,2,u16,big,\"value, \"\"quoted\"\"\nline\",\"comment, \"\"quoted\"\"\nline\"\n"
+            "path,name,offset,length,type,endianness,value,comment,enumLabel,flags\n\"field, \"\"quoted\"\"\nline\",\"field, \"\"quoted\"\"\nline\",7,2,u16,big,\"value, \"\"quoted\"\"\nline\",\"comment, \"\"quoted\"\"\nline\",,\n"
         );
         std::fs::write(&output, "preserve").unwrap();
-        let error = export_csv_create_new(&output, &[parsed_field()]).unwrap_err();
+        let error = export_results_csv(&output, &[parsed_field()]).unwrap_err();
         assert_eq!(error.code(), "destination_exists");
         assert_eq!(std::fs::read_to_string(output).unwrap(), "preserve");
     }

@@ -41,8 +41,6 @@ pub struct FileSession {
     cache: PageCache,
     edits: EditBuffer,
     #[cfg(test)]
-    read_count: usize,
-    #[cfg(test)]
     source_check_count: Cell<usize>,
 }
 
@@ -103,8 +101,6 @@ impl FileSession {
             source_identity,
             cache: PageCache::new(page_size, max_pages),
             edits: EditBuffer::default(),
-            #[cfg(test)]
-            read_count: 0,
             #[cfg(test)]
             source_check_count: Cell::new(0),
         })
@@ -188,10 +184,6 @@ impl FileSession {
         offset: u64,
         buffer: &mut [u8],
     ) -> Result<usize, AppError> {
-        #[cfg(test)]
-        {
-            self.read_count += 1;
-        }
         if buffer.len() as u64 > MAX_READ_RANGE {
             return Err(invalid_length("The requested chunk is too large."));
         }
@@ -253,11 +245,6 @@ impl FileSession {
         }
         self.ensure_source_unchanged()?;
         Ok(samples)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn test_read_count(&self) -> usize {
-        self.read_count
     }
 
     #[cfg(test)]
@@ -445,6 +432,26 @@ mod tests {
         let file = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(file.path(), bytes).unwrap();
         file
+    }
+
+    #[test]
+    fn template_scalar_arrays_use_bounded_cached_reads_and_effective_edits() {
+        let file = fixture(vec![0; 2000]);
+        let mut session = FileSession::open(file.path().to_path_buf(), 256, 2).unwrap();
+        session.edit_byte(1000, 0xAB).unwrap();
+        let before = session.test_source_check_count();
+        let template = serde_json::from_value(serde_json::json!({
+            "name":"Cached", "defaultEndianness":"little", "fields":[
+                {"name":"items","type":"array","count":{"fixed":2000},"element":{"type":"u8"}}
+            ]
+        }))
+        .unwrap();
+        let nodes = crate::template::parse_template(&mut session, &template).unwrap();
+        assert_eq!(nodes[0].children[1000].value.as_deref(), Some("171"));
+        assert!(session.test_source_check_count() - before < 20);
+        session.edit_byte(1000, 0xCD).unwrap();
+        let again = crate::template::parse_template(&mut session, &template).unwrap();
+        assert_eq!(again[0].children[1000].value.as_deref(), Some("205"));
     }
 
     #[test]

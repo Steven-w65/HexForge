@@ -26,14 +26,15 @@ export function createMainBridge(bus: LocalBus, callbacks: MainCallbacks) {
   }
 
   async function accept(draft: DraftUpdate): Promise<void> {
-    if (draft.sessionId !== sessionId || draft.sequence <= lastSequence) return
+    if (draft.sessionId !== sessionId || draft.workspaceRevision !== callbacks.snapshot().workspaceRevision || draft.sequence <= lastSequence) return
     await callbacks.onDraft(draft)
     lastSequence = draft.sequence
-    await bus.send(EDITOR_LABEL, events.ack, { sessionId, sequence: lastSequence })
+    await bus.send(EDITOR_LABEL, events.ack, { sessionId, sequence: lastSequence, workspaceRevision: draft.workspaceRevision })
   }
 
   function requireCurrentDraft(draft: DraftUpdate): void {
     if (!sessionId || draft?.sessionId !== sessionId) throw new Error('Template Editor is disconnected. Its draft is still open.')
+    if (draft.workspaceRevision !== callbacks.snapshot().workspaceRevision) throw new Error('The template workspace changed. Try the action again with the current draft.')
   }
 
   async function start(): Promise<void> {
@@ -75,8 +76,8 @@ export function createMainBridge(bus: LocalBus, callbacks: MainCallbacks) {
     } catch (error) { dispose(); throw error }
   }
 
-  async function flush(): Promise<void> {
-    if (!sessionId) return
+  async function flush(): Promise<number> {
+    if (!sessionId) return lastSequence
     const id = ++requestId
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => { waiting.delete(id); reject(new Error('Template Editor did not respond. Its draft is still open.')) }, 5000)
@@ -85,6 +86,7 @@ export function createMainBridge(bus: LocalBus, callbacks: MainCallbacks) {
         clearTimeout(timer); waiting.delete(id); reject(new Error(errorMessage(error)))
       })
     })
+    return lastSequence
   }
 
   function dispose(): void {
@@ -93,5 +95,5 @@ export function createMainBridge(bus: LocalBus, callbacks: MainCallbacks) {
     waiting.clear(); sessionId = null; started = false
   }
 
-  return { start, publish, flush, dispose, isReady: () => sessionId !== null }
+  return { start, publish, flush, dispose, isReady: () => sessionId !== null, latestSequence: () => lastSequence }
 }

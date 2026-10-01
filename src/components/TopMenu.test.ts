@@ -1,25 +1,18 @@
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { MenuState } from '../menu/commands'
-import type { ParsedField, TemplateDefinition } from '../types'
+import type { ParsedNode } from '../types'
 import TopMenu from './TopMenu.vue'
 
 const state = (patch: Partial<MenuState> = {}): MenuState => ({
   hasFile: true, hasBytes: true, singleByteSelected: true, editMode: true, canUndo: true,
-  templateValid: true, templateActive: true, templateHasFields: true, hasNavigableTemplateFields: true,
+  templateValid: true, templateActive: true, templateHasFields: true,
   templateHasPath: true,
   hasParsedResults: true, operationBusy: false, ...patch,
 })
 
-const template: TemplateDefinition = {
-  version: 1, name: 'Header', defaultEndianness: 'little', fields: [
-    { name: 'magic', offset: '0', type: 'bytes', length: 4, comment: '' },
-    { name: 'version', offset: '0x4', type: 'u16', endianness: 'little', comment: '' },
-  ],
-}
-
-const results: ParsedField[] = [
-  { name: 'magic', offset: '0', type: 'bytes', length: 4, endianness: 'little', value: '48 45 58 46', comment: '' },
+const results: ParsedNode[] = [
+  { kind: 'leaf', name: 'magic', path: 'magic', offset: '0', type: 'bytes', length: '4', endianness: null, value: '48 45 58 46', comment: '', enumLabel: null, flags: [], diagnostics: [], children: [] },
 ]
 
 const mounted: VueWrapper[] = []
@@ -27,7 +20,7 @@ const mounted: VueWrapper[] = []
 function mountMenu(menuState = state()) {
   const wrapper = mount(TopMenu, { attachTo: document.body, props: {
     state: menuState, bytesPerRow: 16,
-    fileSize: 32n, template, results,
+    results,
   } })
   mounted.push(wrapper)
   return wrapper
@@ -139,17 +132,13 @@ describe('TopMenu', () => {
     expect(wrapper.get('.menu-popup').attributes('style')).toContain('left: 133px')
   })
 
-  it('lists valid template fields and parsed results and emits their exact byte ranges', async () => {
+  it('offers parsed-result navigation without a Template Fields submenu', async () => {
     const wrapper = mountMenu()
     await wrapper.get('[data-menu="navigate"]').trigger('click')
-    await wrapper.get('[data-submenu="template-fields"]').trigger('click')
-    expect(wrapper.text()).toContain('version')
-    await wrapper.get('[data-template-field="1"]').trigger('click')
-    expect(wrapper.emitted('navigate')).toEqual([[{ start: 4n, end: 5n }]])
-    await wrapper.get('[data-menu="navigate"]').trigger('click')
+    expect(wrapper.findAll('[data-submenu]').map((item) => item.attributes('data-submenu'))).toEqual(['parsed-results'])
     await wrapper.get('[data-submenu="parsed-results"]').trigger('click')
     await wrapper.get('[data-parsed-result="0"]').trigger('click')
-    expect(wrapper.emitted('navigate')?.at(-1)).toEqual([{ start: 0n, end: 3n }])
+    expect(wrapper.emitted('navigate')).toEqual([[{ start: 0n, end: 3n }]])
   })
 
   it('opens top-level menus with Alt access keys and closes them with Escape', async () => {
@@ -172,33 +161,27 @@ describe('TopMenu', () => {
     expect(wrapper.emitted('command')).toEqual([['close-file']])
   })
 
-  it('opens dynamic Navigate submenus through their access keys and invokes a selected range', async () => {
+  it('opens parsed results from the Navigate access key and invokes a selected range', async () => {
     const wrapper = mountMenu()
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', altKey: true, bubbles: true, cancelable: true })); await wrapper.vm.$nextTick()
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', bubbles: true, cancelable: true })); await wrapper.vm.$nextTick()
-    expect((document.activeElement as HTMLElement).dataset.templateField).toBe('0')
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })); await wrapper.vm.$nextTick()
-    expect((document.activeElement as HTMLElement).dataset.templateField).toBe('1')
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await wrapper.vm.$nextTick()
-    expect(wrapper.emitted('navigate')).toEqual([[{ start: 4n, end: 5n }]])
-
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', altKey: true, bubbles: true, cancelable: true })); await wrapper.vm.$nextTick()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', bubbles: true, cancelable: true })); await wrapper.vm.$nextTick()
     expect((document.activeElement as HTMLElement).dataset.parsedResult).toBe('0')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('navigate')).toEqual([[{ start: 0n, end: 3n }]])
   })
 
   it('opens Navigate children as flyouts and returns focus to the trigger with ArrowLeft', async () => {
     const wrapper = mountMenu()
     await wrapper.get('[data-menu="navigate"]').trigger('click')
-    const trigger = wrapper.get('[data-submenu="template-fields"]')
+    const trigger = wrapper.get('[data-submenu="parsed-results"]')
     ;(trigger.element as HTMLElement).focus()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
     await wrapper.vm.$nextTick()
-    expect(wrapper.get('[data-open-submenu="template-fields"]').classes()).toContain('submenu-flyout')
-    expect((document.activeElement as HTMLElement).dataset.templateField).toBe('0')
+    expect(wrapper.get('[data-open-submenu="parsed-results"]').classes()).toContain('submenu-flyout')
+    expect((document.activeElement as HTMLElement).dataset.parsedResult).toBe('0')
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }))
     await wrapper.vm.$nextTick()
-    expect(wrapper.find('[data-open-submenu="template-fields"]').exists()).toBe(false)
+    expect(wrapper.find('[data-open-submenu="parsed-results"]').exists()).toBe(false)
     expect(document.activeElement).toBe(trigger.element)
   })
 })

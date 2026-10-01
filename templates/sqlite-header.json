@@ -1,0 +1,35 @@
+{
+  "name": "SQLite database file header",
+  "defaultEndianness": "big",
+  "fields": [
+    {
+      "name": "header", "type": "struct",
+      "comment": "100-byte main database header only; not a WAL file, b-tree page, or SQL row decoder",
+      "fields": [
+        { "name": "magic", "type": "string", "encoding": "ascii", "length": 16, "comment": "Expected SQLite format 3 followed by NUL" },
+        { "name": "pageSize", "type": "u16", "enumLabels": { "1": "65536 bytes" }, "comment": "Encoded value 1 represents a 65536-byte page" },
+        { "name": "writeVersion", "type": "u8", "enumLabels": { "1": "Rollback journal", "2": "WAL" } },
+        { "name": "readVersion", "type": "u8", "enumLabels": { "1": "Rollback journal", "2": "WAL" } },
+        { "name": "reservedBytesPerPage", "type": "u8" },
+        { "name": "maxPayloadFraction", "type": "u8", "comment": "Expected 64" },
+        { "name": "minPayloadFraction", "type": "u8", "comment": "Expected 32" },
+        { "name": "leafPayloadFraction", "type": "u8", "comment": "Expected 32" },
+        { "name": "changeCounter", "type": "u32" },
+        { "name": "pageCount", "type": "u32" },
+        { "name": "firstFreelistTrunk", "type": "u32" },
+        { "name": "freelistPageCount", "type": "u32" },
+        { "name": "schemaCookie", "type": "u32" },
+        { "name": "schemaFormat", "type": "u32" },
+        { "name": "defaultCacheSize", "type": "i32" },
+        { "name": "largestRootPage", "type": "u32" },
+        { "name": "textEncoding", "type": "u32", "enumLabels": { "1": "UTF-8", "2": "UTF-16LE", "3": "UTF-16BE" } },
+        { "name": "userVersion", "type": "u32" },
+        { "name": "incrementalVacuum", "type": "u32", "comment": "Any nonzero value enables incremental vacuum" },
+        { "name": "applicationId", "type": "u32" },
+        { "name": "reserved", "type": "bytes", "length": 20 },
+        { "name": "versionValidFor", "type": "u32" },
+        { "name": "sqliteVersion", "type": "u32", "comment": "SQLite library revision number that last wrote the header" }
+      ]
+    }
+  ]
+}

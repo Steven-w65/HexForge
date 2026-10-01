@@ -18,9 +18,9 @@ export interface MenuState {
   templateActive: boolean
   templateHasPath: boolean
   templateHasFields: boolean
-  hasNavigableTemplateFields: boolean
   hasParsedResults: boolean
   operationBusy: boolean
+  templateIssueCount?: number
 }
 
 interface Shortcut {
@@ -68,35 +68,46 @@ export function matchMenuShortcut(event: KeyboardEvent, target: EventTarget | nu
   return shortcut.command
 }
 
-export function commandEnabled(command: MenuCommand, state: MenuState): boolean {
-  if (command === 'exit' || command === 'theme-toggle' || command.startsWith('row-') || command.startsWith('minimap-') || command === 'toggle-right-panel') return true
-  if (state.operationBusy) return false
+/** The same rule and reason drive menus, editor buttons, shortcuts and dialogs. */
+export function commandUnavailableReason(command: MenuCommand, state: MenuState): string | null {
+  if (command === 'exit' || command === 'theme-toggle' || command.startsWith('row-') || command.startsWith('minimap-') || command === 'toggle-right-panel') return null
+  if (state.operationBusy) return 'Wait for the current operation to finish.'
+  const invalid = state.templateIssueCount ? `Correct ${state.templateIssueCount} template ${state.templateIssueCount === 1 ? 'error' : 'errors'} first.` : 'Correct the highlighted template errors first.'
   switch (command) {
     case 'open':
     case 'template-editor':
     case 'load-template':
-      return true
+      return null
     case 'save-template':
-      return state.templateActive && state.templateHasPath
+      if (!state.templateActive) return 'Load or create a template first.'
+      if (!state.templateHasPath) return 'Use Save As first to choose a template file.'
+      return state.templateValid ? null : invalid
     case 'save-template-as':
-      return state.templateActive
+      if (!state.templateActive) return 'Load or create a template first.'
+      return state.templateValid ? null : invalid
     case 'unload-template':
-      return state.templateActive
+      return state.templateActive ? null : 'No template is loaded.'
     case 'close-file':
     case 'save-as':
     case 'toggle-edit':
-      return state.hasFile
+      return state.hasFile ? null : 'Open a binary file first.'
     case 'goto':
     case 'search':
-      return state.hasBytes
+      return state.hasBytes ? null : 'Open a nonempty binary file first.'
     case 'edit-selected':
-      return state.hasBytes && state.editMode && state.singleByteSelected
+      if (!state.hasBytes) return 'Open a nonempty binary file first.'
+      if (!state.editMode) return 'Enable Edit Mode first.'
+      return state.singleByteSelected ? null : 'Select one byte to edit.'
     case 'undo':
-      return state.hasFile && state.canUndo
+      return state.hasFile && state.canUndo ? null : 'No byte edit to undo.'
     case 'export':
-      return state.hasFile && state.hasParsedResults
+      return state.hasFile && state.hasParsedResults ? null : 'Apply a valid template before exporting results.'
     case 'apply-template':
-      return state.hasFile && state.templateValid && state.templateHasFields
+      if (!state.hasFile) return 'Open a binary file to apply the template.'
+      if (!state.templateValid) return invalid
+      return state.templateHasFields ? null : 'Add a template field first.'
   }
-  return false
+  return 'This action is unavailable.'
 }
+
+export function commandEnabled(command: MenuCommand, state: MenuState): boolean { return commandUnavailableReason(command, state) === null }

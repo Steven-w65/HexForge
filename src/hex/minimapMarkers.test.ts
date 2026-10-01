@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import type { ParsedField } from '../types'
+import type { NavigableParsedLeaf } from '../types'
 import { createMinimapGeometry } from './minimapGeometry'
 import { collectMinimapMarkers, projectMinimapMarkers, projectOverviewMarkers } from './minimapMarkers'
 
-const field = (offset: bigint, length: number): ParsedField => ({
-  name: 'Field', offset: offset.toString(), length, type: 'bytes', endianness: 'little', value: '', comment: '',
+const field = (offset: bigint, length: number): NavigableParsedLeaf => ({
+  name: 'Field', path: 'Field', offset: offset.toString(), length, type: 'bytes', value: '',
 })
 
 describe('shared minimap and overview markers', () => {

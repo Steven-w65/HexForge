@@ -1,0 +1,23 @@
+{
+  "name": "GLB binary glTF header and first chunk header",
+  "defaultEndianness": "little",
+  "fields": [
+    {
+      "name": "header", "type": "struct",
+      "fields": [
+        { "name": "magic", "type": "string", "encoding": "ascii", "length": 4, "comment": "Expected glTF" },
+        { "name": "version", "type": "u32", "enumLabels": { "2": "GLB 2" }, "comment": "Binary container revision, independent of the asset JSON revision" },
+        { "name": "totalLength", "type": "u32", "comment": "Length in bytes including all headers and chunks" }
+      ]
+    },
+    {
+      "name": "firstChunk", "type": "struct",
+      "condition": { "ref": "header.version", "op": "eq", "value": { "type": "unsigned", "value": "2" } },
+      "comment": "First chunk header only; JSON content and later BIN chunks are not decoded",
+      "fields": [
+        { "name": "chunkLength", "type": "u32", "comment": "Payload byte length including padding, excluding the 8-byte chunk header" },
+        { "name": "chunkType", "type": "string", "encoding": "ascii", "length": 4, "comment": "Expected JSON for the first GLB 2 chunk" }
+      ]
+    }
+  ]
+}

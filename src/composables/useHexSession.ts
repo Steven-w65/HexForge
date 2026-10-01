@@ -3,7 +3,7 @@ import { backend as defaultBackend } from '../api/backend'
 import { parseHexBytes, parseOffset, parseSingleByte } from '../hex/input'
 import { normalizeSelection, type ByteSelection } from '../hex/selection'
 import type {
-  AppError, DirtyState, FileInfo, ModifiedOverview, OperationProgress, PageResponse, ParsedField,
+  AppError, DirtyState, FileInfo, ModifiedOverview, OperationProgress, PageResponse, ParsedResult,
   SaveResponse, SearchResponse, TemplateDefinition, UndoResponse, ViewportPage,
 } from '../types'
 
@@ -20,7 +20,7 @@ export interface HexBackend {
   getModifiedOverview(): Promise<ModifiedOverview>
   saveAs(path: string, onProgress: ProgressHandler): Promise<SaveResponse>
   searchBytes(pattern: string, onProgress: ProgressHandler): Promise<SearchResponse>
-  applyTemplate(template: TemplateDefinition, onProgress: ProgressHandler): Promise<ParsedField[]>
+  applyTemplate(template: TemplateDefinition, onProgress: ProgressHandler): Promise<ParsedResult[]>
   loadTemplate(path: string): Promise<TemplateDefinition>
   saveTemplate(template: TemplateDefinition, overwriteExternal?: boolean): Promise<void>
   saveTemplateAs(path: string, template: TemplateDefinition, overwrite?: boolean): Promise<void>
@@ -31,7 +31,7 @@ export interface HexBackend {
 export type BusyOperation = 'open' | 'close' | 'page' | 'search' | 'parse' | 'edit' | 'undo' | 'save' | 'template' | 'export'
 export interface OperationActivity { operation: BusyOperation; progress: OperationProgress | null }
 
-const EMPTY_TEMPLATE: TemplateDefinition = { version: 1, name: 'Untitled', defaultEndianness: 'little', fields: [] }
+const EMPTY_TEMPLATE: TemplateDefinition = { name: 'Untitled', defaultEndianness: 'little', fields: [] }
 
 function friendlyError(value: unknown): AppError {
   if (typeof value === 'object' && value !== null && 'code' in value && typeof value.code === 'string' &&
@@ -45,7 +45,7 @@ export interface HexSession {
   sourceIdentity: Ref<number>
   lastEditDelta: Ref<{ offset: bigint; revision: string } | null>
   modifiedOverview: Ref<ModifiedOverview>
-  template: Ref<TemplateDefinition>; results: Ref<ParsedField[]>; templateApplied: Ref<boolean>; resultsNeedRefresh: Ref<boolean>; matches: Ref<bigint[]>
+  template: Ref<TemplateDefinition>; results: Ref<ParsedResult[]>; templateApplied: Ref<boolean>; resultsNeedRefresh: Ref<boolean>; matches: Ref<bigint[]>
   searchQuery: Ref<string>; searchMatchLength: Ref<number>; searchTruncated: Ref<boolean>
   activity: Ref<OperationActivity | null>
   busy: Record<BusyOperation, boolean>; progress: Ref<OperationProgress | null>; error: Ref<AppError | null>
@@ -72,7 +72,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   const page = ref<ViewportPage | null>(null)
   const selection = ref<ByteSelection | null>(null)
   const template = ref<TemplateDefinition>({ ...EMPTY_TEMPLATE, fields: [] })
-  const results = ref<ParsedField[]>([])
+  const results = ref<ParsedResult[]>([])
   // This status is independent of row count: a successful parse may return no fields.
   const templateApplied = ref(false)
   const resultsNeedRefresh = ref(false)
@@ -96,7 +96,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   let latestRelevantIssue = 0
   let latestProgressIssue = 0
   let contentVersion = 0
-  let templateVersion = 0
+  let templateEpoch = 0
   let viewportIntentVersion = 0
   let openQueue: Promise<void> | null = null
   const activities = new Map<number, OperationActivity>()
@@ -293,10 +293,10 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   }
 
   async function applyTemplate(): Promise<void> {
-    const parsedTemplate = templateVersion
+    const parsedTemplate = templateEpoch
     const parsedContent = contentVersion
-    const relevant = () => parsedTemplate === templateVersion && parsedContent === contentVersion
-    const definition = backendTemplate(template.value)
+    const relevant = () => parsedTemplate === templateEpoch && parsedContent === contentVersion
+    const definition = template.value
     const result = await run('parse', (ticket) => api.applyTemplate(definition, (value) => reportProgress(ticket, value)), true, relevant)
     if (result.current) { results.value = result.value; templateApplied.value = true; resultsNeedRefresh.value = false }
   }
@@ -352,23 +352,23 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   function saveAs(path: string): Promise<void> { return runMutation(() => saveAsCore(path)) }
 
   async function loadTemplate(path: string): Promise<void> {
-    const loadedTemplate = ++templateVersion
+    const loadedTemplate = ++templateEpoch
     progress.value = null
-    const result = await run('template', () => api.loadTemplate(path), false, () => loadedTemplate === templateVersion)
+    const result = await run('template', () => api.loadTemplate(path), false, () => loadedTemplate === templateEpoch)
     if (result.current) { template.value = result.value; results.value = []; templateApplied.value = false; resultsNeedRefresh.value = false }
   }
   async function saveTemplate(overwriteExternal = false, definition = template.value): Promise<void> {
-    const payload = backendTemplate(definition)
+    const payload = definition
     await runMutation(async () => { await run('template', () => api.saveTemplate(payload, overwriteExternal)) })
   }
   async function saveTemplateAs(path: string, overwrite = false, definition = template.value): Promise<void> {
-    const payload = backendTemplate(definition)
+    const payload = definition
     await runMutation(async () => { await run('template', () => api.saveTemplateAs(path, payload, overwrite)) })
   }
   async function unloadTemplateFile(): Promise<void> {
     await run('template', () => api.unloadTemplateFile())
   }
-  async function exportCsv(path: string): Promise<void> { await run('export', (ticket) => api.exportResultsCsv(path, backendTemplate(template.value), (value) => reportProgress(ticket, value)), true) }
+  async function exportCsv(path: string): Promise<void> { await run('export', (ticket) => api.exportResultsCsv(path, template.value, (value) => reportProgress(ticket, value)), true) }
 
   function presentError(cause: unknown): void {
     latestRelevantIssue = ++latestIssue
@@ -387,7 +387,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   }
 
   function updateTemplate(value: TemplateDefinition): void {
-    templateVersion += 1
+    templateEpoch += 1
     template.value = value
     templateApplied.value = false
     if (results.value.length > 0) resultsNeedRefresh.value = true
@@ -396,7 +396,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   }
 
   function unloadTemplate(): void {
-    templateVersion += 1
+    templateEpoch += 1
     template.value = { ...EMPTY_TEMPLATE, fields: [] }
     results.value = []
     templateApplied.value = false
@@ -410,12 +410,4 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     saveTemplate, saveTemplateAs, unloadTemplateFile, exportCsv, updateTemplate, unloadTemplate, navigate, clearSelection: () => { selection.value = null }, clearError: () => { error.value = null }, presentError,
     prepareClose, releaseCloseBarrier,
   }
-}
-
-function backendTemplate(value: TemplateDefinition): TemplateDefinition {
-  return { ...value, fields: value.fields.map((field) => {
-    const offset = field.offset.trim()
-    if (!/^(?:0[xX][0-9a-fA-F]+|[0-9]+)$/.test(offset)) return { ...field }
-    return { ...field, offset: BigInt(offset).toString() }
-  }) }
 }

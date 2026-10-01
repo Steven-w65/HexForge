@@ -1,0 +1,67 @@
+{
+  "name": "PNG signature and IHDR",
+  "defaultEndianness": "big",
+  "fields": [
+    {
+      "name": "signature",
+      "type": "bytes",
+      "comment": "PNG file signature",
+      "length": 8,
+      "expect": { "kind": "equals", "value": { "type": "bytes", "value": "89 50 4E 47 0D 0A 1A 0A" } }
+    },
+    {
+      "name": "ihdr",
+      "type": "struct",
+      "comment": "Only the mandatory first IHDR chunk is decoded",
+      "fields": [
+        {
+          "name": "dataLength",
+          "type": "u32",
+          "expect": { "kind": "equals", "value": { "type": "unsigned", "value": "13" } }
+        },
+        {
+          "name": "chunkType",
+          "type": "string",
+          "length": 4,
+          "encoding": "ascii",
+          "expect": { "kind": "equals", "value": { "type": "string", "value": "IHDR" } }
+        },
+        {
+          "name": "width",
+          "type": "u32"
+        },
+        {
+          "name": "height",
+          "type": "u32"
+        },
+        {
+          "name": "bitDepth",
+          "type": "u8"
+        },
+        {
+          "name": "colorType",
+          "type": "u8",
+          "enumLabels": {
+            "6": "RGBA"
+          }
+        },
+        {
+          "name": "compression",
+          "type": "u8"
+        },
+        {
+          "name": "filter",
+          "type": "u8"
+        },
+        {
+          "name": "interlace",
+          "type": "u8"
+        },
+        {
+          "name": "crc",
+          "type": "u32"
+        }
+      ]
+    }
+  ]
+}

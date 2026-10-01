@@ -3,7 +3,8 @@ use crate::export;
 use crate::minimap::{MinimapSampleRowDto, MinimapSamplesResponse};
 use crate::search::{self, SearchResult};
 use crate::session::{FileInfo, FileSession, PageData, OVERVIEW_BIN_COUNT};
-use crate::template::{self, ParsedField, TemplateDefinition, TemplateFileSession};
+use crate::template::{self, ParsedNode, TemplateDefinition};
+use crate::template_file::TemplateFileSession;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::{
@@ -481,17 +482,20 @@ pub async fn apply_template(
     state: State<'_, AppState>,
     template: TemplateDefinition,
     on_progress: Channel<OperationProgress>,
-) -> Result<Vec<ParsedField>, AppError> {
+) -> Result<Vec<ParsedNode>, AppError> {
     session_operation(&state, move |session| {
         let reporter = Reporter::new(on_progress);
-        let total = template.fields.len() as u64;
-        reporter.send(OperationPhase::Parse, 0, total);
+        let mut processed = 0;
+        reporter.send(OperationPhase::Parse, 0, 0);
         let fields = template::parse_template_with_progress(
             active_session(session)?,
             &template,
-            &mut |processed| reporter.send(OperationPhase::Parse, processed, total),
+            &mut |value| {
+                processed = value;
+                reporter.send(OperationPhase::Parse, value, 0);
+            },
         )?;
-        reporter.send(OperationPhase::Complete, total, total);
+        reporter.send(OperationPhase::Complete, processed, processed);
         Ok(fields)
     })
     .await
@@ -580,16 +584,22 @@ pub async fn export_results_csv(
 ) -> Result<(), AppError> {
     session_operation(&state, move |session| {
         let reporter = Reporter::new(on_progress);
-        let total = template.fields.len() as u64;
-        reporter.send(OperationPhase::Parse, 0, total);
+        reporter.send(OperationPhase::Parse, 0, 0);
         // Reparse the effective session under the same lock: exported values cannot be stale.
         let fields = template::parse_template_with_progress(
             active_session(session)?,
             &template,
-            &mut |processed| reporter.send(OperationPhase::Parse, processed, total),
+            &mut |processed| reporter.send(OperationPhase::Parse, processed, 0),
         )?;
+        fn leaf_count(nodes: &[ParsedNode]) -> u64 {
+            nodes
+                .iter()
+                .map(|node| u64::from(node.kind == "leaf") + leaf_count(&node.children))
+                .sum()
+        }
+        let total = leaf_count(&fields);
         reporter.send(OperationPhase::Csv, 0, total);
-        export::export_csv_create_new_with_progress(
+        export::export_results_csv_with_progress(
             &PathBuf::from(path),
             &fields,
             &mut |processed| reporter.send(OperationPhase::Csv, processed, total),

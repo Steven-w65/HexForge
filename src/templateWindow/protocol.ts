@@ -1,4 +1,4 @@
-import type { ColorTheme, ParsedField, TemplateDefinition } from '../types'
+import type { ColorTheme, ParsedResult, TemplateDefinition } from '../types'
 
 export const EDITOR_LABEL = 'template-editor'
 export const MAIN_LABEL = 'main'
@@ -12,18 +12,24 @@ export interface TemplateSnapshot {
   revision: number
   ackSequence: number
   template: TemplateDefinition
-  results: ParsedField[]
+  results: ParsedResult[]
   fileSize: string | null // Decimal strings keep multi-GB offsets JSON-safe.
   theme: ColorTheme
   dirty: boolean
   canApply: boolean
+  busy?: boolean // Authoritative workflow/operation lock, independent of draft validity.
+  applied?: boolean
+  resultsNeedRefresh?: boolean
+  hasDiagnostics?: boolean
+  notice?: { id: number; text: string } | null
   active: boolean
   templateFilePath: string | null
   persistenceRevision: number
+  workspaceRevision: number // Changes only when the authoritative template workspace is replaced.
   checkpointTemplate: TemplateDefinition
 }
 
-export interface DraftUpdate { sessionId: string; sequence: number; template: TemplateDefinition; valid: boolean }
+export interface DraftUpdate { sessionId: string; sequence: number; workspaceRevision: number; template: TemplateDefinition; valid: boolean }
 export type EditorActionName = 'load' | 'save' | 'save-as' | 'apply' | 'unload' | 'navigate' | 'discard' | 'close'
 export interface EditorAction { requestId: number; command: EditorActionName; draft: DraftUpdate; range?: { start: string; end: string } }
 export interface EditorReply { requestId: number; ok: boolean; completed?: boolean; error?: string; snapshot?: TemplateSnapshot }

@@ -5,7 +5,7 @@ interface EditorCallbacks { onSnapshot(snapshot: TemplateSnapshot): void; onErro
 export function createEditorBridge(bus: LocalBus, callbacks: EditorCallbacks) {
   const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
   const disposers: Array<() => void> = []
-  const waiting = new Map<number, { resolve: (completed: boolean) => void; reject: (error: Error) => void }>()
+  const waiting = new Map<number, { command: EditorActionName; workspaceRevision: number; resolve: (completed: boolean) => void; reject: (error: Error) => void }>()
   let current: TemplateSnapshot | null = null
   let valid = true
   let sequence = 0
@@ -15,7 +15,19 @@ export function createEditorBridge(bus: LocalBus, callbacks: EditorCallbacks) {
 
   function applySnapshot(incoming: TemplateSnapshot): void {
     if (!incoming || incoming.revision < lastRevision) return
+    if (current && incoming.workspaceRevision < current.workspaceRevision) return
+    const changedWorkspace = current !== null && incoming.workspaceRevision > current.workspaceRevision
     lastRevision = incoming.revision
+    if (changedWorkspace) {
+      // A load, unload, or discard replaces the editor workspace. Its sequence
+      // starts at the main window's acknowledged boundary, not at a stale edit.
+      sequence = incoming.ackSequence
+      acknowledged = incoming.ackSequence
+      valid = true
+      current = incoming
+      callbacks.onSnapshot(incoming)
+      return
+    }
     acknowledged = Math.max(acknowledged, incoming.ackSequence)
     // Keep locally typed text until the main window confirms that exact sequence.
     current = incoming.ackSequence < sequence && current ? { ...incoming, template: current.template } : incoming
@@ -23,15 +35,15 @@ export function createEditorBridge(bus: LocalBus, callbacks: EditorCallbacks) {
   }
 
   function draft(): DraftUpdate {
-    return { sessionId, sequence, template: current?.template ?? { version: 1, name: 'Untitled', defaultEndianness: 'little', fields: [] }, valid }
+    return { sessionId, sequence, workspaceRevision: current?.workspaceRevision ?? 0, template: current?.template ?? { name: 'Untitled', defaultEndianness: 'little', fields: [] }, valid }
   }
 
   async function start(): Promise<void> {
     try {
       disposers.push(await bus.listen(events.snapshot, (payload) => { applySnapshot(payload as TemplateSnapshot) }))
       disposers.push(await bus.listen(events.ack, (payload) => {
-        const ack = payload as { sessionId: string; sequence: number }
-        if (ack.sessionId === sessionId) acknowledged = Math.max(acknowledged, ack.sequence)
+        const ack = payload as { sessionId: string; sequence: number; workspaceRevision: number }
+        if (ack.sessionId === sessionId && ack.workspaceRevision === current?.workspaceRevision) acknowledged = Math.max(acknowledged, ack.sequence)
       }))
       disposers.push(await bus.listen(events.reply, (payload) => {
         const reply = payload as EditorReply
@@ -39,7 +51,15 @@ export function createEditorBridge(bus: LocalBus, callbacks: EditorCallbacks) {
         if (!pending) return
         waiting.delete(reply.requestId)
         if (reply.snapshot) applySnapshot(reply.snapshot)
-        if (reply.ok) pending.resolve(reply.completed !== false); else pending.reject(new Error(reply.error ?? 'Template action failed.'))
+        if (current && pending.workspaceRevision !== current.workspaceRevision) {
+          // Discard deliberately restores the checkpoint and advances the workspace.
+          // Only its own successful, authoritative next-workspace reply may close the editor.
+          pending.resolve(pending.command === 'discard' && reply.ok && reply.completed !== false
+            && reply.snapshot?.workspaceRevision === pending.workspaceRevision + 1
+            && reply.snapshot.workspaceRevision === current.workspaceRevision)
+        }
+        else if (reply.ok) pending.resolve(reply.completed !== false)
+        else pending.reject(new Error(reply.error ?? 'Template action failed.'))
       }))
       disposers.push(await bus.listen(events.flush, async (payload) => {
         const request = payload as { requestId: number }
@@ -62,7 +82,7 @@ export function createEditorBridge(bus: LocalBus, callbacks: EditorCallbacks) {
     return await new Promise<boolean>((resolve, reject) => {
       // A native picker or a large-file operation can remain open for an arbitrary
       // time. Wait for its reply (or window disposal) instead of timing it out.
-      waiting.set(id, { resolve, reject })
+      waiting.set(id, { command, workspaceRevision: current?.workspaceRevision ?? 0, resolve, reject })
       void bus.send(MAIN_LABEL, events.action, { requestId: id, command, draft: draft(), range }).catch((error) => {
         waiting.delete(id); reject(error)
       })
