@@ -158,6 +158,7 @@ const selectedByte = computed(() => {
         </form>
         <div v-if="!file" data-testid="drop-prompt" class="drop-prompt">
           <span>＋</span>
+          <p>Drop a binary file</p>
           <button type="button" data-action="empty-open" :disabled="!commandEnabled('open', effectiveMenuState)"
             :title="commandUnavailableReason('open', effectiveMenuState) ?? 'Open File (Ctrl+O)'" @click="emit('command', 'open')">Open File</button>
         </div>
@@ -186,6 +187,7 @@ const selectedByte = computed(() => {
 .search-notice { position: absolute; z-index: 2; top: 10px; left: 12px; padding: 5px 8px; color: var(--modified); background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--border); border-radius: 4px; font-size: var(--font-support); pointer-events: none; }
 .drop-prompt { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 7px; color: var(--muted); }
 .drop-prompt span { display: grid; place-items: center; width: 42px; height: 42px; color: var(--address); border: 1px dashed var(--border-strong); border-radius: 8px; font-size: 22px; }
+.drop-prompt p { margin: 0; font-size: var(--font-body); text-align: center; }
 .drop-prompt button { height: 28px; margin-top: 4px; padding: 0 12px; color: var(--text); background: var(--button); border: 0; border-radius: 3px; font: inherit; font-size: var(--font-body); cursor: pointer; }
 .drop-prompt button:hover:not(:disabled) { background: var(--hover); }
 .drop-prompt button:focus-visible { outline: 1px solid var(--selection); outline-offset: 2px; }

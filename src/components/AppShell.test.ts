@@ -13,7 +13,9 @@ describe('AppShell', () => {
   afterEach(() => vi.restoreAllMocks())
   it('opens from the centered no-file prompt through the shared command route', async () => {
     const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: true } } })
-    expect(wrapper.get('[data-testid="drop-prompt"]').text()).not.toContain('Drop a binary file or use File → Open File')
+    expect(Array.from(wrapper.get('[data-testid="drop-prompt"]').element.children, child => child.textContent?.trim())).toEqual([
+      '＋', 'Drop a binary file', 'Open File',
+    ])
     const button = wrapper.get('[data-testid="drop-prompt"] [data-action="empty-open"]')
     expect(button.text()).toBe('Open File')
     expect(button.attributes('title')).toContain('Ctrl+O')
