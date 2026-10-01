@@ -16,6 +16,7 @@ const empty: TemplateDefinition = { name: 'Untitled', defaultEndianness: 'little
 const model = ref<TemplateDefinition>(empty)
 const snapshot = ref<TemplateSnapshot | null>(null)
 const valid = ref(true)
+const pendingUiEdits = ref(false)
 const error = ref('')
 const closePrompt = ref(false)
 const checkpoint = ref<TemplateDefinition | null>(null)
@@ -55,7 +56,7 @@ const canSave = computed(() => commandEnabled('save-template', editorMenuState.v
 const canSaveAs = computed(() => commandEnabled('save-template-as', editorMenuState.value))
 const canApply = computed(() => Boolean(snapshot.value?.canApply) && commandEnabled('apply-template', editorMenuState.value))
 const reason = (command: MenuCommand): string | undefined => commandUnavailableReason(command, editorMenuState.value) ?? undefined
-const changedSinceOpen = computed(() => checkpoint.value !== null && JSON.stringify(model.value) !== JSON.stringify(checkpoint.value))
+const changedSinceOpen = computed(() => pendingUiEdits.value || (checkpoint.value !== null && JSON.stringify(model.value) !== JSON.stringify(checkpoint.value)))
 const stateLabel = computed(() => templateStatus({ source: !snapshot.value?.active ? 'none' : snapshot.value.templateFilePath ? 'file' : 'draft',
   dirty: Boolean(snapshot.value?.dirty), applied: Boolean(snapshot.value?.applied), needsRefresh: Boolean(snapshot.value?.resultsNeedRefresh),
   hasFile: snapshot.value?.fileSize !== null && snapshot.value?.fileSize !== undefined, hasDiagnostics: Boolean(snapshot.value?.hasDiagnostics) }))
@@ -160,10 +161,10 @@ onBeforeUnmount(() => {
     <header class="editor-header">
       <div><strong>Template Editor</strong><small :title="snapshot?.templateFilePath ?? undefined"><span class="context-name">{{ model.name || 'Untitled' }}<template v-if="snapshot?.templateFilePath"> · {{ snapshot.templateFilePath.split(/[\\/]/).pop() }}</template></span><span class="state-label" :data-testid="snapshot?.dirty ? 'template-modified' : 'template-status'"> · {{ stateLabel }}</span></small></div>
     </header>
-    <TemplateEditor v-if="snapshot" :model-value="model" :results="snapshot.results"
+    <TemplateEditor v-if="snapshot" :key="snapshot.workspaceRevision" :model-value="model" :results="snapshot.results"
       :menu-state="editorMenuState"
       :can-unload="Boolean(snapshot?.active)"
-      :can-apply="canApply" :can-save="canSave" :can-save-as="canSaveAs" @update:model-value="updateModel" @validity="updateValidity"
+      :can-apply="canApply" :can-save="canSave" :can-save-as="canSaveAs" @update:model-value="updateModel" @validity="updateValidity" @pending-edits="pendingUiEdits = $event"
       @load="action('load')" @save="action('save')" @save-as="action('save-as')" @unload="action('unload')" @apply="action('apply')" @navigate="action('navigate', $event)" />
     <p v-else class="connecting" role="status">Connecting to HexForge…</p>
     <p v-if="snapshot?.notice" :key="snapshot.notice.id" class="action-notice" role="status">{{ snapshot.notice.text }}</p>

@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, useId, watch } from 'vue'
+import { computed, nextTick, ref, useId, watch } from 'vue'
 import type { Endian, NavigableParsedLeaf, ConditionValue, FieldType, TemplateDefinition, TemplateField } from '../types'
 import { duplicateTemplateField, newTemplateField, type TemplateIssue } from '../template/model'
 import ExpectationEditor from './ExpectationEditor.vue'
 import AppDialog from './AppDialog.vue'
 import { referenceCandidates } from '../template/references'
+import { fieldId, inheritFieldIdentity } from '../template/editorState'
+import type { FieldReveal } from '../template/validationNavigation'
 
 defineOptions({ name: 'FieldCard' })
 const props = withDefaults(defineProps<{
@@ -17,6 +19,7 @@ const props = withDefaults(defineProps<{
   isElement?: boolean
   issues: TemplateIssue[]
   preview: NavigableParsedLeaf[]
+  reveal?: FieldReveal
 }>(), { index: 0, siblingCount: 1, depth: 0, isElement: false })
 const emit = defineEmits<{
   'update:field': [field: TemplateField]
@@ -24,6 +27,8 @@ const emit = defineEmits<{
   duplicate: []
   move: [delta: -1 | 1]
   navigate: [path: string]
+  rename: [id: string, name: string]
+  'local-issue': [id: string, control: string, message?: string, index?: number]
 }>()
 
 const choices: FieldType[] = ['u8', 'u16', 'u32', 'u64', 'i8', 'i16', 'i32', 'i64', 'f32', 'f64', 'bool', 'string', 'bytes', 'struct', 'array']
@@ -38,6 +43,46 @@ const lengthReference = computed(() => typeof props.field.length === 'object' ? 
 const offsetReference = computed(() => typeof props.field.placement?.offset === 'object' ? props.field.placement.offset : undefined)
 const pending = ref<{ kind: 'type' | 'remove'; next?: TemplateField; baseline: string } | null>(null)
 const advanced = ref(false)
+const enumKeyError = ref('')
+watch(() => !integer.value || props.field.enumLabels === undefined, unavailable => {
+  if (unavailable && enumKeyError.value) {
+    enumKeyError.value = ''
+    emit('local-issue', fieldId(props.field), 'enum-key')
+  }
+})
+const expanded = ref(true)
+const cardRoot = ref<HTMLElement | null>(null)
+const nameDraft = ref(props.field.name ?? '')
+watch(() => props.field.name, name => { nameDraft.value = name ?? '' })
+const cardSummary = computed(() => {
+  const parts = [props.isElement ? 'Array element' : props.field.name || 'Unnamed field', props.field.type]
+  if (props.field.type === 'struct') {
+    const count = props.field.fields?.length ?? 0
+    parts.push(`${count} ${count === 1 ? 'field' : 'fields'}`)
+  } else if (props.field.type === 'array') parts.push(props.field.count?.ref ? `Count: ${props.field.count.ref}` : `${props.field.count?.fixed ?? 0} elements`)
+  else if (props.field.type === 'bytes' || props.field.type === 'string') parts.push(typeof props.field.length === 'object' ? `Length: ${props.field.length.ref}` : `${props.field.length ?? props.field.maxLength ?? 0} B`)
+  return parts.join(' · ')
+})
+function containsField(field: TemplateField, id: string): boolean {
+  return fieldId(field) === id || (field.fields?.some(child => containsField(child, id)) ?? false) || Boolean(field.element && containsField(field.element, id))
+}
+watch(() => props.reveal, async value => {
+  if (!value || !containsField(props.field, value.id)) return
+  expanded.value = true
+  if (fieldId(props.field) !== value.id) return
+  await nextTick()
+  const root = cardRoot.value
+  const controls = root?.querySelectorAll<HTMLElement>('[data-field]') ?? []
+  const own = [...controls].filter(node => node.closest('.field-card') === root)
+  const control = own.filter(node => node.dataset.field === value.control)[value.index ?? 0] ?? own[0]
+  // Open Advanced and any nested metadata details before focusing. Ancestor
+  // cards are expanded by their own reveal watchers during this same tick.
+  for (let details = control?.closest('details'); details && root?.contains(details); details = details.parentElement?.closest('details') ?? null) details.open = true
+  if (control?.closest('[data-testid="field-advanced"]')) advanced.value = true
+  await nextTick()
+  control?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+  control?.focus({ preventScroll: true })
+})
 const listId = useId()
 const unsignedRefs = computed(() => props.definition ? referenceCandidates(props.definition, props.path, 'unsigned') : [])
 const conditionRefs = computed(() => props.definition ? referenceCandidates(props.definition, props.path, props.field.condition?.value.type ?? 'unsigned') : [])
@@ -73,7 +118,12 @@ function confirmChange(): void {
   else if (change.next) emit('update:field', change.next)
 }
 
-function patch(value: Partial<TemplateField>): void { emit('update:field', { ...props.field, ...value }) }
+function patch(value: Partial<TemplateField>): void { emit('update:field', inheritFieldIdentity(props.field, { ...props.field, ...value })) }
+function rename(name: string): void {
+  pending.value = null
+  nameDraft.value = name
+  emit('rename', fieldId(props.field), name)
+}
 function chooseType(type: FieldType): void {
   if (type === props.field.type) return
   const next = newTemplateField(type, props.field.name)
@@ -103,6 +153,8 @@ function conditionKind(type: ConditionValue['type']): void {
   patch({ condition: { ref: props.field.condition?.ref ?? '', op: props.field.condition?.op ?? 'eq', value } })
 }
 function updateChild(index: number, child: TemplateField): void {
+  const previous = props.field.fields?.[index]
+  if (previous) inheritFieldIdentity(previous, child)
   patch({ fields: props.field.fields?.map((item, at) => at === index ? child : item) })
 }
 function removeChild(index: number): void { patch({ fields: props.field.fields?.filter((_, at) => at !== index) }) }
@@ -122,6 +174,13 @@ function addChild(): void {
 }
 function updateEnumKey(oldKey: string, nextKey: string): void {
   const labels = { ...props.field.enumLabels }
+  if (nextKey !== oldKey && Object.hasOwn(labels, nextKey)) {
+    enumKeyError.value = `Enum value ${nextKey} already exists. Choose a unique value.`
+    emit('local-issue', fieldId(props.field), 'enum-key', enumKeyError.value, Object.keys(labels).indexOf(oldKey))
+    return
+  }
+  enumKeyError.value = ''
+  emit('local-issue', fieldId(props.field), 'enum-key')
   const label = labels[oldKey] ?? ''
   delete labels[oldKey]
   labels[nextKey] = label
@@ -136,6 +195,8 @@ function addEnum(): void {
   patch({ enumLabels: labels })
 }
 function removeEnum(key: string): void {
+  enumKeyError.value = ''
+  emit('local-issue', fieldId(props.field), 'enum-key')
   const labels = { ...props.field.enumLabels }
   delete labels[key]
   patch({ enumLabels: Object.keys(labels).length ? labels : undefined })
@@ -154,13 +215,16 @@ function removeFlag(index: number): void {
 </script>
 
 <template>
-  <article class="field-card" :style="{ '--nest-depth': depth }" :data-field-path="path">
+  <article ref="cardRoot" class="field-card" :style="{ '--nest-depth': depth }" :data-field-path="path" :data-editor-id="fieldId(field)">
     <div class="field-heading">
-      <input v-if="!isElement" data-field="name" aria-label="Field name" :value="field.name ?? ''" @input="patch({ name: ($event.target as HTMLInputElement).value })">
-      <strong v-else>Array element</strong>
-      <select data-field="type" aria-label="Field type" :value="field.type" @change="chooseType(($event.target as HTMLSelectElement).value as FieldType)">
+      <button type="button" class="fold-toggle" data-action="toggle-field" :aria-expanded="expanded" :aria-label="`${expanded ? 'Collapse' : 'Expand'} ${field.name ?? 'array element'}`" :aria-controls="`${listId}-body`" @click="expanded = !expanded">{{ expanded ? '▾' : '▸' }}</button>
+      <span v-if="!expanded" data-testid="field-summary" class="field-summary">{{ cardSummary }}</span>
+      <input v-if="!isElement" v-show="expanded" data-field="name" aria-label="Field name" :value="nameDraft" @input="rename(($event.target as HTMLInputElement).value)">
+      <strong v-else v-show="expanded">Array element</strong>
+      <select v-show="expanded" data-field="type" aria-label="Field type" :value="field.type" @change="chooseType(($event.target as HTMLSelectElement).value as FieldType)">
         <option v-for="choice in choices" :key="choice" :value="choice">{{ choice }}</option>
       </select>
+      <span v-if="!expanded && fieldIssues.length" class="issue-count" :title="`${fieldIssues.length} errors`">{{ fieldIssues.length }} !</span>
       <div v-if="!isElement" class="card-tools">
         <button type="button" data-action="move-field-up" title="Move up" :disabled="index === 0" @click="emit('move', -1)">↑</button>
         <button type="button" data-action="move-field-down" title="Move down" :disabled="index === siblingCount - 1" @click="emit('move', 1)">↓</button>
@@ -168,6 +232,7 @@ function removeFlag(index: number): void {
         <button type="button" data-action="remove-field" title="Remove field" @click="requestRemove">×</button>
       </div>
     </div>
+    <div :id="`${listId}-body`" v-show="expanded" class="field-body">
     <div class="field-grid">
       <label v-if="!isElement">Placement
         <select data-field="placement-mode" :value="field.placement?.mode ?? 'sequential'" @change="placementMode(($event.target as HTMLSelectElement).value as 'absolute' | 'relative' | 'sequential')">
@@ -224,11 +289,12 @@ function removeFlag(index: number): void {
     <ExpectationEditor v-if="field.type !== 'struct' && field.type !== 'array'" :type="field.type" :model-value="field.expect" @update:model-value="patch({ expect: $event })" />
     <div v-if="integer" class="metadata-row">
       <details><summary>Enum labels</summary>
-        <div v-for="(label, key) in field.enumLabels" :key="key" class="metadata-entry"><input aria-label="Enum value" :value="key" @change="updateEnumKey(String(key), ($event.target as HTMLInputElement).value)"><input aria-label="Enum label" :value="label" @input="updateEnumLabel(String(key), ($event.target as HTMLInputElement).value)"><button type="button" title="Remove enum label" @click="removeEnum(String(key))">×</button></div>
+        <div v-for="(label, key) in field.enumLabels" :key="key" class="metadata-entry"><input data-field="enum-key" aria-label="Enum value" :value="key" @change="updateEnumKey(String(key), ($event.target as HTMLInputElement).value)"><input data-field="enum-label" aria-label="Enum label" :value="label" @input="updateEnumLabel(String(key), ($event.target as HTMLInputElement).value)"><button type="button" title="Remove enum label" @click="removeEnum(String(key))">×</button></div>
         <button type="button" data-action="add-enum" @click="addEnum">+ Label</button>
+        <p v-if="enumKeyError" data-testid="enum-key-error" class="field-error" role="alert">{{ enumKeyError }}</p>
       </details>
       <details v-if="unsigned"><summary>Bit flags</summary>
-        <div v-for="(flag, flagIndex) in field.bitFlags" :key="flagIndex" class="metadata-entry"><input aria-label="Bit number" type="number" min="0" :value="flag.bit" @input="updateFlag(flagIndex, { ...flag, bit: Number(($event.target as HTMLInputElement).value) })"><input aria-label="Flag name" :value="flag.name" @input="updateFlag(flagIndex, { ...flag, name: ($event.target as HTMLInputElement).value })"><button type="button" title="Remove flag" @click="removeFlag(flagIndex)">×</button></div>
+        <div v-for="(flag, flagIndex) in field.bitFlags" :key="flagIndex" class="metadata-entry"><input data-field="flag-bit" aria-label="Bit number" type="number" min="0" :value="flag.bit" @input="updateFlag(flagIndex, { ...flag, bit: Number(($event.target as HTMLInputElement).value) })"><input data-field="flag-name" aria-label="Flag name" :value="flag.name" @input="updateFlag(flagIndex, { ...flag, name: ($event.target as HTMLInputElement).value })"><button type="button" title="Remove flag" @click="removeFlag(flagIndex)">×</button></div>
         <button type="button" data-action="add-flag" @click="addFlag">+ Flag</button>
       </details>
     </div>
@@ -238,15 +304,16 @@ function removeFlag(index: number): void {
     <datalist :id="`${listId}-condition`"><option v-for="item in conditionRefs" :key="item.path" :value="item.ref">{{ item.path }} · {{ item.type }}</option></datalist>
     <div v-if="field.type === 'struct'" class="nested-fields">
       <div class="nested-heading"><span>Structure fields</span><button type="button" data-action="add-child-field" @click="addChild">+ Field</button></div>
-      <FieldCard v-for="(child, childIndex) in field.fields ?? []" :key="childIndex" :field="child" :definition="definition" :path="`${path}.${child.name ?? ''}`" :index="childIndex" :sibling-count="field.fields?.length ?? 0" :depth="depth + 1" :issues="issues" :preview="preview"
-        @update:field="updateChild(childIndex, $event)" @remove="removeChild(childIndex)" @duplicate="duplicateChild(childIndex)" @move="moveChild(childIndex, $event)" @navigate="emit('navigate', $event)" />
+      <FieldCard v-for="(child, childIndex) in field.fields ?? []" :key="fieldId(child)" :field="child" :definition="definition" :path="`${path}.${child.name ?? ''}`" :index="childIndex" :sibling-count="field.fields?.length ?? 0" :depth="depth + 1" :issues="issues" :preview="preview" :reveal="reveal"
+        @update:field="updateChild(childIndex, $event)" @rename="(id, name) => emit('rename', id, name)" @local-issue="(id, control, message, index) => emit('local-issue', id, control, message, index)" @remove="removeChild(childIndex)" @duplicate="duplicateChild(childIndex)" @move="moveChild(childIndex, $event)" @navigate="emit('navigate', $event)" />
     </div>
     <div v-if="field.type === 'array' && field.element" class="nested-fields">
       <div class="nested-heading"><span>Array element definition</span></div>
-      <FieldCard :field="field.element" :definition="definition" :path="`${path}[]`" :depth="depth + 1" is-element :issues="issues" :preview="preview" @update:field="patch({ element: $event })" @navigate="emit('navigate', $event)" />
+      <FieldCard :key="fieldId(field.element)" :field="field.element" :definition="definition" :path="`${path}[]`" :depth="depth + 1" is-element :issues="issues" :preview="preview" :reveal="reveal" @update:field="patch({ element: inheritFieldIdentity(field.element!, $event) })" @rename="(id, name) => emit('rename', id, name)" @local-issue="(id, control, message, index) => emit('local-issue', id, control, message, index)" @navigate="emit('navigate', $event)" />
     </div>
     <p v-for="(issue, issueIndex) in fieldIssues" :key="issueIndex" data-testid="field-error" class="field-error" role="alert">{{ issue.message }}</p>
     <button v-if="matchedPreview" type="button" class="preview-link" data-action="navigate-field" @click="emit('navigate', path)">↗ {{ matchedPreview.value }} · {{ matchedPreview.offset }}</button>
+    </div>
     <AppDialog :open="pending !== null" :title="pending?.kind === 'remove' ? 'Remove field?' : 'Change field type?'"
       :message="`This will remove ${pending?.kind === 'remove' ? 'the field' : 'type-specific configuration'} for '${field.name ?? 'array element'}', including nested fields or rules. This cannot be undone.`" @close="pending = null">
       <div class="confirm-actions">
@@ -263,6 +330,10 @@ function removeFlag(index: number): void {
 .field-heading > input { flex: 1; }
 .field-heading > select { width: 118px; }
 .field-heading strong { flex: 1; color: var(--muted); font-size: var(--font-support); }
+.field-body { display: grid; gap: 8px; min-width: 0; }
+.fold-toggle { flex: none; width: 24px; padding: 0; background: transparent; }
+.field-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: var(--font-body); }
+.issue-count { color: var(--modified); font-size: var(--font-support); }
 .card-tools, .metadata-row { display: flex; gap: 4px; }
 .field-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
 .field-grid label { display: grid; gap: 3px; color: var(--muted); font-size: var(--font-support); }

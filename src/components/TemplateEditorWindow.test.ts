@@ -188,6 +188,30 @@ describe('TemplateEditorWindow', () => {
     wrapper.unmount()
   })
 
+  it('protects a rejected name edit on close and keeps both Save shortcuts disabled', async () => {
+    initial.template = { ...initial.template, fields: [{ name: 'first', type: 'u8' }, { name: 'second', type: 'u8' }] }
+    initial.checkpointTemplate = initial.template
+    const wrapper = mount(TemplateEditorWindow); await flushPromises()
+    await wrapper.get('[data-field-path="first"] [data-field="name"]').setValue('second'); await flushPromises()
+    expect(wrapper.get('[data-testid="validation-summary"]').text()).toContain('already exists')
+    expect(mocks.sent).toHaveBeenCalledWith('main', 'hexforge:template:draft', expect.objectContaining({ valid: false, template: initial.template }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(mocks.sent.mock.calls.filter(([, event]) => event === 'hexforge:template:action')).toHaveLength(0)
+    mocks.closeHandler?.({ preventDefault: vi.fn() }); await flushPromises()
+    expect(wrapper.find('[data-testid="editor-close-prompt"]').exists()).toBe(true)
+    expect(mocks.destroy).not.toHaveBeenCalled()
+    await wrapper.get('[data-action="editor-cancel"]').trigger('click'); await flushPromises()
+    expect((wrapper.get('[data-field-path="first"] [data-field="name"]').element as HTMLInputElement).value).toBe('second')
+    await wrapper.get('[data-field-path="first"] [data-field="name"]').setValue('renamed'); await flushPromises()
+    expect(wrapper.get('[data-action="save-template"]').attributes('disabled')).toBeUndefined()
+    mocks.closeHandler?.({ preventDefault: vi.fn() }); await flushPromises()
+    await wrapper.get('[data-action="editor-discard"]').trigger('click'); await flushPromises()
+    expect(mocks.destroy).toHaveBeenCalledOnce()
+    wrapper.unmount()
+  })
+
   it('does not save or load through a field-removal confirmation', async () => {
     initial.template = { ...initial.template, fields: [{ name: 'configured', type: 'u8' }] }
     initial.checkpointTemplate = initial.template
@@ -198,6 +222,19 @@ describe('TemplateEditorWindow', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'o', ctrlKey: true, altKey: true, bubbles: true, cancelable: true }))
     await flushPromises()
     expect(mocks.sent.mock.calls.filter(([, event]) => event === 'hexforge:template:action')).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it('clears rejected UI inputs when a load replaces the workspace with identical JSON', async () => {
+    initial.template = { ...initial.template, fields: [{ name: 'first', type: 'u8' }, { name: 'second', type: 'u8' }] }
+    initial.checkpointTemplate = initial.template
+    const wrapper = mount(TemplateEditorWindow); await flushPromises()
+    await wrapper.get('[data-field-path="first"] [data-field="name"]').setValue('second'); await flushPromises()
+    await mocks.handlers.get('hexforge:template:snapshot')?.({ ...initial, revision: 2, workspaceRevision: 1, persistenceRevision: 2, ackSequence: 10 })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="validation-summary"]').exists()).toBe(false)
+    expect((wrapper.get('[data-field-path="first"] [data-field="name"]').element as HTMLInputElement).value).toBe('first')
+    expect(wrapper.get('[data-action="save-template"]').attributes('disabled')).toBeUndefined()
     wrapper.unmount()
   })
 

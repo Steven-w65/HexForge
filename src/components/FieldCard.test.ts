@@ -6,6 +6,19 @@ import FieldCard from './FieldCard.vue'
 const props = (field: TemplateField) => ({ field, path: field.name ?? 'record', issues: [], preview: [] })
 
 describe('safe field editing', () => {
+  it('rejects a duplicate enum key without overwriting either label and recovers after correction', async () => {
+    const field: TemplateField = { name: 'kind', type: 'u8', enumLabels: { '1': 'One', '2': 'Two' } }
+    const wrapper = mount(FieldCard, { props: props(field) })
+    const input = wrapper.findAll('[aria-label="Enum value"]')[0]!
+    await input.setValue('2')
+    expect(wrapper.emitted('update:field')).toBeUndefined()
+    expect(wrapper.get('[data-testid="enum-key-error"]').text()).toContain('already exists')
+    expect(field.enumLabels).toEqual({ '1': 'One', '2': 'Two' })
+    await input.setValue('3')
+    expect(wrapper.emitted('update:field')?.[0]?.[0]).toMatchObject({ enumLabels: { '3': 'One', '2': 'Two' } })
+    expect(wrapper.find('[data-testid="enum-key-error"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
   it('keeps nested data until a destructive type change is explicitly confirmed', async () => {
     const original: TemplateField = { name: 'record', type: 'struct', fields: [{ name: 'id', type: 'u64' }] }
     const wrapper = mount(FieldCard, { props: props(original) })

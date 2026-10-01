@@ -532,6 +532,18 @@ describe('App desktop orchestration', () => {
     wrapper.unmount()
   })
 
+  it('warns before main-window exit when a rejected editor input leaves the valid JSON unchanged', async () => {
+    mocks.confirm.mockResolvedValue(false)
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    await sendEditorDraft(wrapper.findComponent(AppShell).props('template')!, false)
+    const event = { preventDefault: vi.fn() }
+    await mocks.closeHandler?.(event)
+    expect(mocks.confirm).toHaveBeenCalledWith(expect.stringContaining('template'), expect.any(Object))
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(mocks.windowDestroyEditor).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('prevents a dirty close until discard is confirmed', async () => {
     mocks.open.mockResolvedValue('C:/dirty.bin')
     mocks.backend.openFile.mockResolvedValue({ ...file, dirty: true })
@@ -701,6 +713,54 @@ describe('App desktop orchestration', () => {
     await sendEditorDraft({ ...template, name: 'Revised' }, true)
     expect(wrapper.get('[data-testid="template-state"]').text()).toContain('Unsaved draft')
     expect(wrapper.get('[data-testid="results-empty"] p').text()).toBe('Unsaved template draft: "Revised".')
+    wrapper.unmount()
+  })
+
+  it.each(['Go To', 'search jump'] as const)('clears only the template marker after a successful %s', async action => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    mocks.backend.readPage.mockResolvedValue({ offset: '0', bytes: [0x42], modifiedOffsets: ['0'], revision: '2' })
+    mocks.backend.getDirtyState.mockResolvedValue({ dirty: true, revision: '2' })
+    mocks.backend.searchBytes.mockResolvedValue({ matches: ['16'], truncated: false })
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    const shell = wrapper.findComponent(AppShell)
+    shell.vm.$emit('navigate', { start: 4n, end: 7n }); await flushPromises()
+    const canvas = wrapper.findComponent({ name: 'HexCanvas' })
+    shell.vm.$emit('request-page', { offset: 0n, length: 32, generation: 1 }); await flushPromises()
+    const page = canvas.props('page')
+    if (action === 'Go To') {
+      press('g', { ctrlKey: true }); await flushPromises()
+      await wrapper.get('[data-testid="goto-input"]').setValue('0x10')
+      await wrapper.get('[data-testid="goto-bar"]').trigger('submit')
+    } else {
+      press('f', { ctrlKey: true }); await flushPromises()
+      await wrapper.get('[data-testid="search-input"]').setValue('42')
+      await wrapper.get('[data-testid="search-bar"]').trigger('submit')
+    }
+    await flushPromises()
+    expect(shell.props('templateRange')).toBeNull()
+    expect(shell.props('selection')).toEqual({ start: 16n, end: 16n, count: 1n })
+    shell.vm.$emit('request-page', { offset: 0n, length: 32, generation: 2 }); await flushPromises()
+    expect(canvas.props('page').modifiedOffsets).toEqual(page.modifiedOffsets)
+    expect(mocks.backend.undoEdit).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('preserves the template marker during scrolling, invalid Go To, and a search without matches', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    const shell = wrapper.findComponent(AppShell)
+    shell.vm.$emit('navigate', { start: 4n, end: 7n }); await flushPromises()
+    wrapper.findComponent({ name: 'HexCanvas' }).vm.$emit('viewport', 16n); await flushPromises()
+    press('g', { ctrlKey: true }); await flushPromises()
+    await wrapper.get('[data-testid="goto-input"]').setValue('invalid')
+    await wrapper.get('[data-testid="goto-bar"]').trigger('submit'); await flushPromises()
+    expect(shell.props('templateRange')).toEqual({ start: 4n, end: 7n, count: 4n })
+    press('f', { ctrlKey: true }); await flushPromises()
+    await wrapper.get('[data-testid="search-input"]').setValue('42')
+    await wrapper.get('[data-testid="search-bar"]').trigger('submit'); await flushPromises()
+    expect(shell.props('templateRange')).toEqual({ start: 4n, end: 7n, count: 4n })
     wrapper.unmount()
   })
 

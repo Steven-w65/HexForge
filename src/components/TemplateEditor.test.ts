@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { TemplateDefinition } from '../types'
 import { newTemplate } from '../template/model'
 import TemplateEditor from './TemplateEditor.vue'
@@ -9,6 +9,167 @@ function latest(wrapper: ReturnType<typeof mount>): TemplateDefinition {
 }
 
 describe('TemplateEditor', () => {
+  it('renames a field atomically with its references and rejects duplicate names', async () => {
+    const original: TemplateDefinition = { ...newTemplate(), fields: [
+      { name: 'size', type: 'u8' }, { name: 'payload', type: 'bytes', length: { ref: 'size', max: 8 } },
+    ] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: original, canApply: true } })
+    await wrapper.get('[data-field-path="size"] [data-field="name"]').setValue('length')
+    expect(latest(wrapper).fields[1]!.length).toEqual({ ref: 'length', max: 8 })
+    await wrapper.setProps({ modelValue: latest(wrapper) })
+    const emissions = wrapper.emitted('update:modelValue')!.length
+    await wrapper.get('[data-field-path="length"] [data-field="name"]').setValue('payload')
+    expect(wrapper.emitted('update:modelValue')).toHaveLength(emissions)
+    expect(wrapper.get('[data-testid="validation-summary"]').text()).toContain('already exists')
+    expect(wrapper.get('[data-action="apply-template"]').attributes('disabled')).toBeDefined()
+    expect(original.fields[0]!.name).toBe('size')
+    wrapper.unmount()
+  })
+
+  it('offers cancellation before reordering a referenced field and refuses a stale confirmation', async () => {
+    const model: TemplateDefinition = { ...newTemplate(), fields: [
+      { name: 'size', type: 'u8' }, { name: 'payload', type: 'bytes', length: { ref: 'size', max: 8 } },
+    ] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: model } })
+    await wrapper.get('[data-field-path="size"] [data-action="move-field-down"]').trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(wrapper.get('[data-testid="reference-warning"]').text()).toContain('payload')
+    await wrapper.get('[data-action="cancel-reference-change"]').trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    await wrapper.get('[data-field-path="size"] [data-action="move-field-down"]').trigger('click')
+    await wrapper.setProps({ modelValue: { ...model, name: 'Newer edit' } })
+    expect(wrapper.find('[data-testid="reference-warning"]').exists()).toBe(false)
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    await wrapper.get('[data-field-path="size"] [data-action="move-field-down"]').trigger('click')
+    await wrapper.get('[data-action="confirm-reference-change"]').trigger('click')
+    expect(latest(wrapper).fields.map(field => field.name)).toEqual(['payload', 'size'])
+    wrapper.unmount()
+  })
+
+  it('lists dependents before removing a nested reference source', async () => {
+    const model: TemplateDefinition = { ...newTemplate(), fields: [
+      { name: 'header', type: 'struct', fields: [{ name: 'size', type: 'u8' }] },
+      { name: 'payload', type: 'bytes', length: { ref: 'header.size', max: 8 } },
+    ] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: model } })
+    await wrapper.get('[data-field-path="header.size"] [data-action="remove-field"]').trigger('click')
+    await wrapper.get('[data-action="confirm-field-change"]').trigger('click')
+    expect(wrapper.get('[data-testid="reference-warning"]').text()).toContain('payload')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    await wrapper.get('[data-action="cancel-reference-change"]').trigger('click')
+    expect(model.fields[0]!.fields).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('keeps collapse state attached to a field across editing, renaming and reordering without serializing UI IDs', async () => {
+    const model: TemplateDefinition = { ...newTemplate(), fields: [
+      { name: 'header', type: 'struct', fields: [{ name: 'id', type: 'u8' }] }, { name: 'tail', type: 'u8' },
+    ] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: model } })
+    await wrapper.get('[data-field-path="header"] [data-action="toggle-field"]').trigger('click')
+    expect(wrapper.get('[data-field-path="header"] [data-testid="field-summary"]').text()).toContain('header · struct · 1 field')
+    await wrapper.get('[data-field-path="header"] [data-action="move-field-down"]').trigger('click')
+    await wrapper.setProps({ modelValue: latest(wrapper) })
+    expect(wrapper.get('[data-field-path="header"] [data-action="toggle-field"]').attributes('aria-expanded')).toBe('false')
+    expect(wrapper.get('[data-field-path="tail"] [data-action="toggle-field"]').attributes('aria-expanded')).toBe('true')
+    await wrapper.get('[data-field-path="header"] [data-action="toggle-field"]').trigger('click')
+    await wrapper.get('[data-field-path="header.id"] [data-action="toggle-field"]').trigger('click')
+    await wrapper.get('[data-field-path="header"] [data-field="name"]').setValue('metadata')
+    await wrapper.setProps({ modelValue: latest(wrapper) })
+    expect(wrapper.get('[data-field-path="metadata.id"] [data-action="toggle-field"]').attributes('aria-expanded')).toBe('false')
+    expect(JSON.stringify(latest(wrapper))).not.toMatch(/field-\d+|expanded|editorId/)
+    wrapper.unmount()
+  })
+
+  it('opens folded ancestor cards and advanced controls when an error is clicked, then focuses the invalid control', async () => {
+    const model: TemplateDefinition = { ...newTemplate(), fields: [
+      { name: 'header', type: 'struct', fields: [{ name: 'id', type: 'u8', align: 3 }] },
+    ] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: model }, attachTo: document.body })
+    const input = wrapper.get('[data-field-path="header.id"] [data-field="align"]')
+    const scroll = vi.fn()
+    input.element.scrollIntoView = scroll
+    await wrapper.get('[data-field-path="header.id"] [data-action="toggle-field"]').trigger('click')
+    await wrapper.get('[data-field-path="header"] [data-action="toggle-field"]').trigger('click')
+    await wrapper.get('[data-testid="validation-summary"] [data-action="reveal-error"]').trigger('click')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(wrapper.get('[data-field-path="header"] [data-action="toggle-field"]').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('[data-field-path="header.id"] [data-testid="field-advanced"]').attributes('open')).toBeDefined()
+    expect(document.activeElement).toBe(input.element)
+    expect(scroll).toHaveBeenCalled()
+    expect(wrapper.get('[data-action="apply-template"]').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('keeps focus and expansion on the same nested field when its siblings reorder', async () => {
+    const model: TemplateDefinition = { ...newTemplate(), fields: [{ name: 'header', type: 'struct', fields: [
+      { name: 'first', type: 'u8' }, { name: 'second', type: 'u8' },
+    ] }] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: model }, attachTo: document.body })
+    const input = wrapper.get('[data-field-path="header.first"] [data-field="name"]').element as HTMLInputElement
+    input.focus()
+    await wrapper.get('[data-field-path="header.first"] [data-action="move-field-down"]').trigger('click')
+    await wrapper.setProps({ modelValue: latest(wrapper) })
+    expect(wrapper.get('[data-field-path="header.first"] [data-field="name"]').element).toBe(input)
+    expect(document.activeElement).toBe(input)
+    wrapper.unmount()
+  })
+
+  it('gates Save and Apply on duplicate enum edits until the conflicting input is corrected', async () => {
+    const model: TemplateDefinition = { ...newTemplate(), fields: [{ name: 'kind', type: 'u8', enumLabels: { '1': 'One', '2': 'Two' } }] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: model, canApply: true, canSave: true, canSaveAs: true } })
+    const input = wrapper.findAll('[data-field="enum-key"]')[0]!
+    await input.setValue('2')
+    expect(wrapper.get('[data-testid="validation-summary"]').text()).toContain('already exists')
+    for (const action of ['save-template', 'save-template-as', 'apply-template']) expect(wrapper.get(`[data-action="${action}"]`).attributes('disabled')).toBeDefined()
+    await input.setValue('3')
+    await wrapper.setProps({ modelValue: latest(wrapper) })
+    for (const action of ['save-template', 'save-template-as', 'apply-template']) expect(wrapper.get(`[data-action="${action}"]`).attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('clears a rejected enum key when a confirmed type change removes enum configuration', async () => {
+    const model: TemplateDefinition = { ...newTemplate(), fields: [{ name: 'kind', type: 'u8', enumLabels: { '1': 'One', '2': 'Two' } }] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: model, canApply: true, canSave: true } })
+    await wrapper.findAll('[data-field="enum-key"]')[0]!.setValue('2')
+    expect(wrapper.get('[data-testid="validation-summary"]').text()).toContain('already exists')
+    await wrapper.get('[data-field="type"]').setValue('bool')
+    await wrapper.get('[data-action="confirm-field-change"]').trigger('click')
+    await wrapper.setProps({ modelValue: latest(wrapper) })
+    expect(wrapper.find('[data-testid="validation-summary"]').exists()).toBe(false)
+    expect(wrapper.get('[data-action="apply-template"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-action="save-template"]').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('navigates to a field literally named template rather than the template-name input', async () => {
+    const model: TemplateDefinition = { ...newTemplate(), fields: [{ name: 'template', type: 'u8', align: 3 }] }
+    const wrapper = mount(TemplateEditor, { props: { modelValue: model }, attachTo: document.body })
+    const input = wrapper.get('[data-field-path="template"] [data-field="align"]')
+    await wrapper.get('[data-action="toggle-field"]').trigger('click')
+    await wrapper.get('[data-testid="validation-summary"] [data-action="reveal-error"]').trigger('click')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(wrapper.get('[data-action="toggle-field"]').attributes('aria-expanded')).toBe('true')
+    expect(document.activeElement).toBe(input.element)
+    wrapper.unmount()
+  })
+
+  it.each([
+    { label: 'blank enum label', field: { name: 'kind', type: 'u8', enumLabels: { '1': 'One', '2': '' } }, control: 'enum-label' },
+    { label: 'out-of-range enum key', field: { name: 'kind', type: 'u8', enumLabels: { '1': 'One', '256': 'Too large' } }, control: 'enum-key' },
+    { label: 'blank flag name', field: { name: 'kind', type: 'u8', bitFlags: [{ bit: 0, name: 'first' }, { bit: 1, name: '' }] }, control: 'flag-name' },
+    { label: 'duplicate flag bit', field: { name: 'kind', type: 'u8', bitFlags: [{ bit: 0, name: 'first' }, { bit: 0, name: 'second' }] }, control: 'flag-bit' },
+  ] as const)('focuses the affected second metadata row for $label', async ({ field, control }) => {
+    const model = { ...newTemplate(), fields: [JSON.parse(JSON.stringify(field))] } as TemplateDefinition
+    const wrapper = mount(TemplateEditor, { props: { modelValue: model }, attachTo: document.body })
+    const input = wrapper.findAll(`[data-field="${control}"]`)[1]!
+    await wrapper.get('[data-action="toggle-field"]').trigger('click')
+    await wrapper.get('[data-testid="validation-summary"] [data-action="reveal-error"]').trigger('click')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(document.activeElement).toBe(input.element)
+    expect((input.element.closest('details') as HTMLDetailsElement).open).toBe(true)
+    wrapper.unmount()
+  })
   it('edits a bounded length reference and a checked offset reference through the field controls', async () => {
     const model: TemplateDefinition = { ...newTemplate(), fields: [
       { name: 'size', type: 'u16' }, { name: 'offset', type: 'u64' },

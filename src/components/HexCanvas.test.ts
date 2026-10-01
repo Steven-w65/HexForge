@@ -189,9 +189,15 @@ describe('HexCanvas', () => {
     await resize()
     const request = wrapper.emitted('request-page')?.at(-1)?.[0] as { offset: bigint; length: number; generation: number }
     const previewIndex = contextCanvases.indexOf(wrapper.get<HTMLCanvasElement>('[data-testid="minimap-preview"]').element)
-    drawnTextByContext[previewIndex + 1] = []
+    fillCallsByContext[previewIndex + 1] = []
     await wrapper.setProps({ page: { offset: request.offset.toString(), bytes: Array(request.length).fill(0x41), modifiedOffsets: [], revision: '1', generation: request.generation } })
-    expect(drawnTextByContext[previewIndex + 1]).toHaveLength(32)
+    const preview = wrapper.get<HTMLCanvasElement>('[data-testid="minimap-preview"]').element
+    expect(preview.style.width).toBe('136px')
+    const byteInk = fillCallsByContext[previewIndex + 1]!.filter((call) => call.width < 80)
+    expect(new Set(byteInk.map((call) => Math.floor((call.x - 4) / 4))).size).toBe(32)
+    expect(byteInk.every((call) => call.x >= 4 && call.x + call.width <= 131)).toBe(true)
+    await wrapper.setProps({ bytesPerRow: 16 })
+    expect(preview.style.width).toBe('84px')
   })
 
   it('keeps minimap marker content on Canvas and overview markers in the ruler', async () => {

@@ -30,6 +30,17 @@ interface DialogButtonResult {
   disabledOpacity: string
 }
 
+interface ReadabilityResult {
+  mode: MinimapMode
+  bytesPerRow: BytesPerRow
+  theme: 'dark' | 'light'
+  minimumByteContrast: number
+  allColumnsPainted: boolean
+  dpr: number
+  sharpPixels: boolean
+  distinctCharacters: boolean
+}
+
 declare global {
   interface Window {
     __hexforgeVisualResults?: {
@@ -40,6 +51,7 @@ declare global {
       component16Fit: ComponentResult
       component32Proportional: ComponentResult
       templateDialogButtons: DialogButtonResult
+      readability: ReadabilityResult[]
     }
     __hexforgeVisualError?: string
   }
@@ -82,6 +94,67 @@ function pixel(context: CanvasRenderingContext2D, x: number, y: number): number[
 
 function differs(left: number[], right: number[]): boolean {
   return left.some((value, index) => value !== right[index])
+}
+
+function pixelContrast(a: number[], b: number[]): number {
+  const luminance = (rgb: number[]) => rgb.slice(0, 3).reduce((sum, channel, index) => {
+    const value = channel / 255
+    const linear = value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+    return sum + linear * [0.2126, 0.7152, 0.0722][index]!
+  }, 0)
+  const first = luminance(a)
+  const second = luminance(b)
+  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05)
+}
+
+function renderReadability(mode: MinimapMode, bytesPerRow: BytesPerRow, theme: 'dark' | 'light', dpr: number): ReadabilityResult {
+  const canvas = document.createElement('canvas')
+  const layers = createMinimapCanvasLayers(canvas)
+  const renderer = new MinimapRenderer(layers)
+  // 102 CSS pixels has a fractional physical height at 125% scaling.
+  // Include that rounded backing edge, not only conveniently integral sizes.
+  const geometry = createMinimapGeometry({ mode, totalRows: 1000n, heightPx: 102, rowPx: 2, topRow: 0n, visibleMainRows: 10n })
+  const rows = new Map<bigint, MinimapRow>()
+  const bytes = Array.from({ length: bytesPerRow }, (_, index) => [0xff, 0, 0x41, 0x42, 0x43, 0x2e][index % 6]!)
+  for (const position of samplePlan(geometry)) rows.set(position.row, { row: position.row, bytes, modifiedOffsets: [] })
+  const width = bytesPerRow === 32 ? 136 : 84
+  renderer.resize(width, 102, dpr)
+  renderer.setContent(geometry, rows, { bytesPerRow, renderCharacters: true, scale: 1, theme })
+  renderer.paint()
+  const backgroundPixel = pixel(layers.base, 0, 0)
+  const cellWidth = (width - 8) / bytesPerRow
+  const contrasts: number[] = []
+  const signatures: string[] = []
+  // Inspect the actual raster, not fillText calls: tiny fonts can request a
+  // bright color yet leave almost no visible ink after antialiasing.
+  for (let column = 0; column < bytesPerRow; column += 1) {
+    let maximum = 1
+    let signature = ''
+    const left = Math.round((4 + column * cellWidth) * dpr)
+    for (let y = 0; y < Math.round((mode === 'fit' ? 1 : 2) * dpr); y += 1) {
+      for (let x = left; x < left + Math.round(3 * dpr); x += 1) {
+        const contrast = pixelContrast(pixel(layers.base, x, y), backgroundPixel)
+        maximum = Math.max(maximum, contrast)
+        signature += contrast > 1 ? '1' : '0'
+      }
+    }
+    signatures.push(signature)
+    contrasts.push(maximum)
+  }
+  // Only exact background or palette ink is allowed in the base raster;
+  // intermediate shades indicate antialiased/blurry glyph edges.
+  const palette = theme === 'dark' ? ['161b20', '5f7485', 'aec0d0', '8ca2b5'] : ['f3f5f7', '7f8e9b', '425f77', '637d92']
+  let sharpPixels = true
+  for (const context of [layers.base, layers.visible]) {
+    const data = context.getImageData(0, 0, context.canvas.width, context.canvas.height).data
+    for (let i = 0; i < data.length; i += 4) {
+      const rgb = [...data.slice(i, i + 3)].map((value) => value.toString(16).padStart(2, '0')).join('')
+      if (data[i + 3] !== 255 || !palette.includes(rgb)) { sharpPixels = false; break }
+    }
+  }
+  renderer.dispose()
+  return { mode, bytesPerRow, theme, dpr, sharpPixels, distinctCharacters: new Set(signatures.slice(2, 5)).size === 3,
+    minimumByteContrast: Math.min(...contrasts), allColumnsPainted: contrasts.every((value) => value > 1) }
 }
 
 function render(mode: MinimapMode, bytesPerRow: BytesPerRow) {
@@ -187,6 +260,9 @@ async function run(): Promise<void> {
     component16Fit: await renderComponent(16, 'fit'),
     component32Proportional: await renderComponent(32, 'proportional'),
     templateDialogButtons: renderTemplateDialogButtons(),
+    readability: (['fit', 'proportional'] as const).flatMap((mode) =>
+      ([16, 32] as const).flatMap((bytesPerRow) => (['dark', 'light'] as const).flatMap((theme) =>
+        [1, 1.25, 2].map((dpr) => renderReadability(mode, bytesPerRow, theme, dpr))))),
   }
 }
 

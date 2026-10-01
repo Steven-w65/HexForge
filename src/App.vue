@@ -46,6 +46,9 @@ const gotoValue = ref('')
 const gotoError = ref('')
 const gotoFocusKey = ref(0)
 const templateRange = ref<ByteSelection | null>(null)
+// A template highlight belongs to its navigation action, not to every later
+// byte selection. Scroll-only changes never touch selection or edited bytes.
+watch(() => session.selection.value, () => { templateRange.value = null }, { flush: 'sync' })
 const templateValid = ref(true)
 const completionNotice = ref<{ id: number; text: string } | null>(null)
 let noticeId = 0
@@ -66,7 +69,9 @@ let disposed = false
 function templateSnapshot(value: TemplateDefinition): string { return JSON.stringify(value) }
 function copyTemplate(value: TemplateDefinition): TemplateDefinition { return JSON.parse(templateSnapshot(value)) as TemplateDefinition }
 const templateBaseline = ref(templateSnapshot(session.template.value))
-const templateDirty = computed(() => templateSnapshot(session.template.value) !== templateBaseline.value)
+// Rejected editor inputs remain local to the field controls, but their invalid
+// draft flag still protects them from silent loss on load, unload, or app exit.
+const templateDirty = computed(() => !templateValid.value || templateSnapshot(session.template.value) !== templateBaseline.value)
 const templateActive = ref(false)
 const templateFilePath = ref<string | null>(null)
 const templatePersistenceRevision = ref(0)
@@ -358,8 +363,8 @@ async function applyValidTemplate(flushDraft = true): Promise<void> {
   }
 }
 function navigateTemplate(range: { start: bigint; end: bigint }): void {
-  templateRange.value = normalizeSelection(range.start, range.end)
   session.navigate(range)
+  templateRange.value = normalizeSelection(range.start, range.end)
 }
 function selectBytes(value: ByteSelection): void { templateRange.value = null; session.selection.value = value }
 function clearSelection(): void { templateRange.value = null; session.clearSelection() }

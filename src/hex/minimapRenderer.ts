@@ -3,6 +3,7 @@ import type { MinimapRow } from './minimapData'
 import type { BytesPerRow } from './layout'
 import { MINIMAP_SUBPIXELS, canvasOffsetY, samplePlan, type MinimapGeometry, type MinimapSamplePosition, type MinimapViewportBox } from './minimapGeometry'
 import type { MinimapPixelRun } from './minimapMarkers'
+import { MinimapGlyphCache } from './minimapGlyphs'
 
 export interface MinimapCanvasLayers {
   visible: CanvasRenderingContext2D
@@ -31,14 +32,12 @@ export function createMinimapCanvasLayers(canvas: HTMLCanvasElement): MinimapCan
 }
 
 const COLORS = {
-  dark: { background: '#161b20', zero: '#39444c', printable: '#899cac', other: '#607584' },
-  light: { background: '#f3f5f7', zero: '#d8e0e6', printable: '#647b8e', other: '#9cadb9' },
+  // Zero bytes remain quieter than data, but even their small strokes must
+  // be visible against the panel. Keep edit/search/template colors separate.
+  dark: { background: '#161b20', zero: '#5f7485', printable: '#aec0d0', other: '#8ca2b5' },
+  light: { background: '#f3f5f7', zero: '#7f8e9b', printable: '#425f77', other: '#637d92' },
 } as const
 const MARKER_COLORS = { search: '#bda64a', template: '#39c5cf', modified: '#f0883e' } as const
-
-function printable(byte: number): string {
-  return byte >= 0x20 && byte <= 0x7e ? String.fromCharCode(byte) : '.'
-}
 
 function sameRasterGeometry(a: MinimapGeometry, b: MinimapGeometry): boolean {
   return a.mode === b.mode && a.totalRows === b.totalRows && a.heightPx === b.heightPx &&
@@ -65,6 +64,7 @@ export class MinimapRenderer {
   private markerDirtyRects: Array<{ top: number; bottom: number }> = []
   private scrollShiftPx = 0
   private visibleDirty = true
+  private readonly glyphs = new MinimapGlyphCache()
 
   constructor(private readonly layers: MinimapCanvasLayers) {}
 
@@ -82,6 +82,7 @@ export class MinimapRenderer {
       context.canvas.style.width = `${width}px`
       context.canvas.style.height = `${height}px`
       context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
+      context.imageSmoothingEnabled = false
     }
     this.fullBaseDirty = true
     this.fullMarkersDirty = true
@@ -101,7 +102,12 @@ export class MinimapRenderer {
       // shifts can reuse the overlap in the viewport-sized backing canvas.
       if (delta % MINIMAP_SUBPIXELS !== 0n || delta <= -BigInt(this.height) * MINIMAP_SUBPIXELS ||
           delta >= BigInt(this.height) * MINIMAP_SUBPIXELS) this.fullBaseDirty = true
-      else this.scrollShiftPx = Number(delta / MINIMAP_SUBPIXELS)
+      else {
+        const shift = Number(delta / MINIMAP_SUBPIXELS)
+        // A fractional device-pixel copy would blur the sharp glyph cache.
+        if (!Number.isInteger(shift * this.dpr)) this.fullBaseDirty = true
+        else this.scrollShiftPx = shift
+      }
     }
     if (oldGeometry && !sameRasterGeometry(oldGeometry, geometry)) this.fullMarkersDirty = true
     // A file switch can keep identical geometry while dropping all cached
@@ -145,29 +151,49 @@ export class MinimapRenderer {
     const colors = COLORS[this.options.theme]
     // The main editor row width is the sole source of truth for minimap columns.
     const cellWidth = (this.width - 8) / this.options.bytesPerRow
-    const glyphWidth = Math.max(1, Math.min(3, Math.floor(cellWidth - 1.5)))
+    const g = this.geometry!
+    const compressed = g.mode === 'fit' && !g.fitsNaturally
+    // Subtract the exact virtual origin before Number conversion. A partial
+    // edge row crops the same glyph as a full row; it never reshapes it.
+    const rowTop = g.mode === 'proportional'
+      ? Number(position.row * BigInt(g.rowPx) * MINIMAP_SUBPIXELS + canvasOffsetY(g)) / Number(MINIMAP_SUBPIXELS)
+      : position.y
+    const glyphTop = Math.round(rowTop * this.dpr)
+    // At fractional DPI, adjacent rows can have different device-pixel
+    // heights (e.g. 3/2 pixels at 125%). Derive both edges together so the
+    // last stroke of a dot/underline is not cropped from every other row.
+    const glyphHeight = Math.max(1, Math.round((rowTop + Math.min(5, compressed ? 1 : g.rowPx)) * this.dpr) - glyphTop)
+    const clipTop = Math.max(0, Math.round(position.y * this.dpr))
+    const clipBottom = Math.min(context.canvas.height, Math.round((position.y + position.height) * this.dpr))
+    const inkHeight = Math.min(position.height, Math.max(1, Math.floor(position.height / 2)))
+    const inkY = position.y + Math.min(position.height - inkHeight, Math.ceil((position.height - inkHeight) / 2))
     const edited = new Set(row.modifiedOffsets)
     const baseOffset = position.row * BigInt(this.options.bytesPerRow)
     for (let column = 0; column < Math.min(this.options.bytesPerRow, row.bytes.length); column += 1) {
       const byte = row.bytes[column]!
-      const color = edited.has(baseOffset + BigInt(column)) ? '#f0883e' : byte === 0 ? colors.zero :
+      const modified = edited.has(baseOffset + BigInt(column))
+      const color = modified ? '#f0883e' : byte === 0 ? colors.zero :
         byte >= 0x20 && byte <= 0x7e ? colors.printable : colors.other
       context.fillStyle = color
       const x = Math.floor(4 + column * cellWidth)
-      if (this.options.renderCharacters && position.height > 1) {
-        context.font = `${Math.max(1, Math.min(position.height, cellWidth - 1))}px "JetBrains Mono", monospace`
-        context.textBaseline = 'top'
-        context.fillText(printable(byte), x, position.y)
-      } else if (this.options.renderCharacters) {
-        // Project a tiny glyph directly into a one-pixel compressed row.
-        // This is not a scaled screenshot of the hex viewport.
-        const glyph = printable(byte).charCodeAt(0)
-        for (let bit = 0; bit < glyphWidth; bit += 1) {
-          if (((glyph >> bit) & 1) !== 0) context.fillRect(x + bit, position.y, 1, 1)
+      // Pixel-aligned horizontal bounds leave a gap between every byte,
+      // including the narrower cells in a 32-byte row.
+      const inkWidth = Math.max(1, Math.floor(4 + (column + 1) * cellWidth) - x - 1)
+      if (this.options.renderCharacters) {
+        const pixelX = Math.round((4 + column * cellWidth) * this.dpr)
+        const pixelRight = Math.round((4 + (column + 1) * cellWidth) * this.dpr) - Math.max(1, Math.round(this.dpr))
+        const glyphWidth = Math.max(1, Math.min(Math.round(3 * this.dpr), pixelRight - pixelX))
+        // Edited whitespace uses an underline, so its orange byte highlight
+        // remains visible without changing how ordinary spaces are rendered.
+        const glyph = this.glyphs.get(modified && byte === 0x20 ? 0x5f : byte, glyphWidth, glyphHeight)
+        for (const run of glyph) {
+          const y = glyphTop + run.y
+          if (y < clipTop || y >= clipBottom) continue
+          context.fillRect((pixelX + run.x) / this.dpr, y / this.dpr, run.width / this.dpr, 1 / this.dpr)
         }
       } else {
-        context.fillRect(x, position.y + Math.floor(position.height / 2),
-          Math.max(1, Math.floor(cellWidth - 1)), 1)
+        // Only the explicit Color Blocks setting draws byte rectangles.
+        context.fillRect(x, inkY, inkWidth, inkHeight)
       }
     }
   }
@@ -177,33 +203,40 @@ export class MinimapRenderer {
     if (!g) return
     const context = this.layers.base
     const background = COLORS[this.options.theme].background
+    const rasterWidth = context.canvas.width / this.dpr
+    const rasterHeight = context.canvas.height / this.dpr
     const positions = samplePlan(g)
     if (this.fullBaseDirty) {
-      context.clearRect(0, 0, this.width, this.height)
+      context.clearRect(0, 0, rasterWidth, rasterHeight)
       context.fillStyle = background
-      context.fillRect(0, 0, this.width, this.height)
+      context.fillRect(0, 0, rasterWidth, rasterHeight)
       for (const position of positions) this.paintRow(position)
     } else {
       if (this.scrollShiftPx !== 0 && Math.abs(this.scrollShiftPx) < this.height) {
         const shift = this.scrollShiftPx
-        const copyHeight = this.height - Math.abs(shift)
+        const copyHeight = rasterHeight - Math.abs(shift)
         // Reuse the existing Canvas raster cache; only newly exposed rows are painted.
         context.drawImage(context.canvas,
-          0, Math.max(0, shift) * this.dpr, this.width * this.dpr, copyHeight * this.dpr,
-          0, Math.max(0, -shift), this.width, copyHeight)
-        const exposedTop = shift > 0 ? this.height - shift : 0
-        context.clearRect(0, exposedTop, this.width, Math.abs(shift))
+          0, Math.max(0, shift) * this.dpr, context.canvas.width, copyHeight * this.dpr,
+          0, Math.max(0, -shift), rasterWidth, copyHeight)
+        const exposedTop = shift > 0 ? rasterHeight - shift : 0
+        context.clearRect(0, exposedTop, rasterWidth, Math.abs(shift))
         context.fillStyle = background
-        context.fillRect(0, exposedTop, this.width, Math.abs(shift))
+        context.fillRect(0, exposedTop, rasterWidth, Math.abs(shift))
         for (const position of positions) {
           if (position.y + position.height > exposedTop && position.y < exposedTop + Math.abs(shift)) this.paintRow(position)
         }
       }
       for (const position of positions) {
         if (!this.baseDirtyRows.has(position.row)) continue
-        context.clearRect(0, position.y, this.width, position.height)
+        // Clear the same device-pixel interval used by the glyph raster.
+        // Fractional CSS clearRect edges otherwise leave antialiased ghosts
+        // when an edited character becomes whitespace.
+        const top = this.options.renderCharacters ? Math.round(position.y * this.dpr) / this.dpr : position.y
+        const bottom = this.options.renderCharacters ? Math.round((position.y + position.height) * this.dpr) / this.dpr : position.y + position.height
+        context.clearRect(0, top, rasterWidth, bottom - top)
         context.fillStyle = background
-        context.fillRect(0, position.y, this.width, position.height)
+        context.fillRect(0, top, rasterWidth, bottom - top)
         this.paintRow(position)
       }
     }
@@ -239,9 +272,13 @@ export class MinimapRenderer {
     if (this.fullMarkersDirty || this.markerDirtyRects.length) this.paintMarkers()
     if (!this.visibleDirty) return
     const context = this.layers.visible
-    context.clearRect(0, 0, this.width, this.height)
-    context.drawImage(this.layers.base.canvas, 0, 0, this.width, this.height)
-    context.drawImage(this.layers.markers.canvas, 0, 0, this.width, this.height)
+    // Rounded backing dimensions must composite 1:1 in device pixels. Using
+    // the CSS dimensions here would rescale a 127.5px edge into 128 pixels.
+    const rasterWidth = context.canvas.width / this.dpr
+    const rasterHeight = context.canvas.height / this.dpr
+    context.clearRect(0, 0, rasterWidth, rasterHeight)
+    context.drawImage(this.layers.base.canvas, 0, 0, rasterWidth, rasterHeight)
+    context.drawImage(this.layers.markers.canvas, 0, 0, rasterWidth, rasterHeight)
     if (this.viewport && this.viewport.height > 0) {
       // The viewport is stored in logical canvas coordinates. Translate it
       // into the bounded bitmap only at paint time; bigint subtraction keeps
@@ -272,6 +309,7 @@ export class MinimapRenderer {
   }
 
   dispose(): void {
+    this.glyphs.clear()
     this.rows = new Map()
     this.markers = []
     this.geometry = null

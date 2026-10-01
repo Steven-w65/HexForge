@@ -84,7 +84,8 @@ const minimapDragging = ref(false)
 const minimapWarning = ref<string | null>(null)
 
 const THUMB_HEIGHT = 24
-const MINIMAP_PREVIEW_WIDTH = 84
+// Leave three glyph pixels plus a column gap, even for 32-byte rows.
+const minimapWidth = computed(() => props.bytesPerRow === 32 ? 136 : 84)
 const settings = computed(() => props.minimapSettings ?? DEFAULT_MINIMAP_SETTINGS)
 
 const totalRows = computed(() => props.fileSize === 0n ? 0n : (props.fileSize + BigInt(props.bytesPerRow) - 1n) / BigInt(props.bytesPerRow))
@@ -145,7 +146,7 @@ function paintCurrentMinimap(): void {
     const sample = miniData?.getRow(position.row)
     if (sample) rows.set(position.row, sample)
   }
-  miniRenderer.resize(MINIMAP_PREVIEW_WIDTH, Math.max(1, geometry.canvasHeightPx), globalThis.devicePixelRatio || 1)
+  miniRenderer.resize(minimapWidth.value, Math.max(1, geometry.canvasHeightPx), globalThis.devicePixelRatio || 1)
   if (minimapCanvas.value) minimapCanvas.value.style.height = `${geometry.canvasHeightPx}px`
   miniRenderer.setContent(geometry, rows, {
     bytesPerRow: props.bytesPerRow, renderCharacters: settings.value.renderCharacters,
@@ -636,7 +637,7 @@ onBeforeUnmount(() => {
         @wheel="onWheel"
       />
     </div>
-    <div v-if="settings.enabled" ref="minimapContent" class="minimap-content" aria-label="File minimap" :class="{ 'is-box-hover': minimapHovered, 'is-box-dragging': minimapDragging }" :style="{ height: '100%' }" @wheel="onMinimapWheel" @pointerleave="onMinimapPointerLeave">
+    <div v-if="settings.enabled" ref="minimapContent" class="minimap-content" aria-label="File minimap" :class="{ 'is-box-hover': minimapHovered, 'is-box-dragging': minimapDragging }" :style="{ height: '100%', '--minimap-width': `${minimapWidth}px` }" @wheel="onMinimapWheel" @pointerleave="onMinimapPointerLeave">
       <canvas ref="minimapCanvas" data-testid="minimap-preview" :style="{ height: `${miniGeometry.canvasHeightPx}px` }"
         @pointerdown="onMinimapPointerDown" @pointermove="onMinimapPointerMove" @pointerup="onMinimapPointerUp" @pointercancel="onMinimapPointerUp"
         @lostpointercapture="onMinimapPointerUp"
@@ -663,8 +664,8 @@ onBeforeUnmount(() => {
 .hex-canvas > canvas { width: var(--canvas-width); }
 canvas { display: block; width: 100%; height: 100%; cursor: default; }
 .address-gutter { position: absolute; z-index: 1; top: 0; left: 0; cursor: default; }
-.minimap-content { position: relative; flex: 0 0 84px; overflow: hidden; background: var(--panel); border-left: 1px solid var(--border); }
-.minimap-content canvas { width: 84px; cursor: pointer; touch-action: none; }
+.minimap-content { position: relative; flex: 0 0 var(--minimap-width); overflow: hidden; background: var(--panel); border-left: 1px solid var(--border); }
+.minimap-content canvas { width: var(--minimap-width); cursor: pointer; touch-action: none; }
 .minimap-content.is-box-hover canvas { cursor: grab; }
 .minimap-content.is-box-dragging canvas { cursor: grabbing; }
 .minimap-retry { position: absolute; z-index: 2; top: 6px; right: 6px; width: 24px; height: 24px; padding: 0; color: var(--text); background: var(--panel); border: 1px solid var(--border-strong); border-radius: 4px; cursor: pointer; }

@@ -119,6 +119,14 @@ try {
     assert.equal(item.hexEndsBeforeMinimap, true, 'hex text must not overlap the minimap column')
     assert.equal(item.minimapFillsHeight, true, 'long-file minimap must fill the editor viewport')
   }
+  assert.equal(result.readability.length, 24, 'readability must cover both modes, row widths, themes, and three DPI scales')
+  for (const item of result.readability) {
+    const description = `${item.mode} ${item.bytesPerRow}-byte ${item.theme} minimap at DPR ${item.dpr}`
+    assert.equal(item.allColumnsPainted, true, `${description} must not lose bytes to tiny glyphs`)
+    assert(item.minimumByteContrast >= 3, `${description} byte strokes must remain visible against their background`)
+    assert.equal(item.sharpPixels, true, `${description} must have pixel-sharp glyph strokes without antialiasing`)
+    assert.equal(item.distinctCharacters, true, `${description} must render distinct A/B/C glyph patterns instead of uniform blocks`)
+  }
   assert.equal(result.templateDialogButtons.borderStyle, 'none', 'Template Editor close actions must not show native button borders')
   assert.equal(result.templateDialogButtons.borderRadius, '3px', 'Template Editor close actions must match editor button rounding')
   assert.equal(result.templateDialogButtons.height, '27px', 'Template Editor close actions must match editor button height')
