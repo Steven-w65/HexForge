@@ -1,6 +1,8 @@
-import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TemplateSnapshot } from '../templateWindow/protocol'
+
+enableAutoUnmount(afterEach)
 
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (payload: unknown) => void | Promise<void>>(),
@@ -58,6 +60,90 @@ describe('TemplateEditorWindow', () => {
     expect(hasInPageCloseButton).toBe(false)
     expect(event.preventDefault).toHaveBeenCalledOnce()
     expect(mocks.destroy).toHaveBeenCalledOnce()
+  })
+
+  it('closes a clean editor with Ctrl+W through its acknowledged close workflow', async () => {
+    const wrapper = mount(TemplateEditorWindow); await flushPromises()
+    const event = new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true, cancelable: true })
+    window.dispatchEvent(event); await flushPromises()
+    expect(event.defaultPrevented).toBe(true)
+    expect(wrapper.find('[data-testid="editor-close-prompt"]').exists()).toBe(false)
+    expect(mocks.sent).toHaveBeenCalledWith('main', 'hexforge:template:action', expect.objectContaining({ command: 'close' }))
+    expect(mocks.sent).toHaveBeenCalledWith('main', 'hexforge:template:closed', expect.any(Object))
+    expect(mocks.destroy).toHaveBeenCalledOnce()
+  })
+
+  it('lets Ctrl+W Cancel preserve the draft and Don\'t Save close after discard acknowledgement', async () => {
+    const wrapper = mount(TemplateEditorWindow); await flushPromises()
+    await wrapper.get('[data-field="template-name"]').setValue('Edited'); await flushPromises()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true, cancelable: true })); await flushPromises()
+    expect(wrapper.find('[data-testid="editor-close-prompt"]').exists()).toBe(true)
+    expect(mocks.destroy).not.toHaveBeenCalled()
+    await wrapper.get('[data-action="editor-cancel"]').trigger('click'); await flushPromises()
+    expect(wrapper.find('[data-testid="editor-close-prompt"]').exists()).toBe(false)
+    expect((wrapper.get('[data-field="template-name"]').element as HTMLInputElement).value).toBe('Edited')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true, cancelable: true })); await flushPromises()
+    mocks.discardReplacesWorkspace = true
+    await wrapper.get('[data-action="editor-discard"]').trigger('click'); await flushPromises()
+    expect(mocks.sent).toHaveBeenCalledWith('main', 'hexforge:template:action', expect.objectContaining({ command: 'discard' }))
+    expect(mocks.destroy).toHaveBeenCalledOnce()
+  })
+
+  it.each(['save', 'save-as'] as const)('allows a Ctrl+W close only after %s saves the current draft', async (choice) => {
+    if (choice === 'save-as') initial.templateFilePath = null
+    const wrapper = mount(TemplateEditorWindow); await flushPromises()
+    await wrapper.get('[data-field="template-name"]').setValue('Edited'); await flushPromises()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true, cancelable: true })); await flushPromises()
+    expect(mocks.destroy).not.toHaveBeenCalled()
+    const saved = { name: 'Edited', defaultEndianness: 'little' as const, fields: [] }
+    mocks.saveSnapshot = { ...initial, revision: 2, ackSequence: 10, persistenceRevision: 2,
+      checkpointTemplate: saved, template: saved, templateFilePath: 'C:/saved.json', dirty: false }
+    await wrapper.get(`[data-action="editor-${choice}"]`).trigger('click'); await flushPromises()
+    expect(mocks.sent).toHaveBeenCalledWith('main', 'hexforge:template:action', expect.objectContaining({ command: choice }))
+    expect(mocks.destroy).toHaveBeenCalledOnce()
+  })
+
+  it('keeps Ctrl+W from closing through a field-removal confirmation', async () => {
+    initial.template = { ...initial.template, fields: [{ name: 'configured', type: 'u8' }] }
+    initial.checkpointTemplate = initial.template
+    const wrapper = mount(TemplateEditorWindow, { attachTo: document.body }); await flushPromises()
+    await wrapper.get('[data-action="remove-field"]').trigger('click'); await flushPromises()
+    const event = new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true, cancelable: true })
+    window.dispatchEvent(event); await flushPromises()
+    expect(event.defaultPrevented).toBe(true)
+    expect(wrapper.get('[role="dialog"]').text()).toContain('Remove field')
+    expect(wrapper.find('[data-testid="editor-close-prompt"]').exists()).toBe(false)
+    expect(mocks.destroy).not.toHaveBeenCalled()
+    expect(mocks.sent.mock.calls.filter(([, event]) => event === 'hexforge:template:action')).toHaveLength(0)
+  })
+
+  it('does not duplicate a close when Ctrl+W repeats before the first acknowledgement', async () => {
+    const wrapper = mount(TemplateEditorWindow); await flushPromises()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true, cancelable: true }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, repeat: true, bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(mocks.sent.mock.calls.filter(([, event, payload]) => event === 'hexforge:template:action' && payload.command === 'close')).toHaveLength(1)
+    expect(mocks.destroy).toHaveBeenCalledOnce()
+  })
+
+  it.each([{ altKey: true }, { shiftKey: true }, { metaKey: true }])('does not close for Ctrl+W with extra modifiers %s', async (extra) => {
+    const wrapper = mount(TemplateEditorWindow); await flushPromises()
+    const event = new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true, cancelable: true, ...extra })
+    window.dispatchEvent(event); await flushPromises()
+    expect(event.defaultPrevented).toBe(false)
+    expect(mocks.destroy).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="editor-close-prompt"]').exists()).toBe(false)
+  })
+
+  it.each([false, true])('keeps Ctrl+S (shift=%s) bound to template persistence inside editor inputs', async (shiftKey) => {
+    const wrapper = mount(TemplateEditorWindow, { attachTo: document.body }); await flushPromises()
+    const input = wrapper.get('[data-field="template-name"]').element as HTMLInputElement
+    input.focus()
+    const event = new KeyboardEvent('keydown', { key: 's', ctrlKey: true, shiftKey, bubbles: true, cancelable: true })
+    input.dispatchEvent(event); await flushPromises()
+    expect(event.defaultPrevented).toBe(true)
+    expect(mocks.sent).toHaveBeenCalledWith('main', 'hexforge:template:action', expect.objectContaining({ command: shiftKey ? 'save-as' : 'save' }))
+    expect(mocks.destroy).not.toHaveBeenCalled()
   })
 
   it('suppresses the browser context menu inside the Template Editor', async () => {
@@ -238,11 +324,11 @@ describe('TemplateEditorWindow', () => {
     wrapper.unmount()
   })
 
-  it('keeps the editor open if Save As is cancelled during the close prompt', async () => {
+  it('keeps the editor open if Save As is cancelled during the Ctrl+W close prompt', async () => {
     initial.templateFilePath = null
     const wrapper = mount(TemplateEditorWindow); await flushPromises()
     await wrapper.get('[data-action="add-field"]').trigger('click'); await flushPromises()
-    mocks.closeHandler?.({ preventDefault: vi.fn() }); await flushPromises()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true, cancelable: true })); await flushPromises()
     expect(wrapper.get('[data-action="editor-save"]').attributes('disabled')).toBeDefined()
     mocks.cancelAction = true
     await wrapper.get('[data-action="editor-save-as"]').trigger('click'); await flushPromises()
@@ -251,10 +337,27 @@ describe('TemplateEditorWindow', () => {
     wrapper.unmount()
   })
 
-  it('does not close after a close-prompt Save if its reply contains a newer unsaved edit', async () => {
+  it('retains the draft and Ctrl+W close prompt after a failed Save', async () => {
+    const wrapper = mount(TemplateEditorWindow); await flushPromises()
+    await wrapper.get('[data-field="template-name"]').setValue('Edited'); await flushPromises()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true, cancelable: true })); await flushPromises()
+    mocks.failAction = true
+    await wrapper.get('[data-action="editor-save"]').trigger('click'); await flushPromises()
+    expect(mocks.destroy).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="editor-close-prompt"]').exists()).toBe(true)
+    expect((wrapper.get('[data-field="template-name"]').element as HTMLInputElement).value).toBe('Edited')
+    expect(wrapper.text()).toContain('Template file is missing.')
+    const actionsBefore = mocks.sent.mock.calls.filter(([, event]) => event === 'hexforge:template:action').length
+    const event = new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true, cancelable: true })
+    window.dispatchEvent(event); await flushPromises()
+    expect(event.defaultPrevented).toBe(true)
+    expect(mocks.sent.mock.calls.filter(([, event]) => event === 'hexforge:template:action')).toHaveLength(actionsBefore)
+  })
+
+  it('does not close after Ctrl+W Save if its reply contains a newer unsaved edit', async () => {
     const wrapper = mount(TemplateEditorWindow); await flushPromises()
     await wrapper.get('[data-action="add-field"]').trigger('click'); await flushPromises()
-    mocks.closeHandler?.({ preventDefault: vi.fn() }); await flushPromises()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true, cancelable: true })); await flushPromises()
     const saved = { ...initial.template, fields: [{ name: 'field1', type: 'u8' as const }] }
     mocks.saveSnapshot = { ...initial, revision: 2, ackSequence: 10, persistenceRevision: 2,
       checkpointTemplate: saved, template: { ...saved, name: 'Newer unsaved edit' }, dirty: true }

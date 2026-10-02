@@ -32,7 +32,7 @@ const accessKeys: Record<string, MenuId> = { f: 'file', e: 'edit', n: 'navigate'
 const labels: Record<VisibleMenuCommand, string> = {
   open: 'Open File…', 'close-file': 'Close File', 'save-as': 'Save As…', export: 'Export Parsed Results as CSV…', exit: 'Exit',
   'edit-selected': 'Edit Selected Byte…', 'toggle-edit': 'Edit Mode', undo: 'Undo Byte Edit',
-  goto: 'Go To Offset…', search: 'Search Bytes…',
+  goto: 'Go To Offset…', search: 'Search Bytes…', 'search-next': 'Next Search Match', 'search-previous': 'Previous Search Match',
   'template-editor': 'Template Editor…', 'apply-template': 'Apply Template', 'load-template': 'Load Template…', 'unload-template': 'Unload Template', 'save-template': 'Save Template', 'save-template-as': 'Save Template As…',
   'theme-toggle': 'Toggle Theme',
   'row-16': '16 Bytes', 'row-32': '32 Bytes',
@@ -41,16 +41,16 @@ const labels: Record<VisibleMenuCommand, string> = {
   'minimap-scale-1': 'Scale 1×', 'minimap-scale-2': 'Scale 2×', 'minimap-scale-3': 'Scale 3×',
 }
 const shortcutLabels: Partial<Record<VisibleMenuCommand, string>> = {
-  open: 'Ctrl+O', 'close-file': 'Ctrl+W', 'save-as': 'Ctrl+Alt+S', export: 'Ctrl+Shift+E', exit: 'Alt+F4',
-  'edit-selected': 'F2', 'toggle-edit': 'Ctrl+Alt+E', undo: 'Ctrl+Z', goto: 'Ctrl+G', search: 'Ctrl+F',
-  'template-editor': 'Ctrl+Shift+T', 'apply-template': 'Ctrl+Enter', 'load-template': 'Ctrl+Alt+O', 'unload-template': 'Ctrl+Alt+U', 'save-template': 'Ctrl+S', 'save-template-as': 'Ctrl+Shift+S',
+  open: 'Ctrl+O', 'close-file': 'Ctrl+W', 'save-as': 'Ctrl+Shift+S', export: 'Ctrl+Shift+E', exit: 'Alt+F4',
+  'edit-selected': 'F2', 'toggle-edit': 'Ctrl+Alt+E', undo: 'Ctrl+Z', goto: 'Ctrl+G', search: 'Ctrl+F', 'search-next': 'F3', 'search-previous': 'Shift+F3',
+  'template-editor': 'Ctrl+Shift+T', 'apply-template': 'Ctrl+Enter', 'load-template': 'Ctrl+Alt+O', 'unload-template': 'Ctrl+Alt+U',
   'theme-toggle': 'Ctrl+Alt+T',
   'row-16': 'Ctrl+1', 'row-32': 'Ctrl+2',
 }
 
 const fileCommands: VisibleMenuCommand[] = ['open', 'close-file', 'save-as', 'export', 'exit']
 const editCommands: VisibleMenuCommand[] = ['edit-selected', 'toggle-edit', 'undo']
-const navigateCommands: VisibleMenuCommand[] = ['goto', 'search']
+const navigateCommands: VisibleMenuCommand[] = ['goto', 'search', 'search-next', 'search-previous']
 const templateCommands: VisibleMenuCommand[] = ['template-editor', 'apply-template', 'load-template', 'unload-template', 'save-template', 'save-template-as']
 const viewCommands: VisibleMenuCommand[] = ['theme-toggle', 'row-16', 'row-32']
 const minimapCommands: VisibleMenuCommand[] = ['minimap-toggle', 'minimap-fit', 'minimap-proportional', 'minimap-characters', 'minimap-blocks',

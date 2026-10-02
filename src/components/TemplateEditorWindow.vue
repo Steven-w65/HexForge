@@ -115,6 +115,13 @@ async function resolveClose(choice: 'save' | 'save-as' | 'discard' | 'cancel'): 
 }
 
 function onKeydown(event: KeyboardEvent): void {
+  if (event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && event.key.toLowerCase() === 'w') {
+    // Keep the close shortcut local to this window and reuse native-close draft
+    // protection. Consume it through dialogs/in-flight actions without closing.
+    event.preventDefault()
+    if (!isModalOpen() && !pendingAction.value && !isClosing.value) void closeWindow()
+    return
+  }
   if (isModalOpen()) {
     if (event.ctrlKey && ['s', 'o', 'u', 'Enter'].includes(event.key.length === 1 ? event.key.toLowerCase() : event.key)) event.preventDefault()
     return // Includes confirmations inside FieldCard, not just this window's dialogs.

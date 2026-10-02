@@ -37,7 +37,7 @@ describe('TopMenu', () => {
     const expected: Record<string, string[]> = {
       file: ['open', 'close-file', 'save-as', 'export', 'exit'],
       edit: ['edit-selected', 'toggle-edit', 'undo'],
-      navigate: ['goto', 'search'],
+      navigate: ['goto', 'search', 'search-next', 'search-previous'],
       template: ['template-editor', 'apply-template', 'load-template', 'unload-template', 'save-template', 'save-template-as'],
       view: ['theme-toggle', 'row-16', 'row-32'],
     }
@@ -62,7 +62,21 @@ describe('TopMenu', () => {
     await wrapper.get('[data-menu="template"]').trigger('click')
     expect(wrapper.get('[data-menu-command="save-template"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-menu-command="save-template-as"]').attributes('disabled')).toBeUndefined()
-    expect(wrapper.get('[data-menu-command="save-template-as"] kbd').text()).toBe('Ctrl+Shift+S')
+    expect(wrapper.get('[data-menu-command="save-template-as"]').find('kbd').exists()).toBe(false)
+  })
+
+  it('advertises binary Save As without assigning its main-window keys to template saves', async () => {
+    const wrapper = mountMenu()
+    await wrapper.get('[data-menu="file"]').trigger('click')
+    const saveAs = wrapper.get('[data-menu-command="save-as"]')
+    expect(saveAs.get('kbd').text()).toBe('Ctrl+Shift+S')
+    await saveAs.trigger('click')
+    expect(wrapper.emitted('command')).toEqual([['save-as']])
+    await wrapper.get('[data-menu="template"]').trigger('click')
+    expect(wrapper.get('[data-menu-command="save-template"]').find('kbd').exists()).toBe(false)
+    expect(wrapper.get('[data-menu-command="save-template-as"]').find('kbd').exists()).toBe(false)
+    await wrapper.get('[data-menu-command="save-template"]').trigger('click')
+    expect(wrapper.emitted('command')?.at(-1)).toEqual(['save-template'])
   })
 
   it('emits enabled commands and leaves disabled commands inert', async () => {

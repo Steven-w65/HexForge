@@ -47,13 +47,14 @@ export interface HexSession {
   modifiedOverview: Ref<ModifiedOverview>
   template: Ref<TemplateDefinition>; results: Ref<ParsedResult[]>; templateApplied: Ref<boolean>; resultsNeedRefresh: Ref<boolean>; matches: Ref<bigint[]>
   searchQuery: Ref<string>; searchMatchLength: Ref<number>; searchTruncated: Ref<boolean>
+  searchMatchIndex: ComputedRef<number>
   activity: Ref<OperationActivity | null>
   busy: Record<BusyOperation, boolean>; progress: Ref<OperationProgress | null>; error: Ref<AppError | null>
   viewportOffset: Ref<bigint>; editMode: Ref<boolean>; canUndo: ComputedRef<boolean>
   requestPage(offset: bigint, length: number, generation?: number): Promise<void>
   openFile(path: string, discardUnsaved?: boolean): Promise<void>; closeFile(discardUnsaved?: boolean): Promise<void>; goTo(text: string): bigint
-  search(text: string): Promise<void>; clearSearch(): void; applyTemplate(): Promise<void>; editSelectedByte(text: string): Promise<void>
-  undo(): Promise<void>; saveAs(path: string): Promise<void>; loadTemplate(path: string): Promise<void>
+  search(text: string): Promise<void>; navigateSearch(direction: 1 | -1): void; clearSearch(): void; applyTemplate(): Promise<void>; editSelectedByte(text: string): Promise<void>
+  undo(): Promise<void>; saveAs(path: string): Promise<void>; saveAsForClose(path: string): Promise<void>; loadTemplate(path: string): Promise<void>
   saveTemplate(overwriteExternal?: boolean, definition?: TemplateDefinition): Promise<void>
   saveTemplateAs(path: string, overwrite?: boolean, definition?: TemplateDefinition): Promise<void>
   unloadTemplateFile(): Promise<void>; exportCsv(path: string): Promise<void>
@@ -80,6 +81,13 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   const searchQuery = ref('')
   const searchMatchLength = ref(1)
   const searchTruncated = ref(false)
+  // Selection is authoritative: manual selection clears the active-match index,
+  // while scrolling alone retains it. Byte offsets never pass through Number.
+  const searchMatchIndex = computed(() => {
+    const selected = selection.value
+    if (!selected || selected.count !== BigInt(searchMatchLength.value)) return -1
+    return matches.value.findIndex(offset => offset === selected.start)
+  })
   const progress = ref<OperationProgress | null>(null)
   const activity = ref<OperationActivity | null>(null)
   const error = ref<AppError | null>(null)
@@ -102,6 +110,7 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   const activities = new Map<number, OperationActivity>()
   const pendingMutations = new Set<Promise<unknown>>()
   let closeBarrier = false
+  let closeSaveRunning = false
 
   async function runMutation<T>(operation: () => Promise<T>): Promise<T> {
     if (closeBarrier) {
@@ -282,7 +291,26 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
     searchMatchLength.value = pattern.length
     searchTruncated.value = result.value.truncated
     const first = matches.value[0]
-    if (first !== undefined && selection.value === selectionBeforeSearch) navigate({ start: first, end: first })
+    if (first !== undefined && selection.value === selectionBeforeSearch) navigate({ start: first, end: first + BigInt(pattern.length) - 1n })
+  }
+
+  function navigateSearch(direction: 1 | -1): void {
+    const found = matches.value
+    if (busy.search || found.length === 0) return
+    const active = searchMatchIndex.value
+    let index: number
+    if (active >= 0) index = (active + direction + found.length) % found.length
+    else {
+      const anchor = selection.value?.start ?? viewportOffset.value
+      index = -1
+      if (direction === 1) index = found.findIndex(offset => offset > anchor)
+      else for (let candidate = found.length - 1; candidate >= 0; candidate -= 1) {
+        if (found[candidate]! < anchor) { index = candidate; break }
+      }
+      if (index < 0) index = direction === 1 ? 0 : found.length - 1
+    }
+    const start = found[index]!
+    navigate({ start, end: start + BigInt(searchMatchLength.value) - 1n })
   }
 
   function clearSearch(): void {
@@ -351,6 +379,17 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   }
   function saveAs(path: string): Promise<void> { return runMutation(() => saveAsCore(path)) }
 
+  // Only the approved exit workflow may save after prepareClose has drained
+  // mutations. Do not release the barrier: other edits must remain blocked.
+  async function saveAsForClose(path: string): Promise<void> {
+    if (!closeBarrier || pendingMutations.size > 0 || closeSaveRunning) {
+      throw { code: 'operation_failed', message: 'A close save requires an idle, prepared close workflow.' } satisfies AppError
+    }
+    closeSaveRunning = true
+    try { await saveAsCore(path) }
+    finally { closeSaveRunning = false }
+  }
+
   async function loadTemplate(path: string): Promise<void> {
     const loadedTemplate = ++templateEpoch
     progress.value = null
@@ -405,8 +444,8 @@ export function useHexSession(api: HexBackend = defaultBackend): HexSession {
   }
 
   return {
-    file, page, selection, sourceIdentity, lastEditDelta, modifiedOverview, template, results, templateApplied, resultsNeedRefresh, matches, searchQuery, searchMatchLength, searchTruncated, activity, busy, progress, error, viewportOffset, editMode, canUndo,
-    requestPage, openFile, closeFile, goTo, search, clearSearch, applyTemplate, editSelectedByte, undo, saveAs, loadTemplate,
+    file, page, selection, sourceIdentity, lastEditDelta, modifiedOverview, template, results, templateApplied, resultsNeedRefresh, matches, searchQuery, searchMatchLength, searchTruncated, searchMatchIndex, activity, busy, progress, error, viewportOffset, editMode, canUndo,
+    requestPage, openFile, closeFile, goTo, search, navigateSearch, clearSearch, applyTemplate, editSelectedByte, undo, saveAs, saveAsForClose, loadTemplate,
     saveTemplate, saveTemplateAs, unloadTemplateFile, exportCsv, updateTemplate, unloadTemplate, navigate, clearSelection: () => { selection.value = null }, clearError: () => { error.value = null }, presentError,
     prepareClose, releaseCloseBarrier,
   }

@@ -172,14 +172,60 @@ describe('useHexSession', () => {
     await session.search('41 42')
     expect(session.searchQuery.value).toBe('41 42')
     expect(session.matches.value).toEqual([16n, 32n])
-    expect(session.selection.value).toEqual({ start: 16n, end: 16n, count: 1n })
+    expect(session.selection.value).toEqual({ start: 16n, end: 17n, count: 2n })
 
     session.clearSearch()
     expect(session.searchQuery.value).toBe('')
     expect(session.matches.value).toEqual([])
     expect(session.searchMatchLength.value).toBe(1)
     expect(session.searchTruncated.value).toBe(false)
-    expect(session.selection.value).toEqual({ start: 16n, end: 16n, count: 1n })
+    expect(session.selection.value).toEqual({ start: 16n, end: 17n, count: 2n })
+  })
+
+  it('navigates full search matches in both directions and wraps without another scan', async () => {
+    const backend = fakeBackend()
+    const session = useHexSession(backend)
+    await session.openFile('input.bin')
+    await session.search('41 42')
+    expect(session.searchMatchIndex.value).toBe(0)
+    session.navigateSearch(1)
+    expect(session.selection.value).toEqual({ start: 32n, end: 33n, count: 2n })
+    expect(session.viewportOffset.value).toBe(32n)
+    expect(session.searchMatchIndex.value).toBe(1)
+    session.navigateSearch(1)
+    expect(session.selection.value).toEqual({ start: 16n, end: 17n, count: 2n })
+    session.navigateSearch(-1)
+    expect(session.selection.value).toEqual({ start: 32n, end: 33n, count: 2n })
+    expect(backend.searchBytes).toHaveBeenCalledOnce()
+  })
+
+  it('navigates from a manual selection and does not confuse scrolling with a match change', async () => {
+    const session = useHexSession(fakeBackend())
+    await session.openFile('input.bin'); await session.search('41 42')
+    session.selection.value = { start: 24n, end: 26n, count: 3n }
+    expect(session.searchMatchIndex.value).toBe(-1)
+    session.navigateSearch(-1)
+    expect(session.selection.value).toEqual({ start: 16n, end: 17n, count: 2n })
+    session.viewportOffset.value = 4096n
+    expect(session.searchMatchIndex.value).toBe(0)
+    session.navigateSearch(1)
+    expect(session.viewportOffset.value).toBe(32n)
+    session.clearSearch()
+    session.navigateSearch(1)
+    expect(session.searchMatchIndex.value).toBe(-1)
+    expect(session.selection.value).toEqual({ start: 32n, end: 33n, count: 2n })
+  })
+
+  it('keeps match navigation exact above Number.MAX_SAFE_INTEGER', async () => {
+    const backend = fakeBackend()
+    vi.mocked(backend.searchBytes).mockResolvedValue({ matches: ['9007199254740993', '9007199254741001'], truncated: true })
+    const session = useHexSession(backend)
+    await session.search('41 42 43')
+    session.navigateSearch(1)
+    expect(session.selection.value).toEqual({ start: 9007199254741001n, end: 9007199254741003n, count: 3n })
+    session.navigateSearch(-1)
+    expect(session.selection.value).toEqual({ start: 9007199254740993n, end: 9007199254740995n, count: 3n })
+    expect(session.searchTruncated.value).toBe(true)
   })
 
   it('does not replace a byte selection made while a non-modal search runs', async () => {
@@ -669,6 +715,24 @@ describe('useHexSession', () => {
     expect(backend.saveAs).not.toHaveBeenCalled()
     session.releaseCloseBarrier(); await session.undo()
     expect(backend.undoEdit).toHaveBeenCalledOnce()
+  })
+
+  it('allows only the approved close save through the mutation barrier', async () => {
+    const backend = fakeBackend()
+    vi.mocked(backend.getDirtyState).mockResolvedValue({ dirty: true, revision: '2' })
+    const session = useHexSession(backend)
+    await session.openFile('input.bin')
+    session.file.value!.dirty = true
+    await session.prepareClose()
+    await expect(session.saveAs('unapproved.bin')).rejects.toMatchObject({ code: 'operation_failed' })
+    await session.saveAsForClose('copy.bin')
+    expect(session.file.value?.path).toBe('copy.bin')
+    expect(session.file.value?.dirty).toBe(false)
+    await expect(session.editSelectedByte('42')).rejects.toMatchObject({ code: 'operation_failed' })
+    expect(backend.editByte).not.toHaveBeenCalled()
+    session.releaseCloseBarrier()
+    await expect(session.saveAsForClose('unapproved.bin')).rejects.toMatchObject({ code: 'operation_failed' })
+    expect(backend.saveAs).toHaveBeenCalledOnce()
   })
 
   it('tracks whether the in-memory edit history can be undone and clears it after Save As', async () => {

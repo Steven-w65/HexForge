@@ -1,4 +1,4 @@
-import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { enableAutoUnmount, flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 enableAutoUnmount(afterEach)
 
@@ -88,6 +88,84 @@ describe('App desktop orchestration', () => {
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
 
+  it.each([false, true])('saves binary bytes rather than the background template with Ctrl%s+S', async (shiftKey) => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    mocks.save.mockResolvedValue('C:/copy.bin')
+    mocks.backend.openFile.mockResolvedValue({ ...file, dirty: true })
+    mocks.backend.saveAs.mockResolvedValue({ dirty: false, revision: '0', bytesWritten: '32', destination: 'C:/copy.bin',
+      file: { name: 'copy.bin', path: 'C:/copy.bin', size: '32', revision: '0', dirty: false } })
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
+    // Invalid template inputs must not disable saving the independent binary.
+    await sendEditorDraft(wrapper.findComponent(AppShell).props('template')!, false, 2)
+    expect(press('s', { ctrlKey: true, shiftKey }).defaultPrevented).toBe(true); await flushPromises()
+    expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ title: 'Save binary as', defaultPath: 'firmware.bin.copy' }))
+    expect(mocks.backend.saveAs).toHaveBeenCalledWith('C:/copy.bin', expect.any(Function))
+    expect(wrapper.findComponent(AppShell).props('file')).toMatchObject({ path: 'C:/copy.bin', dirty: false })
+    expect(wrapper.findComponent(AppShell).props('templateDirty')).toBe(true)
+    expect(wrapper.findComponent(AppShell).props('templateSource')).toBe('draft')
+    expect(mocks.backend.saveTemplate).not.toHaveBeenCalled()
+    expect(mocks.backend.saveTemplateAs).not.toHaveBeenCalled()
+    expect(mocks.backend.applyTemplate).not.toHaveBeenCalled()
+  })
+
+  it('consumes main-window Save keys without saving an open template when no binary is open', async () => {
+    mocks.open.mockResolvedValue('C:/header.json')
+    mocks.backend.loadTemplate.mockResolvedValue({ name: 'Header', defaultEndianness: 'little', fields: [] })
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true, altKey: true }); await flushPromises()
+    await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
+    expect(press('s', { ctrlKey: true }).defaultPrevented).toBe(true)
+    expect(press('s', { ctrlKey: true, shiftKey: true }).defaultPrevented).toBe(true); await flushPromises()
+    expect(mocks.save).not.toHaveBeenCalled()
+    expect(mocks.backend.saveTemplate).not.toHaveBeenCalled()
+    expect(mocks.backend.saveTemplateAs).not.toHaveBeenCalled()
+    expect(wrapper.findComponent(AppShell).props('templateDirty')).toBe(true)
+    expect(wrapper.findComponent(AppShell).props('templateDisplayName')).toBe('header.json')
+    expect(wrapper.findComponent(AppShell).props('menuState')!.templateHasPath).toBe(true)
+  })
+
+  it.each([
+    [false, 'cancel'], [true, 'cancel'], [false, 'failure'], [true, 'failure'],
+  ] as const)('preserves dirty bytes and selection when Ctrl+S (shift=%s) ends in %s', async (shiftKey, outcome) => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    mocks.backend.openFile.mockResolvedValue({ ...file, dirty: true })
+    mocks.backend.readPage.mockResolvedValue({ ...page, modifiedOffsets: ['0'] })
+    mocks.save.mockResolvedValue(outcome === 'cancel' ? null : 'C:/copy.bin')
+    if (outcome === 'failure') mocks.backend.saveAs.mockRejectedValue({ code: 'disk_full', message: 'Cannot save binary copy.' })
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    const shell = wrapper.findComponent(AppShell)
+    shell.vm.$emit('request-page', { offset: 0n, length: 32, generation: 1 }); await flushPromises()
+    shell.vm.$emit('select', { start: 0n, end: 0n, count: 1n }); await flushPromises()
+    press('s', { ctrlKey: true, shiftKey }); await flushPromises()
+    expect(shell.props('file')).toMatchObject({ path: 'C:/firmware.bin', dirty: true })
+    expect(shell.props('page')).toMatchObject({ bytes: [0x41], modifiedOffsets: ['0'] })
+    expect(shell.props('selection')).toEqual({ start: 0n, end: 0n, count: 1n })
+    expect(wrapper.find('[data-testid="completion-notice"]').exists()).toBe(false)
+    if (outcome === 'cancel') {
+      expect(mocks.backend.saveAs).not.toHaveBeenCalled()
+      expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    } else expect(wrapper.get('[role="dialog"]').text()).toContain('Cannot save binary copy.')
+  })
+
+  it('coalesces main-window Save keys while the binary picker is pending and unlocks after cancel', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    let cancelPicker!: (path: null) => void
+    mocks.save.mockImplementationOnce(() => new Promise<null>(resolve => { cancelPicker = resolve })).mockResolvedValue(null)
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    press('s', { ctrlKey: true }); await flushPromises()
+    expect(press('s', { ctrlKey: true, shiftKey: true }).defaultPrevented).toBe(true); await flushPromises()
+    expect(mocks.save).toHaveBeenCalledOnce()
+    cancelPicker(null); await flushPromises()
+    press('s', { ctrlKey: true, shiftKey: true }); await flushPromises()
+    expect(mocks.save).toHaveBeenCalledTimes(2)
+    expect(mocks.backend.saveAs).not.toHaveBeenCalled()
+    expect(wrapper.findComponent(AppShell).props('file')).toEqual(file)
+  })
+
   it('reports a successful template save without applying and distinguishes modified results needing reapply', async () => {
     mocks.open.mockResolvedValueOnce('C:/firmware.bin').mockResolvedValueOnce('C:/header.json')
     mocks.backend.loadTemplate.mockResolvedValue({ name: 'Header', defaultEndianness: 'little', fields: [{ name: 'id', type: 'u8' }] })
@@ -103,7 +181,7 @@ describe('App desktop orchestration', () => {
     const state = wrapper.get('[data-testid="template-state"]')
     expect(state.text()).toContain('Modified')
     expect(state.text()).toContain('Needs apply')
-    press('s', { ctrlKey: true }); await flushPromises()
+    await templateMenuSave(wrapper, 'save-template')
     expect(wrapper.get('[data-testid="completion-notice"]').text()).toContain('Template saved')
     expect(state.text()).toContain('Saved')
     expect(state.text()).toContain('Needs apply')
@@ -115,11 +193,11 @@ describe('App desktop orchestration', () => {
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     mocks.save.mockResolvedValueOnce(null)
-    press('s', { ctrlKey: true, shiftKey: true }); await flushPromises()
+    await templateMenuSave(wrapper, 'save-template-as')
     expect(wrapper.find('[data-testid="completion-notice"]').exists()).toBe(false)
     mocks.save.mockResolvedValueOnce('C:/header.json')
     mocks.backend.saveTemplateAs.mockRejectedValueOnce({ code: 'permission_denied', message: 'Cannot write template.' })
-    press('s', { ctrlKey: true, shiftKey: true }); await flushPromises()
+    await templateMenuSave(wrapper, 'save-template-as')
     expect(wrapper.find('[data-testid="completion-notice"]').exists()).toBe(false)
     expect(wrapper.get('[role="dialog"]').text()).toContain('Cannot write template.')
     expect(wrapper.findComponent(AppShell).props('templateSource')).toBe('draft')
@@ -173,9 +251,9 @@ describe('App desktop orchestration', () => {
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     expect(wrapper.findComponent(AppShell).props('template')!.fields).toHaveLength(1)
     expect(wrapper.findComponent(AppShell).props('menuState')!.templateActive).toBe(true)
-    expect(press('s', { ctrlKey: true }).defaultPrevented).toBe(true)
+    await templateMenuSave(wrapper, 'save-template')
     expect(mocks.backend.saveTemplate).not.toHaveBeenCalled()
-    expect(press('s', { ctrlKey: true, shiftKey: true }).defaultPrevented).toBe(true); await flushPromises()
+    await templateMenuSave(wrapper, 'save-template-as')
     expect(mocks.save).toHaveBeenCalledOnce()
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     expect(mocks.backend.saveTemplateAs).toHaveBeenCalledOnce()
@@ -189,7 +267,7 @@ describe('App desktop orchestration', () => {
     mocks.save.mockResolvedValue(null)
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
-    press('s', { ctrlKey: true, shiftKey: true }); await flushPromises()
+    await templateMenuSave(wrapper, 'save-template-as')
     expect(mocks.backend.saveTemplateAs).not.toHaveBeenCalled()
     expect(wrapper.findComponent(AppShell).props('templateSource')).toBe('draft')
     const event = { preventDefault: vi.fn() }
@@ -206,11 +284,11 @@ describe('App desktop orchestration', () => {
     mocks.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
-    press('s', { ctrlKey: true, shiftKey: true }); await flushPromises()
+    await templateMenuSave(wrapper, 'save-template-as')
     expect(mocks.confirm).toHaveBeenCalledWith('File already exists. Overwrite?', expect.any(Object))
     expect(wrapper.findComponent(AppShell).props('templateSource')).toBe('draft')
     expect(mocks.backend.saveTemplateAs).toHaveBeenCalledTimes(1)
-    press('s', { ctrlKey: true, shiftKey: true }); await flushPromises()
+    await templateMenuSave(wrapper, 'save-template-as')
     expect(mocks.backend.saveTemplateAs).toHaveBeenLastCalledWith('C:/existing.json', expect.any(Object), true)
     expect(wrapper.findComponent(AppShell).props('templateDisplayName')).toBe('existing.json')
     expect(wrapper.findComponent(AppShell).props('menuState')!.templateHasPath).toBe(true)
@@ -226,10 +304,10 @@ describe('App desktop orchestration', () => {
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     press('o', { ctrlKey: true, altKey: true }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
-    press('s', { ctrlKey: true }); await flushPromises()
+    await templateMenuSave(wrapper, 'save-template')
     expect(mocks.confirm).toHaveBeenCalledWith('The file has been modified by another program. Overwrite?', expect.any(Object))
     expect(mocks.backend.saveTemplate).toHaveBeenCalledTimes(1)
-    press('s', { ctrlKey: true }); await flushPromises()
+    await templateMenuSave(wrapper, 'save-template')
     expect(mocks.backend.saveTemplate).toHaveBeenLastCalledWith(expect.any(Object), true)
     expect(mocks.backend.applyTemplate).not.toHaveBeenCalled()
     expect(wrapper.findComponent(AppShell).props('templateDisplayName')).toBe('header.json')
@@ -417,7 +495,7 @@ describe('App desktop orchestration', () => {
     mocks.confirm.mockResolvedValue(false)
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
-    press('s', { ctrlKey: true, shiftKey: true }); await flushPromises()
+    await templateMenuSave(wrapper, 'save-template-as')
     expect(wrapper.get('[role="dialog"]').text()).toContain('Not enough disk space')
     expect(wrapper.findComponent(AppShell).props('template')!.fields).toHaveLength(1)
     await wrapper.get('[aria-label="Close dialog"]').trigger('click'); await flushPromises()
@@ -485,7 +563,7 @@ describe('App desktop orchestration', () => {
     mocks.open.mockResolvedValue('C:/firmware.bin'); mocks.save.mockRejectedValue(new Error('Native save failed.'))
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
-    press('s', { ctrlKey: true, altKey: true }); await flushPromises()
+    press('s', { ctrlKey: true, shiftKey: true }); await flushPromises()
     expect(wrapper.get('[role="dialog"]').text()).toContain('Native save failed.')
     expect(mocks.backend.saveAs).not.toHaveBeenCalled(); wrapper.unmount()
   })
@@ -544,28 +622,27 @@ describe('App desktop orchestration', () => {
     wrapper.unmount()
   })
 
-  it('prevents a dirty close until discard is confirmed', async () => {
+  it('prevents a dirty close until discard is explicitly selected', async () => {
     mocks.open.mockResolvedValue('C:/dirty.bin')
     mocks.backend.openFile.mockResolvedValue({ ...file, dirty: true })
     mocks.backend.getDirtyState.mockResolvedValue({ dirty: true, revision: '1' })
-    mocks.confirm.mockResolvedValue(false)
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     const event = { preventDefault: vi.fn() }
-    if (mocks.closeHandler) await mocks.closeHandler(event)
+    const cancelled = mocks.closeHandler?.(event); await flushPromises()
+    expect(wrapper.find('[data-action="binary-cancel"]').exists()).toBe(true)
+    await wrapper.get('[data-action="binary-cancel"]').trigger('click'); await cancelled
     expect(event.preventDefault).toHaveBeenCalledOnce()
-    mocks.confirm.mockResolvedValue(true)
     const confirmedEvent = { preventDefault: vi.fn() }
-    if (mocks.closeHandler) await mocks.closeHandler(confirmedEvent)
+    const approved = mocks.closeHandler?.(confirmedEvent); await flushPromises()
+    await wrapper.get('[data-action="binary-discard"]').trigger('click'); await approved
     expect(confirmedEvent.preventDefault).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
   it('presents confirm and message failures from void native listener paths', async () => {
-    mocks.open.mockResolvedValue('C:/dirty.bin'); mocks.backend.openFile.mockResolvedValue({ ...file, dirty: true })
-    mocks.backend.getDirtyState.mockResolvedValue({ dirty: true, revision: '1' })
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
-    press('o', { ctrlKey: true }); await flushPromises()
+    await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     mocks.confirm.mockRejectedValueOnce(new Error('Confirm failed.'))
     if (mocks.closeHandler) await mocks.closeHandler({ preventDefault: vi.fn() }); await flushPromises()
     expect(wrapper.get('[role="dialog"]').text()).toContain('Confirm failed.')
@@ -592,8 +669,10 @@ describe('App desktop orchestration', () => {
     const event = { preventDefault: vi.fn() }
     const closeAttempt = mocks.closeHandler?.(event)
     expect(event.preventDefault).not.toHaveBeenCalled(); expect(mocks.backend.getDirtyState).not.toHaveBeenCalled(); expect(mocks.confirm).not.toHaveBeenCalled()
-    finishEdit({ dirty: true, revision: '2' }); await closeAttempt; await flushPromises()
-    expect(mocks.confirm).toHaveBeenCalledOnce(); expect(event.preventDefault).toHaveBeenCalledOnce()
+    finishEdit({ dirty: true, revision: '2' }); await flushPromises()
+    expect(wrapper.find('[data-action="binary-cancel"]').exists()).toBe(true)
+    await wrapper.get('[data-action="binary-cancel"]').trigger('click'); await closeAttempt
+    expect(event.preventDefault).toHaveBeenCalledOnce()
     wrapper.unmount()
   })
 
@@ -627,7 +706,7 @@ describe('App desktop orchestration', () => {
     wrapper.unmount()
   })
 
-  it('gates Ctrl+S without a file path and top Apply while a template draft is invalid', async () => {
+  it('gates menu template Save without a file path and top Apply while a draft is invalid', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
@@ -635,13 +714,13 @@ describe('App desktop orchestration', () => {
     await sendEditorDraft(wrapper.findComponent(AppShell).props('template')!, false)
     await wrapper.get('[data-menu="template"]').trigger('click')
     expect(wrapper.get('[data-menu-command="apply-template"]').attributes('disabled')).toBeDefined()
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true })); await flushPromises()
+    await wrapper.get('[data-menu-command="save-template"]').trigger('click'); await flushPromises()
     expect(mocks.save).not.toHaveBeenCalled()
     expect(wrapper.find('.dialog-backdrop').exists()).toBe(false)
     wrapper.unmount()
   })
 
-  it('re-enables local Save, Ctrl+S, and Apply after removing the invalid field', async () => {
+  it('re-enables menu template Save and Apply after removing the invalid field', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin'); mocks.save.mockResolvedValue('C:/template.json'); mocks.backend.saveTemplateAs.mockResolvedValue(undefined); mocks.backend.saveTemplate.mockResolvedValue(undefined)
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
@@ -653,11 +732,13 @@ describe('App desktop orchestration', () => {
       { name: 'fixed', placement: { mode: 'absolute', offset: '0' }, type: 'u8', comment: '' },
     ] }, true, 2)
     expect(wrapper.get('[data-menu-command="save-template"]').attributes('disabled')).toBeDefined()
-    press('s', { ctrlKey: true, shiftKey: true }); await flushPromises()
+    await templateMenuSave(wrapper, 'save-template-as')
     expect(mocks.save).toHaveBeenCalledOnce(); expect(mocks.backend.saveTemplateAs).toHaveBeenCalledOnce()
+    await wrapper.get('[data-menu="template"]').trigger('click')
     expect(wrapper.get('[data-menu-command="save-template"]').attributes('disabled')).toBeUndefined()
-    press('s', { ctrlKey: true }); await flushPromises()
+    await templateMenuSave(wrapper, 'save-template')
     expect(mocks.save).toHaveBeenCalledOnce(); expect(mocks.backend.saveTemplate).toHaveBeenCalledOnce()
+    await wrapper.get('[data-menu="template"]').trigger('click')
     expect(wrapper.get('[data-menu-command="apply-template"]').attributes('disabled')).toBeUndefined()
     press('Enter', { ctrlKey: true }); await flushPromises()
     expect(mocks.backend.applyTemplate).toHaveBeenCalledOnce()
@@ -853,7 +934,7 @@ describe('App desktop orchestration', () => {
     expect(wrapper.findComponent(AppShell).props('selection')).toEqual({ start: 5n, end: 7n, count: 3n })
     await wrapper.get('[data-testid="search-input"]').setValue('41')
     await wrapper.get('[data-testid="search-bar"]').trigger('submit'); await flushPromises()
-    expect(wrapper.get('[data-testid="search-count"]').text()).toContain('1 match')
+    expect(wrapper.get('[data-testid="search-count"]').text()).toContain('1 of 1')
     expect(wrapper.findComponent(AppShell).props('matches')).toEqual([8n])
 
     press('Escape'); await flushPromises()
@@ -865,6 +946,74 @@ describe('App desktop orchestration', () => {
     expect(wrapper.findComponent(AppShell).props('matches')).toEqual([])
     expect((wrapper.get('[data-testid="search-input"]').element as HTMLInputElement).value).toBe('')
     expect(wrapper.findComponent(AppShell).props('selection')).toEqual({ start: 8n, end: 8n, count: 1n })
+    wrapper.unmount()
+  })
+
+  it('steps through full matches with buttons, Enter and F3 without rescanning unchanged bytes', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    mocks.backend.searchBytes.mockResolvedValue({ matches: ['4', '8', '16'], truncated: false })
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    press('f', { ctrlKey: true }); await flushPromises()
+    await wrapper.get('[data-testid="search-input"]').setValue('41 42')
+    await wrapper.get('[data-testid="search-bar"]').trigger('submit'); await flushPromises()
+    const shell = wrapper.findComponent(AppShell)
+    expect(shell.props('selection')).toEqual({ start: 4n, end: 5n, count: 2n })
+    expect(wrapper.get('[data-testid="search-count"]').text()).toContain('1 of 3')
+    await wrapper.get('[data-action="next-search-match"]').trigger('click'); await flushPromises()
+    expect(shell.props('selection')).toEqual({ start: 8n, end: 9n, count: 2n })
+    await wrapper.get('[data-testid="search-input"]').trigger('keydown', { key: 'Enter', shiftKey: true }); await flushPromises()
+    expect(shell.props('selection')).toEqual({ start: 4n, end: 5n, count: 2n })
+    await wrapper.get('[data-testid="search-bar"]').trigger('submit'); await flushPromises()
+    expect(shell.props('selection')).toEqual({ start: 8n, end: 9n, count: 2n })
+    press('F3'); await flushPromises()
+    expect(shell.props('selection')).toEqual({ start: 16n, end: 17n, count: 2n })
+    press('F3', { shiftKey: true }); await flushPromises()
+    expect(shell.props('selection')).toEqual({ start: 8n, end: 9n, count: 2n })
+    expect(mocks.backend.searchBytes).toHaveBeenCalledOnce()
+    await wrapper.get('[data-action="run-search"]').trigger('click'); await flushPromises()
+    expect(mocks.backend.searchBytes).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
+  it('disables match navigation for a changed query and resets it after clearing', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    mocks.backend.searchBytes.mockResolvedValue({ matches: ['4', '8'], truncated: true })
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises(); press('f', { ctrlKey: true }); await flushPromises()
+    await wrapper.get('[data-testid="search-input"]').setValue('aa bb')
+    await wrapper.get('[data-testid="search-bar"]').trigger('submit'); await flushPromises()
+    await wrapper.get('[data-testid="search-input"]').setValue('AA   BB')
+    await wrapper.get('[data-testid="search-bar"]').trigger('submit'); await flushPromises()
+    expect(mocks.backend.searchBytes).toHaveBeenCalledOnce()
+    expect(wrapper.get('[data-testid="search-count"]').text()).toContain('2 of 2 (limited)')
+    await wrapper.get('[data-testid="search-input"]').setValue('CC')
+    expect(wrapper.get('[data-action="next-search-match"]').attributes('disabled')).toBeDefined()
+    const selection = wrapper.findComponent(AppShell).props('selection')
+    press('F3'); await flushPromises()
+    expect(wrapper.findComponent(AppShell).props('selection')).toEqual(selection)
+    await wrapper.get('[data-testid="search-bar"]').trigger('submit'); await flushPromises()
+    expect(mocks.backend.searchBytes).toHaveBeenCalledTimes(2)
+    await wrapper.get('[data-action="clear-search"]').trigger('click'); await flushPromises()
+    expect(wrapper.get('[data-action="previous-search-match"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.findComponent(AppShell).props('matches')).toEqual([])
+    wrapper.unmount()
+  })
+
+  it('does not start overlapping scans from Enter while a search is running', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    let finishSearch!: (value: { matches: string[]; truncated: boolean }) => void
+    mocks.backend.searchBytes.mockImplementation(() => new Promise(resolve => { finishSearch = resolve }))
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises(); press('f', { ctrlKey: true }); await flushPromises()
+    await wrapper.get('[data-testid="search-input"]').setValue('41 42')
+    await wrapper.get('[data-testid="search-bar"]').trigger('submit'); await flushPromises()
+    await wrapper.get('[data-testid="search-input"]').trigger('keydown', { key: 'Enter' }); await flushPromises()
+    press('F3'); press('F3', { shiftKey: true }); await flushPromises()
+    expect(mocks.backend.searchBytes).toHaveBeenCalledOnce()
+    expect(wrapper.get('[data-action="next-search-match"]').attributes('disabled')).toBeDefined()
+    finishSearch({ matches: ['4'], truncated: false }); await flushPromises()
+    expect(wrapper.findComponent(AppShell).props('selection')).toEqual({ start: 4n, end: 5n, count: 2n })
     wrapper.unmount()
   })
 
@@ -942,7 +1091,7 @@ describe('App desktop orchestration', () => {
     press('Enter', { ctrlKey: true }); await flushPromises()
     press('e', { ctrlKey: true, shiftKey: true }); await flushPromises()
     expect(mocks.backend.exportResultsCsv).toHaveBeenCalledWith('C:/results.csv', expect.any(Object), expect.any(Function))
-    press('s', { ctrlKey: true, altKey: true }); await flushPromises()
+    press('s', { ctrlKey: true, shiftKey: true }); await flushPromises()
     expect(mocks.backend.saveAs).toHaveBeenCalledWith('C:/copy.bin', expect.any(Function))
     press('w', { ctrlKey: true }); await flushPromises()
     expect(mocks.backend.closeFile).toHaveBeenCalledWith(false)
@@ -954,13 +1103,122 @@ describe('App desktop orchestration', () => {
 
   it('confirms before Close File discards in-memory edits', async () => {
     mocks.open.mockResolvedValue('C:/dirty.bin'); mocks.backend.openFile.mockResolvedValue({ ...file, dirty: true }); mocks.backend.closeFile.mockResolvedValue(undefined)
-    mocks.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
     const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('w', { ctrlKey: true }); await flushPromises()
     expect(mocks.backend.closeFile).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-action="binary-cancel"]').exists()).toBe(true)
+    await wrapper.get('[data-action="binary-cancel"]').trigger('click'); await flushPromises()
     press('w', { ctrlKey: true }); await flushPromises()
+    await wrapper.get('[data-action="binary-discard"]').trigger('click'); await flushPromises()
     expect(mocks.backend.closeFile).toHaveBeenCalledWith(true)
+    wrapper.unmount()
+  })
+
+  it('saves a copy before opening a replacement binary and ignores concurrent open requests', async () => {
+    mocks.open.mockResolvedValueOnce('C:/firmware.bin').mockResolvedValueOnce('C:/next.bin')
+    mocks.backend.openFile.mockResolvedValueOnce({ ...file, dirty: true }).mockResolvedValueOnce({ ...file, name: 'next.bin', path: 'C:/next.bin' })
+    mocks.save.mockResolvedValue('C:/saved-copy.bin')
+    let completeSave!: (value: unknown) => void
+    mocks.backend.saveAs.mockImplementation(() => new Promise(resolve => { completeSave = resolve }))
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises(); press('o', { ctrlKey: true }); await flushPromises()
+    expect(wrapper.find('[data-action="binary-save-continue"]').exists()).toBe(true)
+    await wrapper.get('[data-action="binary-save-continue"]').trigger('click'); await flushPromises()
+    expect(mocks.backend.openFile).toHaveBeenCalledTimes(1)
+    mocks.dropHandler?.({ payload: { type: 'drop', paths: ['C:/unwanted.bin'] } }); await flushPromises()
+    completeSave({ dirty: false, revision: '0', bytesWritten: '32', destination: 'C:/saved-copy.bin',
+      file: { ...file, name: 'saved-copy.bin', path: 'C:/saved-copy.bin', revision: '0' } })
+    await flushPromises()
+    expect(mocks.backend.saveAs).toHaveBeenCalledWith('C:/saved-copy.bin', expect.any(Function))
+    expect(mocks.backend.openFile).toHaveBeenCalledTimes(2)
+    expect(mocks.backend.openFile).toHaveBeenLastCalledWith('C:/next.bin', false)
+    expect(wrapper.findComponent(AppShell).props('file')?.path).toBe('C:/next.bin')
+    wrapper.unmount()
+  })
+
+  it.each(['cancelled picker', 'failed save'] as const)('keeps the binary and edited-byte markers on %s before replacement', async outcome => {
+    const original = { ...file, dirty: true }
+    mocks.open.mockResolvedValueOnce('C:/firmware.bin').mockResolvedValueOnce('C:/next.bin')
+    mocks.backend.openFile.mockResolvedValue(original)
+    mocks.save.mockResolvedValue(outcome === 'cancelled picker' ? null : 'C:/copy.bin')
+    mocks.backend.saveAs.mockRejectedValue({ code: 'permission_denied', message: 'Copy could not be saved.' })
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    const shell = wrapper.findComponent(AppShell)
+    shell.vm.$emit('request-page', { offset: 0n, length: 32, generation: 1 }); await flushPromises()
+    shell.vm.$emit('select', { start: 0n, end: 0n, count: 1n }); await flushPromises()
+    const originalPage = shell.props('page')
+    press('o', { ctrlKey: true }); await flushPromises()
+    expect(wrapper.find('[data-action="binary-save-continue"]').exists()).toBe(true)
+    await wrapper.get('[data-action="binary-save-continue"]').trigger('click'); await flushPromises()
+    expect(shell.props('file')).toEqual(original)
+    expect(shell.props('page')).toEqual(originalPage)
+    expect(shell.props('selection')).toEqual({ start: 0n, end: 0n, count: 1n })
+    expect(mocks.backend.openFile).toHaveBeenCalledOnce()
+    if (outcome === 'cancelled picker') expect(mocks.backend.saveAs).not.toHaveBeenCalled()
+    else expect(wrapper.get('[role="dialog"]').text()).toContain('Copy could not be saved.')
+    wrapper.unmount()
+  })
+
+  it('saves successfully before Close File removes the current binary', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin'); mocks.backend.openFile.mockResolvedValue({ ...file, dirty: true })
+    mocks.save.mockResolvedValue('C:/copy.bin'); mocks.backend.closeFile.mockResolvedValue(undefined)
+    mocks.backend.saveAs.mockResolvedValue({ dirty: false, revision: '0', bytesWritten: '32', destination: 'C:/copy.bin',
+      file: { ...file, name: 'copy.bin', path: 'C:/copy.bin', revision: '0' } })
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises(); press('w', { ctrlKey: true }); await flushPromises()
+    expect(wrapper.find('[data-action="binary-save-continue"]').exists()).toBe(true)
+    await wrapper.get('[data-action="binary-save-continue"]').trigger('click'); await flushPromises()
+    expect(mocks.backend.closeFile).toHaveBeenCalledWith(false)
+    expect(mocks.backend.saveAs.mock.invocationCallOrder[0]).toBeLessThan(mocks.backend.closeFile.mock.invocationCallOrder[0]!)
+    expect(wrapper.findComponent(AppShell).props('file')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('holds main-window exit until a save copy finishes, then closes the companion', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin'); mocks.backend.openFile.mockResolvedValue({ ...file, dirty: true })
+    mocks.backend.getDirtyState.mockResolvedValue({ dirty: true, revision: '1' })
+    mocks.save.mockResolvedValue('C:/copy.bin')
+    let completeSave!: (value: unknown) => void
+    mocks.backend.saveAs.mockImplementation(() => new Promise(resolve => { completeSave = resolve }))
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    const event = { preventDefault: vi.fn() }; let finished = false
+    const closing = mocks.closeHandler?.(event).then(() => { finished = true }); await flushPromises()
+    expect(wrapper.find('[data-action="binary-save-continue"]').exists()).toBe(true)
+    await wrapper.get('[data-action="binary-save-continue"]').trigger('click'); await flushPromises()
+    expect(finished).toBe(false); expect(mocks.windowDestroyEditor).not.toHaveBeenCalled()
+    completeSave({ dirty: false, revision: '0', bytesWritten: '32', destination: 'C:/copy.bin',
+      file: { ...file, name: 'copy.bin', path: 'C:/copy.bin', revision: '0' } })
+    await closing
+    expect(event.preventDefault).not.toHaveBeenCalled()
+    expect(mocks.windowDestroyEditor).toHaveBeenCalledOnce()
+    expect(wrapper.findComponent(AppShell).props('file')?.dirty).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each(['cancelled picker', 'failed save', 'picker error'] as const)('cancels main-window exit on %s and permits subsequent byte edits', async outcome => {
+    mocks.open.mockResolvedValue('C:/firmware.bin'); mocks.backend.openFile.mockResolvedValue({ ...file, dirty: true })
+    mocks.backend.getDirtyState.mockResolvedValue({ dirty: true, revision: '1' })
+    if (outcome === 'picker error') mocks.save.mockRejectedValue(new Error('Save picker failed.'))
+    else mocks.save.mockResolvedValue(outcome === 'cancelled picker' ? null : 'C:/copy.bin')
+    mocks.backend.saveAs.mockRejectedValue({ code: 'destination_exists', message: 'The copy already exists.' })
+    mocks.backend.editByte.mockResolvedValue({ dirty: true, revision: '2' })
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    const event = { preventDefault: vi.fn() }; const closing = mocks.closeHandler?.(event); await flushPromises()
+    expect(wrapper.find('[data-action="binary-save-continue"]').exists()).toBe(true)
+    await wrapper.get('[data-action="binary-save-continue"]').trigger('click'); await closing; await flushPromises()
+    expect(event.preventDefault).toHaveBeenCalledOnce(); expect(mocks.windowDestroyEditor).not.toHaveBeenCalled()
+    expect(wrapper.findComponent(AppShell).props('file')?.dirty).toBe(true)
+    if (outcome !== 'cancelled picker') {
+      expect(wrapper.get('[role="dialog"]').text()).toContain(outcome === 'picker error' ? 'Save picker failed.' : 'The copy already exists.')
+      await wrapper.get('[aria-label="Close dialog"]').trigger('click'); await flushPromises()
+    }
+    wrapper.findComponent(AppShell).vm.$emit('edit-request', 0n); await flushPromises()
+    await wrapper.get('.prompt-form input').setValue('FF'); await wrapper.get('.prompt-form').trigger('submit'); await flushPromises()
+    expect(mocks.backend.editByte).toHaveBeenCalledWith(0n, 255)
     wrapper.unmount()
   })
 
@@ -1008,7 +1266,7 @@ describe('App desktop orchestration', () => {
     wrapper.unmount()
   })
 
-  it('routes the retained Template shortcuts without a main-window Add Field shortcut', async () => {
+  it('routes Template shortcuts and menu saves without a main-window Add Field shortcut', async () => {
     mocks.open.mockResolvedValueOnce('C:/firmware.bin').mockResolvedValueOnce('C:/header.json')
     mocks.save.mockResolvedValue('C:/header-copy.json'); mocks.backend.saveTemplateAs.mockResolvedValue(undefined); mocks.backend.saveTemplate.mockResolvedValue(undefined)
     mocks.backend.loadTemplate.mockResolvedValue({ name: 'Loaded', defaultEndianness: 'big', fields: [] })
@@ -1022,9 +1280,9 @@ describe('App desktop orchestration', () => {
     expect(wrapper.findComponent(AppShell).props('template')!.fields).toHaveLength(1)
     press('Enter', { ctrlKey: true }); await flushPromises()
     expect(mocks.backend.applyTemplate).toHaveBeenCalledOnce()
-    press('s', { ctrlKey: true, shiftKey: true }); await flushPromises()
+    await templateMenuSave(wrapper, 'save-template-as')
     expect(mocks.backend.saveTemplateAs).toHaveBeenCalledWith('C:/header-copy.json', expect.any(Object), false)
-    press('s', { ctrlKey: true }); await flushPromises()
+    await templateMenuSave(wrapper, 'save-template')
     expect(mocks.backend.saveTemplate).toHaveBeenCalledWith(expect.any(Object), false)
     press('o', { ctrlKey: true, altKey: true }); await flushPromises()
     expect(mocks.backend.loadTemplate).toHaveBeenCalledWith('C:/header.json')
@@ -1121,6 +1379,14 @@ function press(key: string, options: KeyboardEventInit = {}): KeyboardEvent {
   const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...options })
   window.dispatchEvent(event)
   return event
+}
+
+async function templateMenuSave(wrapper: VueWrapper, command: 'save-template' | 'save-template-as'): Promise<void> {
+  if (wrapper.get('[data-menu="template"]').attributes('aria-expanded') !== 'true') {
+    await wrapper.get('[data-menu="template"]').trigger('click')
+  }
+  await wrapper.get(`[data-menu-command="${command}"]`).trigger('click')
+  await flushPromises()
 }
 
 function latestWorkspaceRevision(): number {

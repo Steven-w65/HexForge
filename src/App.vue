@@ -14,6 +14,7 @@ import { commandEnabled, type MenuCommand, type MenuState } from './menu/command
 import type { TemplateDefinition } from './types'
 import { flattenResultLeaves, hasResultDiagnostics, validateTemplate } from './template/model'
 import { normalizeSelection, type ByteSelection } from './hex/selection'
+import { parseHexBytes } from './hex/input'
 import { createMainBridge } from './templateWindow/mainBridge'
 import { tauriBus } from './templateWindow/tauriBus'
 import { templateWindowManager } from './templateWindow/windowManager'
@@ -41,6 +42,12 @@ const searchOpen = ref(false)
 const searchValue = ref('')
 const searchError = ref('')
 const searchFocusKey = ref(0)
+const currentSearchPattern = computed(() => {
+  if (!session.searchQuery.value) return false
+  try { return parseHexBytes(searchValue.value).join(' ') === parseHexBytes(session.searchQuery.value).join(' ') }
+  catch { return false }
+})
+const canNavigateSearch = computed(() => currentSearchPattern.value && session.matches.value.length > 0 && !menuState.value.operationBusy)
 const gotoOpen = ref(false)
 const gotoValue = ref('')
 const gotoError = ref('')
@@ -63,6 +70,18 @@ function notifyCompletion(text: string): void {
 watch(() => session.error.value, error => { if (error) clearCompletion() })
 onBeforeUnmount(clearCompletion)
 const closeGuard = { confirming: false }
+const binaryWorkflowBusy = ref(false)
+const mainClosing = ref(false)
+type BinaryChoice = 'save' | 'discard' | 'cancel'
+const binaryPrompt = ref<{ message: string } | null>(null)
+let resolveBinaryChoice: ((choice: BinaryChoice) => void) | null = null
+function chooseBinaryAction(choice: BinaryChoice): void {
+  const resolve = resolveBinaryChoice
+  resolveBinaryChoice = null
+  binaryPrompt.value = null
+  resolve?.(choice)
+}
+onBeforeUnmount(() => chooseBinaryAction('cancel'))
 const disposers: Array<() => void> = []
 let disposed = false
 
@@ -119,48 +138,72 @@ async function nativeCall<T>(operation: () => Promise<T>): Promise<T | undefined
   catch (error) { session.presentError(error); return undefined }
 }
 
-async function confirmDiscard(): Promise<boolean> {
-  return await nativeCall(() => confirm('This file has unsaved in-memory edits. Discard them?', { title: 'HexForge', kind: 'warning' })) === true
+async function withBinaryWorkflow(operation: () => Promise<unknown>): Promise<void> {
+  if (binaryWorkflowBusy.value || mainClosing.value) return
+  binaryWorkflowBusy.value = true
+  try { await operation() }
+  finally { binaryWorkflowBusy.value = false }
 }
 
-async function confirmExitDiscard(fileDirty: boolean, templateDraftDirty: boolean): Promise<boolean> {
-  const description = fileDirty && templateDraftDirty
-    ? 'Unsaved byte edits and template changes will be lost. Exit HexForge?'
-    : templateDraftDirty
-      ? 'Unsaved template changes will be lost. Exit HexForge?'
-      : 'Unsaved byte edits will be lost. Exit HexForge?'
-  return await nativeCall(() => confirm(description, { title: 'HexForge', kind: 'warning' })) === true
+/** null cancels; true approves discard; false continues after a successful save. */
+async function confirmBinaryContinuation(reason: string, forClose = false): Promise<boolean | null> {
+  const choice = await new Promise<BinaryChoice>(resolve => {
+    resolveBinaryChoice = resolve
+    binaryPrompt.value = { message: `Save unsaved byte edits to "${session.file.value?.name ?? 'this binary'}" before ${reason}? The original binary will not be overwritten.` }
+  })
+  if (choice === 'cancel') return null
+  if (choice === 'discard') return true
+  return await chooseSaveAs(forClose) ? false : null
 }
 
-async function openPath(path: string): Promise<void> {
+async function confirmExitChanges(fileDirty: boolean): Promise<boolean> {
+  if (fileDirty && await confirmBinaryContinuation('exiting HexForge', true) === null) return false
+  // The companion can edit while a native save picker is open. Re-read its
+  // latest draft before making the independent template-discard decision.
+  await bridge.flush()
+  if (!templateDirty.value) return true
+  return await nativeCall(() => confirm('Unsaved template changes will be lost. Exit HexForge?', { title: 'HexForge', kind: 'warning' })) === true
+}
+
+async function openPathCore(path: string): Promise<void> {
   let discard = false
   if (session.file.value?.dirty) {
-    discard = await confirmDiscard()
-    if (!discard) return
+    const decision = await confirmBinaryContinuation('opening another binary')
+    if (decision === null) return
+    discard = decision
   }
   if (await reportFailure(() => session.openFile(path, discard))) clearTemplateHighlight()
 }
+function openPath(path: string): Promise<void> { return withBinaryWorkflow(() => openPathCore(path)) }
 
 async function chooseFile(): Promise<void> {
-  const selected = await nativeCall(() => open({ multiple: false, directory: false, title: 'Open binary file' }))
-  if (typeof selected === 'string') await openPath(selected)
+  await withBinaryWorkflow(async () => {
+    const selected = await nativeCall(() => open({ multiple: false, directory: false, title: 'Open binary file' }))
+    if (typeof selected === 'string') await openPathCore(selected)
+  })
 }
 
-async function chooseSaveAs(): Promise<void> {
+async function chooseSaveAs(forClose = false): Promise<boolean> {
   clearCompletion()
   const path = await nativeCall(() => save({ title: 'Save binary as', defaultPath: session.file.value ? `${session.file.value.name}.copy` : undefined }))
-  if (path && await reportFailure(() => session.saveAs(path))) notifyCompletion(`Copy saved as ${filenameFromPath(path)}.`)
+  if (!path) return false
+  const saved = await reportFailure(() => forClose ? session.saveAsForClose(path) : session.saveAs(path))
+  if (saved) notifyCompletion(`Copy saved as ${filenameFromPath(path)}.`)
+  return saved
 }
 
 async function closeCurrentFile(): Promise<void> {
-  if (!session.file.value) return
-  let discard = false
-  if (session.file.value.dirty) {
-    discard = await confirmDiscard()
-    if (!discard) return
-  }
-  await reportFailure(() => session.closeFile(discard))
-  if (!session.file.value) clearTemplateHighlight()
+  await withBinaryWorkflow(async () => {
+    if (!session.file.value) return
+    let discard = false
+    if (session.file.value.dirty) {
+      const decision = await confirmBinaryContinuation('closing this binary')
+      if (decision === null) return
+      discard = decision
+    }
+    await reportFailure(() => session.closeFile(discard))
+    if (!session.file.value) clearTemplateHighlight()
+  })
 }
 
 async function exitApplication(): Promise<void> {
@@ -254,7 +297,7 @@ async function chooseCsvExport(): Promise<void> {
 }
 
 function showPrompt(kind: PromptKind, title: string, value = ''): void { popup.value = { kind, title, value } }
-function closePopup(): void { popup.value = null; session.clearError() }
+function closePopup(): void { chooseBinaryAction('cancel'); popup.value = null; session.clearError() }
 function closeTopLayer(): void {
   if (popup.value !== null || session.error.value !== null) closePopup()
   else if (gotoOpen.value) gotoOpen.value = false
@@ -289,8 +332,10 @@ function openSearch(): void {
   searchFocusKey.value += 1
 }
 
-async function submitSearch(): Promise<void> {
+async function submitSearch(force = false, direction: 1 | -1 = 1): Promise<void> {
+  if (menuState.value.operationBusy) return
   searchError.value = ''
+  if (!force && canNavigateSearch.value) { session.navigateSearch(direction); return }
   try { await session.search(searchValue.value) }
   catch (cause) {
     searchError.value = cause instanceof Error ? cause.message :
@@ -315,6 +360,7 @@ async function submitPrompt(): Promise<void> {
 }
 
 function beginEdit(offset: bigint): void {
+  if (binaryWorkflowBusy.value || mainClosing.value) return
   session.selection.value = { start: offset, end: offset, count: 1n }
   showPrompt('edit', 'Edit byte', '')
 }
@@ -398,7 +444,8 @@ const menuState = computed<MenuState>(() => ({
   templateHasPath: templateFilePath.value !== null,
   templateHasFields: session.template.value.fields.length > 0,
   hasParsedResults: flattenResultLeaves(session.results.value).length > 0 && !hasResultDiagnostics(session.results.value),
-  operationBusy: session.activity.value !== null || templateWorkflowBusy.value,
+  hasSearchMatches: currentSearchPattern.value && session.matches.value.length > 0,
+  operationBusy: session.activity.value !== null || templateWorkflowBusy.value || binaryWorkflowBusy.value || mainClosing.value,
 }))
 
 const bridge = createMainBridge(tauriBus, {
@@ -450,7 +497,7 @@ function executeCommand(command: MenuCommand): void {
   switch (command) {
     case 'open': void chooseFile(); break
     case 'close-file': void closeCurrentFile(); break
-    case 'save-as': void chooseSaveAs(); break
+    case 'save-as': void withBinaryWorkflow(() => chooseSaveAs()); break
     case 'export': void chooseCsvExport(); break
     case 'exit': void exitApplication(); break
     case 'edit-selected': {
@@ -462,6 +509,8 @@ function executeCommand(command: MenuCommand): void {
     case 'undo': void reportFailure(session.undo); break
     case 'goto': openGoto(); break
     case 'search': openSearch(); break
+    case 'search-next': session.navigateSearch(1); break
+    case 'search-previous': session.navigateSearch(-1); break
     case 'template-editor': void openTemplateEditor(); break
     case 'apply-template': void reportFailure(() => withTemplateWorkflow(applyValidTemplate)); break
     case 'load-template': void reportFailure(() => withTemplateWorkflow(chooseTemplateLoad)); break
@@ -492,6 +541,8 @@ onMounted(async () => {
   }))
   try {
     const closeUnlisten = await getCurrentWindow().onCloseRequested(async (event) => {
+      if (binaryWorkflowBusy.value || closeGuard.confirming) { event.preventDefault(); return }
+      mainClosing.value = true
       let fileDirty = false
       let templateDraftDirty = false
       try {
@@ -501,10 +552,11 @@ onMounted(async () => {
           fileDirty = state.dirty
           templateDraftDirty = templateDirty.value
           return { dirty: fileDirty || templateDraftDirty }
-        }, () => confirmExitDiscard(fileDirty, templateDraftDirty), closeGuard, session.releaseCloseBarrier,
+        }, () => confirmExitChanges(fileDirty), closeGuard, session.releaseCloseBarrier,
         () => templateWindowManager.destroy())
       }
       catch (error) { session.presentError(error) }
+      finally { mainClosing.value = false }
     })
     if (disposed) closeUnlisten(); else disposers.push(closeUnlisten)
     const dropUnlisten = await getCurrentWebview().onDragDropEvent((event) => {
@@ -537,21 +589,29 @@ watch(() => session.sourceIdentity.value, () => {
     :match-length="session.searchMatchLength.value" :search-truncated="session.searchTruncated.value" :template-range="templateRange"
     :search-open="searchOpen" :search-value="searchValue" :search-query="session.searchQuery.value" :search-count="session.matches.value.length"
     :search-busy="session.busy.search" :search-error="searchError" :search-focus-key="searchFocusKey"
+    :search-index="session.searchMatchIndex.value" :search-can-navigate="canNavigateSearch"
+    :search-needs-update="Boolean(session.searchQuery.value) && !currentSearchPattern"
     :goto-open="gotoOpen" :goto-value="gotoValue" :goto-error="gotoError" :goto-focus-key="gotoFocusKey"
     :busy-label="activeBusy" :progress-text="progressText"
     :template-valid="templateValid"
     :menu-state="menuState" :theme="theme.value.value" :right-collapsed="rightCollapsed" :minimap-settings="minimapSettings" :edit-delta="session.lastEditDelta.value"
     :bytes-per-row="bytesPerRow" :edit-mode="session.editMode.value" :endianness="session.template.value.defaultEndianness"
-    :navigation-offset="session.viewportOffset.value" :dialog-open="popup !== null || session.error.value !== null"
-    :dialog-title="popup?.title ?? (session.error.value ? 'Operation failed' : '')" :dialog-message="session.error.value?.message ?? ''"
+    :navigation-offset="session.viewportOffset.value" :dialog-open="binaryPrompt !== null || popup !== null || session.error.value !== null"
+    :dialog-title="binaryPrompt ? 'Unsaved byte edits' : popup?.title ?? (session.error.value ? 'Operation failed' : '')" :dialog-message="binaryPrompt?.message ?? session.error.value?.message ?? ''"
     @command="executeCommand" @update:bytes-per-row="bytesPerRow = $event" @navigate="navigateTemplate"
     @request-page="reportFailure(() => session.requestPage($event.offset, $event.length, $event.generation))" @select="selectBytes"
     @edit-request="beginEdit" @viewport-offset="session.viewportOffset.value = $event" @minimap-error="session.presentError($event)" @close-dialog="closePopup"
     @update:search-value="searchValue = $event" @submit-search="submitSearch" @clear-search="clearSearch" @close-search="searchOpen = false"
+    @navigate-search="session.navigateSearch($event)"
     @update:goto-value="gotoValue = $event" @submit-goto="submitGoto" @close-goto="gotoOpen = false"
   >
     <template #dialog>
-      <form v-if="popup" class="prompt-form" @submit.prevent="submitPrompt">
+      <div v-if="binaryPrompt" class="prompt-actions binary-actions">
+        <button type="button" data-action="binary-save-continue" @click="chooseBinaryAction('save')">Save Copy and Continue</button>
+        <button type="button" data-action="binary-discard" @click="chooseBinaryAction('discard')">Discard</button>
+        <button type="button" data-action="binary-cancel" autofocus @click="chooseBinaryAction('cancel')">Cancel</button>
+      </div>
+      <form v-else-if="popup" class="prompt-form" @submit.prevent="submitPrompt">
         <label for="prompt-value">Hex byte value</label>
         <input id="prompt-value" v-model="popup.value" autofocus placeholder="FF">
         <small>Enter one hexadecimal byte from 00 to FF.</small>
@@ -567,7 +627,8 @@ watch(() => session.sourceIdentity.value, () => {
 .prompt-form input { min-width: 0; height: 30px; padding: 0 8px; color: var(--text); background: var(--input); border: 1px solid var(--border); border-radius: 4px; outline: none; font: inherit; }
 .prompt-form input:focus { border-color: var(--selection); box-shadow: 0 0 0 1px color-mix(in srgb, var(--selection) 55%, transparent); }
 .prompt-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 5px; }
-.prompt-form button { height: 28px; padding: 0 14px; color: var(--text); background: var(--button); border: 0; border-radius: 4px; font: inherit; }
-.prompt-form button:hover { background: var(--hover); }
-.prompt-form button.secondary { color: var(--muted); background: transparent; border: 1px solid var(--border); }
+.prompt-actions button { height: 28px; padding: 0 14px; color: var(--text); background: var(--button); border: 0; border-radius: 4px; font: inherit; }
+.prompt-actions button:hover { background: var(--hover); }
+.prompt-actions button.secondary { color: var(--muted); background: transparent; border: 1px solid var(--border); }
+.binary-actions { margin-top: 15px; flex-wrap: wrap; }
 </style>

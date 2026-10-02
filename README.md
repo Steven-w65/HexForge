@@ -61,9 +61,13 @@ The output is `src-tauri/target/release/hexforge.exe`.
 > [!IMPORTANT]
 > HexForge opens the source binary read-only. Edits live in an in-memory buffer. **Save As is the only way to write binary changes**, and it refuses both the source path and an existing destination.
 
-After Save As, HexForge opens the new copy so the bytes you just saved remain visible. Unsaved edits are marked as modified, and closing prompts before discarding them. The status bar keeps the selected offset and byte, selection length, row width, edit mode, and parse endianness in view.
+After Save As, HexForge opens the new copy so the bytes you just saved remain visible. Before replacing or closing a modified binary, or exiting, choose **Save Copy and Continue**, **Discard**, or **Cancel**. A cancelled picker or failed save stops the action and preserves your unsaved bytes. Template changes have their own exit confirmation. The status bar keeps the selected offset and byte, selection length, row width, edit mode, and parse endianness in view.
 
 There is **Undo**, but no Redo or in-place Save overwrite.
+
+### Move through search matches
+
+Open Search with `Ctrl+F`, enter hexadecimal bytes, and press Enter to scan. The arrows or `F3` / `Shift+F3` move to the next / previous match, selecting the entire pattern and wrapping through the returned matches. The counter shows your position, such as **3 of 18**. For an unchanged pattern, Enter / Shift+Enter also move through matches without rescanning; the **Search** button explicitly runs a fresh scan. Changing the pattern disables match navigation until you search again. A **limited** result set means only the returned matches can be navigated—refine the pattern to find a smaller set.
 
 ## Templates
 
@@ -90,19 +94,21 @@ The [template-format guide](templates/README.md) explains the one supported JSON
 | Action | Shortcut |
 | --- | --- |
 | Open / close binary | `Ctrl+O` / `Ctrl+W` |
-| Save binary as a new file | `Ctrl+Alt+S` |
+| Save binary copy / Save binary As (main window) | `Ctrl+S` / `Ctrl+Shift+S` |
 | Go to offset / search bytes | `Ctrl+G` / `Ctrl+F` |
+| Next / previous search match | `F3` / `Shift+F3` |
 | Toggle edit mode / edit selected byte / undo | `Ctrl+Alt+E` / `F2` / `Ctrl+Z` |
 | Open Template Editor / apply template | `Ctrl+Shift+T` / `Ctrl+Enter` |
 | Load / unload template | `Ctrl+Alt+O` / `Ctrl+Alt+U` |
-| Save template / Save Template As | `Ctrl+S` / `Ctrl+Shift+S` |
+| Save template / Save Template As (Template Editor) | `Ctrl+S` / `Ctrl+Shift+S` |
+| Close Template Editor, with unsaved-draft protection | `Ctrl+W` |
 | Export parsed results as CSV | `Ctrl+Shift+E` |
 | Toggle dark / light theme | `Ctrl+Alt+T` |
 | Use 16 / 32 bytes per row | `Ctrl+1` / `Ctrl+2` |
 | Close a popup or clear selection | `Esc` |
 | Exit | `Alt+F4` |
 
-`Ctrl+S` saves the **template JSON**, not the binary. Use **Save As** for binary output.
+Save shortcuts follow the focused window: the main hex viewer saves **binary bytes**, while the separate Template Editor saves **template JSON**. Both binary Save shortcuts open the existing Save As picker; neither overwrites the open source binary. With no binary open, the main-window Save shortcuts are disabled rather than saving a background template. Template Save and Save As remain available in the main **Template** menu, without main-window keyboard shortcuts. The former binary `Ctrl+Alt+S` binding is no longer used.
 
 </details>
 

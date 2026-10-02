@@ -22,6 +22,7 @@ const props = withDefaults(defineProps<{
   navigationOffset?: bigint
   matchLength?: number; busyLabel?: string; progressText?: string; searchTruncated?: boolean
   searchOpen?: boolean; searchValue?: string; searchQuery?: string; searchCount?: number; searchBusy?: boolean; searchError?: string; searchFocusKey?: number
+  searchIndex?: number; searchCanNavigate?: boolean; searchNeedsUpdate?: boolean
   gotoOpen?: boolean; gotoValue?: string; gotoError?: string; gotoFocusKey?: number
   templateValid?: boolean
   templateSource?: TemplateSource; templateDisplayName?: string; templateApplied?: boolean
@@ -34,6 +35,7 @@ const props = withDefaults(defineProps<{
   dialogTitle: '', dialogMessage: '',
   matchLength: 1, busyLabel: '', progressText: '', searchTruncated: false,
   searchOpen: false, searchValue: '', searchQuery: '', searchCount: 0, searchBusy: false, searchError: '', searchFocusKey: 0,
+  searchIndex: -1, searchCanNavigate: false, searchNeedsUpdate: false,
   gotoOpen: false, gotoValue: '', gotoError: '', gotoFocusKey: 0,
   templateValid: true, templateSource: 'none', templateDisplayName: '', templateApplied: false,
   templateDirty: false, resultsNeedRefresh: false, completionNotice: null,
@@ -48,7 +50,7 @@ const emit = defineEmits<{
   'request-page': [request: PageRequest]; select: [selection: ByteSelection]; 'edit-request': [offset: bigint]
   'viewport-offset': [offset: bigint]; 'close-dialog': []
   'minimap-error': [error: unknown]
-  'update:searchValue': [value: string]; 'submit-search': []; 'clear-search': []; 'close-search': []
+  'update:searchValue': [value: string]; 'submit-search': [force?: boolean, direction?: 1 | -1]; 'navigate-search': [direction: 1 | -1]; 'clear-search': []; 'close-search': []
   'update:gotoValue': [value: string]; 'submit-goto': []; 'close-goto': []
 }>()
 
@@ -78,6 +80,11 @@ onMounted(() => {
 })
 onBeforeUnmount(() => { workspaceObserver?.disconnect(); window.removeEventListener('resize', measureWorkspace) })
 const gotoInput = ref<HTMLInputElement | null>(null)
+function onSearchEnter(event: KeyboardEvent): void {
+  if (event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return
+  event.preventDefault()
+  emit('submit-search', false, event.shiftKey ? -1 : 1)
+}
 watch([() => props.searchOpen, () => props.searchFocusKey], ([open]) => {
   if (open) void nextTick(() => searchInput.value?.focus())
 })
@@ -135,14 +142,17 @@ const selectedByte = computed(() => {
           <div class="floating-bar__controls">
             <label class="visually-hidden" for="search-bytes">Search hex bytes</label>
             <input id="search-bytes" ref="searchInput" data-testid="search-input" :value="searchValue" placeholder="41 42 43" spellcheck="false" autocomplete="off"
-              @input="emit('update:searchValue', ($event.target as HTMLInputElement).value)">
-            <button type="submit" :disabled="searchBusy">Search</button>
+              @input="emit('update:searchValue', ($event.target as HTMLInputElement).value)" @keydown.enter="onSearchEnter">
+            <button type="button" data-action="run-search" :disabled="searchBusy || effectiveMenuState.operationBusy" @click="emit('submit-search', true)">Search</button>
+            <button type="button" class="floating-bar__arrow" data-action="previous-search-match" aria-label="Previous search match" title="Previous match (Shift+F3)" :disabled="!searchCanNavigate" @click="emit('navigate-search', -1)">↑</button>
+            <button type="button" class="floating-bar__arrow" data-action="next-search-match" aria-label="Next search match" title="Next match (F3)" :disabled="!searchCanNavigate" @click="emit('navigate-search', 1)">↓</button>
             <button type="button" data-action="clear-search" :disabled="searchBusy || (!searchValue && !searchQuery)" @click="emit('clear-search')">Clear</button>
             <button type="button" class="floating-bar__close" data-action="close-search" aria-label="Close search" @click="emit('close-search')">×</button>
           </div>
           <div v-if="searchError" class="floating-bar__detail floating-bar__detail--error" role="alert">{{ searchError }}</div>
           <div v-else class="floating-bar__detail" data-testid="search-count" role="status">
-            {{ searchBusy ? 'Searching…' : searchQuery ? `${searchCount} ${searchCount === 1 ? 'match' : 'matches'}${searchTruncated ? ' (limited)' : ''}` : 'Enter hexadecimal bytes, then press Enter.' }}
+            {{ searchBusy ? 'Searching…' : searchQuery ? `${searchIndex >= 0 ? `${searchIndex + 1} of ${searchCount}` : `${searchCount} ${searchCount === 1 ? 'match' : 'matches'}`}${searchTruncated ? ' (limited)' : ''}` : 'Enter hexadecimal bytes, then press Enter.' }}
+            <template v-if="searchNeedsUpdate && !searchBusy"> · Search to update results.</template>
           </div>
         </form>
         <form v-if="gotoOpen && file" data-testid="goto-bar" class="floating-bar" aria-label="Go to offset" @submit.prevent="emit('submit-goto')">
@@ -200,6 +210,7 @@ const selectedByte = computed(() => {
 .floating-bar button { height: 27px; padding: 0 7px; color: var(--text); background: var(--button); border: 0; border-radius: 3px; font: inherit; font-size: var(--font-support); white-space: nowrap; }
 .floating-bar button:hover:not(:disabled) { background: var(--hover); }
 .floating-bar button:disabled { opacity: .4; }
+.floating-bar .floating-bar__arrow { width: 24px; padding: 0; }
 .floating-bar .floating-bar__close { width: 26px; padding: 0; color: var(--muted); background: transparent; font-size: 19px; }
 .floating-bar__detail { min-height: 15px; padding: 5px 2px 0; color: var(--muted); font-size: var(--font-support); }
 .floating-bar__detail--error { color: var(--modified); }

@@ -1,7 +1,7 @@
 export type MenuCommand =
   | 'open' | 'close-file' | 'save-as' | 'export' | 'exit'
   | 'edit-selected' | 'toggle-edit' | 'undo'
-  | 'goto' | 'search'
+  | 'goto' | 'search' | 'search-next' | 'search-previous'
   | 'template-editor' | 'apply-template' | 'load-template' | 'unload-template' | 'save-template' | 'save-template-as'
   | 'theme-toggle'
   | 'row-16' | 'row-32' | 'toggle-right-panel'
@@ -20,6 +20,7 @@ export interface MenuState {
   templateHasFields: boolean
   hasParsedResults: boolean
   operationBusy: boolean
+  hasSearchMatches?: boolean
   templateIssueCount?: number
 }
 
@@ -34,7 +35,10 @@ interface Shortcut {
 const shortcuts: Shortcut[] = [
   { command: 'open', key: 'o', ctrl: true },
   { command: 'close-file', key: 'w', ctrl: true },
-  { command: 'save-as', key: 's', ctrl: true, alt: true },
+  // This map belongs to the main hex window. Both Save keys use its protected
+  // binary-copy workflow; the separate editor owns template Save / Save As.
+  { command: 'save-as', key: 's', ctrl: true },
+  { command: 'save-as', key: 's', ctrl: true, shift: true },
   { command: 'export', key: 'e', ctrl: true, shift: true },
   { command: 'exit', key: 'f4', alt: true },
   { command: 'edit-selected', key: 'f2' },
@@ -42,12 +46,12 @@ const shortcuts: Shortcut[] = [
   { command: 'undo', key: 'z', ctrl: true },
   { command: 'goto', key: 'g', ctrl: true },
   { command: 'search', key: 'f', ctrl: true },
+  { command: 'search-next', key: 'f3' },
+  { command: 'search-previous', key: 'f3', shift: true },
   { command: 'template-editor', key: 't', ctrl: true, shift: true },
   { command: 'apply-template', key: 'enter', ctrl: true },
   { command: 'load-template', key: 'o', ctrl: true, alt: true },
   { command: 'unload-template', key: 'u', ctrl: true, alt: true },
-  { command: 'save-template', key: 's', ctrl: true },
-  { command: 'save-template-as', key: 's', ctrl: true, shift: true },
   { command: 'theme-toggle', key: 't', ctrl: true, alt: true },
   { command: 'row-16', key: '1', ctrl: true },
   { command: 'row-32', key: '2', ctrl: true },
@@ -94,6 +98,9 @@ export function commandUnavailableReason(command: MenuCommand, state: MenuState)
     case 'goto':
     case 'search':
       return state.hasBytes ? null : 'Open a nonempty binary file first.'
+    case 'search-next':
+    case 'search-previous':
+      return state.hasBytes && state.hasSearchMatches ? null : 'Search the current byte pattern first.'
     case 'edit-selected':
       if (!state.hasBytes) return 'Open a nonempty binary file first.'
       if (!state.editMode) return 'Enable Edit Mode first.'

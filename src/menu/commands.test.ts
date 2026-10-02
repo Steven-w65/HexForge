@@ -23,8 +23,8 @@ describe('menu commands', () => {
   it.each([
     ['o', { ctrlKey: true }, 'open'],
     ['w', { ctrlKey: true }, 'close-file'],
-    ['s', { ctrlKey: true, altKey: true }, 'save-as'],
-    ['s', { ctrlKey: true, shiftKey: true }, 'save-template-as'],
+    ['s', { ctrlKey: true }, 'save-as'],
+    ['s', { ctrlKey: true, shiftKey: true }, 'save-as'],
     ['e', { ctrlKey: true, shiftKey: true }, 'export'],
     ['F4', { altKey: true }, 'exit'],
     ['F2', {}, 'edit-selected'],
@@ -32,11 +32,12 @@ describe('menu commands', () => {
     ['z', { ctrlKey: true }, 'undo'],
     ['g', { ctrlKey: true }, 'goto'],
     ['f', { ctrlKey: true }, 'search'],
+    ['F3', {}, 'search-next'],
+    ['F3', { shiftKey: true }, 'search-previous'],
     ['t', { ctrlKey: true, shiftKey: true }, 'template-editor'],
     ['Enter', { ctrlKey: true }, 'apply-template'],
     ['o', { ctrlKey: true, altKey: true }, 'load-template'],
     ['u', { ctrlKey: true, altKey: true }, 'unload-template'],
-    ['s', { ctrlKey: true }, 'save-template'],
     ['t', { ctrlKey: true, altKey: true }, 'theme-toggle'],
     ['1', { ctrlKey: true }, 'row-16'],
     ['2', { ctrlKey: true }, 'row-32'],
@@ -48,6 +49,7 @@ describe('menu commands', () => {
     expect(matchMenuShortcut(shortcut('o', { ctrlKey: true, shiftKey: true }))).toBeNull()
     expect(matchMenuShortcut(shortcut('b', { ctrlKey: true, shiftKey: true }))).toBeNull()
     expect(matchMenuShortcut(shortcut('F2', { altKey: true }))).toBeNull()
+    expect(matchMenuShortcut(shortcut('s', { ctrlKey: true, altKey: true }))).toBeNull()
   })
 
   it('does not bind removed theme-selection or panel-visibility shortcuts', () => {
@@ -70,7 +72,7 @@ describe('menu commands', () => {
     const input = document.createElement('input')
     expect(matchMenuShortcut(shortcut('z', { ctrlKey: true }), input)).toBeNull()
     expect(matchMenuShortcut(shortcut('F2'), input)).toBeNull()
-    expect(matchMenuShortcut(shortcut('s', { ctrlKey: true }), input)).toBe('save-template')
+    expect(matchMenuShortcut(shortcut('s', { ctrlKey: true }), input)).toBe('save-as')
   })
 
   it('disables file-dependent commands without a file while leaving template and view commands available', () => {
@@ -107,5 +109,14 @@ describe('menu commands', () => {
     expect(commandEnabled('save-template', untitled)).toBe(false)
     expect(commandEnabled('save-template-as', untitled)).toBe(true)
     expect(commandEnabled('save-template-as', { ...untitled, templateActive: false })).toBe(false)
+  })
+
+  it('enables match commands only for current results in an idle binary workspace', () => {
+    for (const command of ['search-next', 'search-previous'] as const) {
+      expect(commandEnabled(command, readyState())).toBe(false)
+      expect(commandEnabled(command, { ...readyState(), hasSearchMatches: true })).toBe(true)
+      expect(commandEnabled(command, { ...readyState(), hasSearchMatches: true, hasBytes: false })).toBe(false)
+      expect(commandEnabled(command, { ...readyState(), hasSearchMatches: true, operationBusy: true })).toBe(false)
+    }
   })
 })
