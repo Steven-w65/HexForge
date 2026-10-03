@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { TauriEvent } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { confirm, message, open, save } from '@tauri-apps/plugin-dialog'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -19,8 +20,11 @@ import { createMainBridge } from './templateWindow/mainBridge'
 import { tauriBus } from './templateWindow/tauriBus'
 import { templateWindowManager } from './templateWindow/windowManager'
 import type { EditorAction } from './templateWindow/protocol'
+import { createListenerScope } from './startup/listenerScope'
+import { startupTimings } from './startup/timings'
 
 type PromptKind = 'edit'
+startupTimings.mark('main-setup')
 const session = useHexSession()
 const bytesPerRow = ref<BytesPerRow>(16)
 const minimapSettings = ref<MinimapSettings>({ ...DEFAULT_MINIMAP_SETTINGS })
@@ -72,6 +76,7 @@ onBeforeUnmount(clearCompletion)
 const closeGuard = { confirming: false }
 const binaryWorkflowBusy = ref(false)
 const mainClosing = ref(false)
+const nativeCloseProtected = ref(false)
 type BinaryChoice = 'save' | 'discard' | 'cancel'
 const binaryPrompt = ref<{ message: string } | null>(null)
 let resolveBinaryChoice: ((choice: BinaryChoice) => void) | null = null
@@ -82,7 +87,7 @@ function chooseBinaryAction(choice: BinaryChoice): void {
   resolve?.(choice)
 }
 onBeforeUnmount(() => chooseBinaryAction('cancel'))
-const disposers: Array<() => void> = []
+const startupListeners = createListenerScope({ disposeOnError: false })
 let disposed = false
 
 function templateSnapshot(value: TemplateDefinition): string { return JSON.stringify(value) }
@@ -139,7 +144,7 @@ async function nativeCall<T>(operation: () => Promise<T>): Promise<T | undefined
 }
 
 async function withBinaryWorkflow(operation: () => Promise<unknown>): Promise<void> {
-  if (binaryWorkflowBusy.value || mainClosing.value) return
+  if (!nativeCloseProtected.value || binaryWorkflowBusy.value || mainClosing.value) return
   binaryWorkflowBusy.value = true
   try { await operation() }
   finally { binaryWorkflowBusy.value = false }
@@ -445,7 +450,7 @@ const menuState = computed<MenuState>(() => ({
   templateHasFields: session.template.value.fields.length > 0,
   hasParsedResults: flattenResultLeaves(session.results.value).length > 0 && !hasResultDiagnostics(session.results.value),
   hasSearchMatches: currentSearchPattern.value && session.matches.value.length > 0,
-  operationBusy: session.activity.value !== null || templateWorkflowBusy.value || binaryWorkflowBusy.value || mainClosing.value,
+  operationBusy: !nativeCloseProtected.value || session.activity.value !== null || templateWorkflowBusy.value || binaryWorkflowBusy.value || mainClosing.value,
 }))
 
 const bridge = createMainBridge(tauriBus, {
@@ -533,14 +538,17 @@ function executeCommand(command: MenuCommand): void {
 }
 
 onMounted(async () => {
-  try { await bridge.start() } catch (error) { session.presentError(error) }
-  disposers.push(useHotkeys({
+  startupTimings.mark('main-mounted')
+  startupListeners.own(useHotkeys({
     invoke: executeCommand, isEnabled: (command) => commandEnabled(command, menuState.value),
     isPopupOpen: () => popup.value !== null || session.error.value !== null || gotoOpen.value || searchOpen.value,
     closePopup: closeTopLayer, clearSelection,
   }))
   try {
-    const closeUnlisten = await getCurrentWindow().onCloseRequested(async (event) => {
+    startupTimings.mark('listeners-start')
+    await startupListeners.register([
+      async () => { await bridge.start(); startupTimings.mark('bridge-ready'); return bridge.dispose },
+      () => getCurrentWindow().onCloseRequested(async (event) => {
       if (binaryWorkflowBusy.value || closeGuard.confirming) { event.preventDefault(); return }
       mainClosing.value = true
       let fileDirty = false
@@ -557,23 +565,27 @@ onMounted(async () => {
       }
       catch (error) { session.presentError(error) }
       finally { mainClosing.value = false }
-    })
-    if (disposed) closeUnlisten(); else disposers.push(closeUnlisten)
-    const dropUnlisten = await getCurrentWebview().onDragDropEvent((event) => {
-      if (event.payload.type === 'drop' && event.payload.paths.length === 1) void openPath(event.payload.paths[0]!)
-      else if (event.payload.type === 'drop') void nativeCall(() => message('Drop exactly one file at a time.', { title: 'HexForge', kind: 'warning' }))
-    })
-    if (disposed) dropUnlisten(); else disposers.push(dropUnlisten)
+      }).then(unlisten => { if (!disposed) nativeCloseProtected.value = true; startupTimings.mark('close-listener-ready'); return unlisten }),
+      // We only consume drops. The convenience helper also serially registers
+      // enter/over/leave events, adding three unnecessary startup IPC trips.
+      () => getCurrentWebview().listen<{ paths: string[] }>(TauriEvent.DRAG_DROP, (event) => {
+        if (event.payload.paths.length === 1) void openPath(event.payload.paths[0]!)
+        else void nativeCall(() => message('Drop exactly one file at a time.', { title: 'HexForge', kind: 'warning' }))
+      }).then(unlisten => { startupTimings.mark('drop-listener-ready'); return unlisten }),
+    ])
+    if (disposed) return
+    startupTimings.mark('listeners-ready')
     // CI sets a process-local flag; this native acknowledgment proves that
     // the bundled Vue frontend and IPC both started in the portable EXE.
-    try { await backend.frontendReady() } catch { /* Startup probe is optional in normal runs. */ }
+    try { await backend.frontendReady(await startupTimings.completeReport(backend.startupClock)) } catch { /* Startup probe is optional in normal runs. */ }
   } catch (error) {
+    if (disposed) return
     session.presentError(error)
     await nativeCall(() => message(error instanceof Error ? error.message : 'Desktop listeners could not be registered.', { title: 'HexForge', kind: 'error' }))
   }
 })
 
-onBeforeUnmount(() => { disposed = true; bridge.dispose(); disposers.splice(0).forEach((dispose) => dispose()) })
+onBeforeUnmount(() => { disposed = true; bridge.dispose(); startupListeners.dispose() })
 watch(() => session.sourceIdentity.value, () => {
   searchOpen.value = false; searchValue.value = ''; searchError.value = ''
   gotoOpen.value = false; gotoValue.value = ''; gotoError.value = ''

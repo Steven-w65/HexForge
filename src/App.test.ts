@@ -11,29 +11,31 @@ const mocks = vi.hoisted(() => {
   return {
     backend, open: vi.fn(), save: vi.fn(), message: vi.fn(), confirm: vi.fn(),
     closeHandler: undefined as ((event: { preventDefault(): void }) => Promise<void>) | undefined,
-    dropHandler: undefined as ((event: { payload: { type: string; paths: string[] } }) => void) | undefined,
+    dropHandler: undefined as ((event: { payload: { type?: string; paths: string[] } }) => void) | undefined,
     unlistenClose: vi.fn(), unlistenDrop: vi.fn(), windowClose: vi.fn(), windowSetFocus: vi.fn(), windowDestroyEditor: vi.fn(),
     windowOpen: vi.fn(),
     busSent: vi.fn(),
     busHandlers: new Map<string, (payload: unknown) => void | Promise<void>>(),
     lastDraft: null as unknown,
     failFlush: false,
+    registrationWaits: new Map<string, Promise<void>>(),
+    webviewListen: vi.fn(),
   }
 })
 
 vi.mock('./api/backend', () => ({ backend: mocks.backend }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: mocks.open, save: mocks.save, message: mocks.message, confirm: mocks.confirm }))
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => ({
-  onCloseRequested: vi.fn(async (handler) => { mocks.closeHandler = handler; return mocks.unlistenClose }),
+  onCloseRequested: vi.fn(async (handler) => { await mocks.registrationWaits.get('close'); mocks.closeHandler = handler; return mocks.unlistenClose }),
   close: mocks.windowClose,
   setFocus: mocks.windowSetFocus,
 }) }))
 vi.mock('@tauri-apps/api/webview', () => ({ getCurrentWebview: () => ({
-  onDragDropEvent: vi.fn(async (handler) => { mocks.dropHandler = handler; return mocks.unlistenDrop }),
+  listen: mocks.webviewListen,
 }) }))
 vi.mock('./templateWindow/windowManager', () => ({ templateWindowManager: { openOrFocus: mocks.windowOpen, forget: vi.fn(), close: vi.fn(), destroy: mocks.windowDestroyEditor } }))
 vi.mock('./templateWindow/tauriBus', () => ({ tauriBus: {
-  listen: vi.fn(async (event, callback) => { mocks.busHandlers.set(event, callback); return () => { mocks.busHandlers.delete(event) } }),
+  listen: vi.fn(async (event, callback) => { await mocks.registrationWaits.get('bridge'); mocks.busHandlers.set(event, callback); return () => { mocks.busHandlers.delete(event) } }),
   send: vi.fn(async (_target, event, payload) => {
     mocks.busSent(event, payload)
     if (event === 'hexforge:template:flush') {
@@ -48,6 +50,8 @@ import App from './App.vue'
 import AppShell from './components/AppShell.vue'
 import type { ParsedNode, TemplateDefinition } from './types'
 import { installSystemTheme } from '../tests/helpers/systemTheme'
+import { mainInterfaceVisible } from './startup/timings'
+import { hexCanvasStub } from './test/hexCanvasStub'
 
 const file = { name: 'firmware.bin', path: 'C:/firmware.bin', size: '32', revision: '1', dirty: false }
 const page = { offset: '0', bytes: [0x41], modifiedOffsets: [], revision: '1' }
@@ -56,6 +60,10 @@ describe('App desktop orchestration', () => {
   afterEach(() => { vi.unstubAllGlobals() })
   beforeEach(() => {
     localStorage.clear()
+    mocks.registrationWaits.clear()
+    mocks.webviewListen.mockReset(); mocks.webviewListen.mockImplementation(async (_event, handler) => {
+      await mocks.registrationWaits.get('drop'); mocks.dropHandler = handler; return mocks.unlistenDrop
+    })
     Object.values(mocks.backend).forEach((mock) => mock.mockReset())
     mocks.open.mockReset(); mocks.save.mockReset(); mocks.confirm.mockReset(); mocks.message.mockReset()
     mocks.unlistenClose.mockReset(); mocks.unlistenDrop.mockReset(); mocks.windowClose.mockReset(); mocks.windowClose.mockResolvedValue(undefined); mocks.windowSetFocus.mockReset(); mocks.windowSetFocus.mockResolvedValue(undefined); mocks.closeHandler = undefined; mocks.dropHandler = undefined
@@ -72,7 +80,7 @@ describe('App desktop orchestration', () => {
 
   it('opens a binary from the empty-state button and replaces the prompt with the file view', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     await wrapper.get('[data-action="empty-open"]').trigger('click'); await flushPromises()
     expect(wrapper.get('[data-testid="file-info-bar"]').text()).toContain('firmware.bin')
     expect(wrapper.find('[data-testid="drop-prompt"]').exists()).toBe(false)
@@ -81,25 +89,25 @@ describe('App desktop orchestration', () => {
 
   it('retains the empty-state Open button when the file picker is cancelled', async () => {
     mocks.open.mockResolvedValue(null)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     await wrapper.get('[data-action="empty-open"]').trigger('click'); await flushPromises()
     expect(wrapper.findComponent(AppShell).props('file')).toBeNull()
     expect(wrapper.get('[data-action="empty-open"]').attributes('disabled')).toBeUndefined()
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
 
-  it.each([false, true])('saves binary bytes rather than the background template with Ctrl%s+S', async (shiftKey) => {
+  it('saves binary bytes rather than the background template with Ctrl+Shift+S', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
     mocks.save.mockResolvedValue('C:/copy.bin')
     mocks.backend.openFile.mockResolvedValue({ ...file, dirty: true })
     mocks.backend.saveAs.mockResolvedValue({ dirty: false, revision: '0', bytesWritten: '32', destination: 'C:/copy.bin',
       file: { name: 'copy.bin', path: 'C:/copy.bin', size: '32', revision: '0', dirty: false } })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     // Invalid template inputs must not disable saving the independent binary.
     await sendEditorDraft(wrapper.findComponent(AppShell).props('template')!, false, 2)
-    expect(press('s', { ctrlKey: true, shiftKey }).defaultPrevented).toBe(true); await flushPromises()
+    expect(press('s', { ctrlKey: true, shiftKey: true }).defaultPrevented).toBe(true); await flushPromises()
     expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ title: 'Save binary as', defaultPath: 'firmware.bin.copy' }))
     expect(mocks.backend.saveAs).toHaveBeenCalledWith('C:/copy.bin', expect.any(Function))
     expect(wrapper.findComponent(AppShell).props('file')).toMatchObject({ path: 'C:/copy.bin', dirty: false })
@@ -110,10 +118,29 @@ describe('App desktop orchestration', () => {
     expect(mocks.backend.applyTemplate).not.toHaveBeenCalled()
   })
 
+  it.each([false, true])('keeps Ctrl+S inert with an open binary (dirty=%s) and an unsaved template', async (dirty) => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    mocks.backend.openFile.mockResolvedValue({ ...file, dirty })
+    mocks.save.mockResolvedValue(null)
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    const shell = wrapper.findComponent(AppShell)
+    await sendDraftWithField(shell.props('template')!)
+    shell.vm.$emit('select', { start: 0n, end: 0n, count: 1n }); await flushPromises()
+    expect(press('s', { ctrlKey: true }).defaultPrevented).toBe(true); await flushPromises()
+    expect(mocks.save).not.toHaveBeenCalled()
+    expect(mocks.backend.saveAs).not.toHaveBeenCalled()
+    expect(mocks.backend.saveTemplate).not.toHaveBeenCalled()
+    expect(mocks.backend.saveTemplateAs).not.toHaveBeenCalled()
+    expect(shell.props('file')).toMatchObject({ path: 'C:/firmware.bin', dirty })
+    expect(shell.props('templateDirty')).toBe(true)
+    expect(shell.props('selection')).toEqual({ start: 0n, end: 0n, count: 1n })
+  })
+
   it('consumes main-window Save keys without saving an open template when no binary is open', async () => {
     mocks.open.mockResolvedValue('C:/header.json')
     mocks.backend.loadTemplate.mockResolvedValue({ name: 'Header', defaultEndianness: 'little', fields: [] })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true, altKey: true }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     expect(press('s', { ctrlKey: true }).defaultPrevented).toBe(true)
@@ -126,20 +153,39 @@ describe('App desktop orchestration', () => {
     expect(wrapper.findComponent(AppShell).props('menuState')!.templateHasPath).toBe(true)
   })
 
-  it.each([
-    [false, 'cancel'], [true, 'cancel'], [false, 'failure'], [true, 'failure'],
-  ] as const)('preserves dirty bytes and selection when Ctrl+S (shift=%s) ends in %s', async (shiftKey, outcome) => {
+  it('applies only the template when Ctrl+Enter is pressed over a focused File-menu item', async () => {
+    mocks.open.mockResolvedValue('C:/firmware.bin')
+    const wrapper = mount(App, { attachTo: document.body, global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
+    press('o', { ctrlKey: true }); await flushPromises()
+    await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
+    press('f', { altKey: true }); await flushPromises()
+    expect((document.activeElement as HTMLElement).dataset.menuCommand).toBe('open')
+    press('Enter', { ctrlKey: true }); await flushPromises()
+    expect(mocks.open).toHaveBeenCalledOnce()
+    expect(mocks.backend.applyTemplate).toHaveBeenCalledOnce()
+  })
+
+  it('keeps disabled Ctrl+Enter inert over a focused File-menu item instead of permitting its default click', async () => {
+    const wrapper = mount(App, { attachTo: document.body, global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
+    press('f', { altKey: true }); await flushPromises()
+    expect((document.activeElement as HTMLElement).dataset.menuCommand).toBe('open')
+    expect(press('Enter', { ctrlKey: true }).defaultPrevented).toBe(true); await flushPromises()
+    expect(mocks.open).not.toHaveBeenCalled()
+    expect(mocks.backend.applyTemplate).not.toHaveBeenCalled()
+  })
+
+  it.each(['cancel', 'failure'] as const)('preserves dirty bytes and selection when Ctrl+Shift+S ends in %s', async (outcome) => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
     mocks.backend.openFile.mockResolvedValue({ ...file, dirty: true })
     mocks.backend.readPage.mockResolvedValue({ ...page, modifiedOffsets: ['0'] })
     mocks.save.mockResolvedValue(outcome === 'cancel' ? null : 'C:/copy.bin')
     if (outcome === 'failure') mocks.backend.saveAs.mockRejectedValue({ code: 'disk_full', message: 'Cannot save binary copy.' })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     const shell = wrapper.findComponent(AppShell)
     shell.vm.$emit('request-page', { offset: 0n, length: 32, generation: 1 }); await flushPromises()
     shell.vm.$emit('select', { start: 0n, end: 0n, count: 1n }); await flushPromises()
-    press('s', { ctrlKey: true, shiftKey }); await flushPromises()
+    press('s', { ctrlKey: true, shiftKey: true }); await flushPromises()
     expect(shell.props('file')).toMatchObject({ path: 'C:/firmware.bin', dirty: true })
     expect(shell.props('page')).toMatchObject({ bytes: [0x41], modifiedOffsets: ['0'] })
     expect(shell.props('selection')).toEqual({ start: 0n, end: 0n, count: 1n })
@@ -154,9 +200,10 @@ describe('App desktop orchestration', () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
     let cancelPicker!: (path: null) => void
     mocks.save.mockImplementationOnce(() => new Promise<null>(resolve => { cancelPicker = resolve })).mockResolvedValue(null)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
-    press('s', { ctrlKey: true }); await flushPromises()
+    press('s', { ctrlKey: true, shiftKey: true }); await flushPromises()
+    expect(press('s', { ctrlKey: true }).defaultPrevented).toBe(true); await flushPromises()
     expect(press('s', { ctrlKey: true, shiftKey: true }).defaultPrevented).toBe(true); await flushPromises()
     expect(mocks.save).toHaveBeenCalledOnce()
     cancelPicker(null); await flushPromises()
@@ -171,7 +218,7 @@ describe('App desktop orchestration', () => {
     mocks.backend.loadTemplate.mockResolvedValue({ name: 'Header', defaultEndianness: 'little', fields: [{ name: 'id', type: 'u8' }] })
     mocks.backend.applyTemplate.mockResolvedValue([leafResult('id')])
     mocks.backend.saveTemplate.mockResolvedValue(undefined)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('o', { ctrlKey: true, altKey: true }); await flushPromises()
     expect(wrapper.get('[data-testid="template-state"]').text()).toContain('Saved')
@@ -190,7 +237,7 @@ describe('App desktop orchestration', () => {
   })
 
   it('does not announce success after a cancelled or failed Save As', async () => {
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     mocks.save.mockResolvedValueOnce(null)
     await templateMenuSave(wrapper, 'save-template-as')
@@ -205,7 +252,7 @@ describe('App desktop orchestration', () => {
   })
 
   it('signals frontend readiness only after the desktop listeners are registered', async () => {
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } })
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } })
     await flushPromises()
     expect(mocks.closeHandler).toBeTypeOf('function')
     expect(mocks.dropHandler).toBeTypeOf('function')
@@ -213,8 +260,134 @@ describe('App desktop orchestration', () => {
     wrapper.unmount()
   })
 
+  it('recognizes the real visible main interface despite fallthrough attributes and rejects hidden controls', async () => {
+    const wrapper = mount(App, { attachTo: document.body, global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
+    // jsdom has no layout engine; supply only the browser layout boundary.
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 28))
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    try {
+      expect(mainInterfaceVisible()).toBe(true)
+      ;(wrapper.get('[data-menu="file"]').element as HTMLElement).style.visibility = 'hidden'
+      expect(mainInterfaceVisible()).toBe(false)
+    } finally { bounds.mockRestore(); visibility.mockRestore() }
+  })
+
+  it('registers only the native drop event and retains single-file and multiple-file behavior', async () => {
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } })
+    await flushPromises()
+    expect(mocks.webviewListen).toHaveBeenCalledOnce()
+    expect(mocks.webviewListen).toHaveBeenCalledWith('tauri://drag-drop', expect.any(Function))
+    // Raw native payloads have paths and position, not the helper's type tag.
+    mocks.dropHandler?.({ payload: { paths: ['C:/drop.rom'] } }); await flushPromises()
+    expect(mocks.backend.openFile).toHaveBeenCalledWith('C:/drop.rom', false)
+    mocks.dropHandler?.({ payload: { paths: ['a.bin', 'b.bin'] } }); await flushPromises()
+    expect(mocks.message).toHaveBeenCalledWith('Drop exactly one file at a time.', expect.any(Object))
+    wrapper.unmount()
+    expect(mocks.unlistenDrop).toHaveBeenCalledOnce()
+  })
+
+  it('includes phase timings only when the native startup profiler is enabled', async () => {
+    vi.stubGlobal('__HEXFORGE_STARTUP_PROFILE__', true)
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } })
+    await flushPromises()
+    const report = mocks.backend.frontendReady.mock.calls[0]?.[0]
+    expect(report?.phases).toEqual(expect.arrayContaining([
+      { name: 'main-setup', atMs: expect.any(Number) },
+      { name: 'main-mounted', atMs: expect.any(Number) },
+      { name: 'listeners-ready', atMs: expect.any(Number) },
+    ]))
+    wrapper.unmount()
+  })
+
+  it('starts native listeners alongside bridge listeners but waits for all before readiness', async () => {
+    let finishBridge!: () => void
+    let finishClose!: () => void
+    mocks.registrationWaits.set('bridge', new Promise(resolve => { finishBridge = resolve }))
+    mocks.registrationWaits.set('close', new Promise(resolve => { finishClose = resolve }))
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } })
+    try {
+      await flushPromises()
+      expect(mocks.dropHandler).toBeTypeOf('function')
+      expect(mocks.backend.frontendReady).not.toHaveBeenCalled()
+      finishClose(); await flushPromises()
+      expect(mocks.closeHandler).toBeTypeOf('function')
+      expect(mocks.backend.frontendReady).not.toHaveBeenCalled()
+      finishBridge(); await flushPromises()
+      expect(mocks.busHandlers.size).toBe(5)
+      expect(mocks.backend.frontendReady).toHaveBeenCalledOnce()
+    } finally { finishClose(); finishBridge(); wrapper.unmount(); await flushPromises() }
+  })
+
+  it('cleans late registrations without reporting readiness or installing hotkeys after unmount', async () => {
+    let finishClose!: () => void
+    let finishBridge!: () => void
+    mocks.registrationWaits.set('bridge', new Promise(resolve => { finishBridge = resolve }))
+    mocks.registrationWaits.set('close', new Promise(resolve => { finishClose = resolve }))
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } })
+    await flushPromises()
+    wrapper.unmount()
+    finishClose(); finishBridge(); await flushPromises()
+    expect(mocks.backend.frontendReady).not.toHaveBeenCalled()
+    expect(mocks.busHandlers.size).toBe(0)
+    expect(mocks.unlistenClose).toHaveBeenCalledOnce()
+    expect(mocks.unlistenDrop).toHaveBeenCalledOnce()
+    expect(press('o', { ctrlKey: true }).defaultPrevented).toBe(false)
+  })
+
+  it('retains the close guard after an unrelated registration fails without claiming full readiness', async () => {
+    let finishClose!: () => void
+    mocks.registrationWaits.set('close', new Promise(resolve => { finishClose = resolve }))
+    // Reject only when the native registration consumes the promise.
+    const failed = Promise.resolve().then(() => { throw new Error('Drop listener unavailable') })
+    void failed.catch(() => undefined)
+    mocks.registrationWaits.set('drop', failed)
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } })
+    try {
+      await flushPromises()
+      expect(wrapper.get('[role="dialog"]').text()).toContain('Drop listener unavailable')
+      expect(mocks.backend.frontendReady).not.toHaveBeenCalled()
+      finishClose(); await flushPromises()
+      expect(mocks.unlistenClose).not.toHaveBeenCalled()
+      expect(mocks.busHandlers.size).toBe(5)
+      await wrapper.get('[aria-label="Close dialog"]').trigger('click'); await flushPromises()
+      mocks.open.mockResolvedValue('C:/dirty.bin')
+      mocks.backend.openFile.mockResolvedValue({ ...file, dirty: true })
+      mocks.backend.getDirtyState.mockResolvedValue({ dirty: true, revision: '2' })
+      press('o', { ctrlKey: true }); await flushPromises()
+      expect(mocks.backend.openFile).toHaveBeenCalledOnce()
+      const event = { preventDefault: vi.fn() }
+      const closing = mocks.closeHandler?.(event); await flushPromises()
+      expect(wrapper.find('[data-action="binary-cancel"]').exists()).toBe(true)
+      await wrapper.get('[data-action="binary-cancel"]').trigger('click'); await closing
+      expect(event.preventDefault).toHaveBeenCalledOnce()
+    } finally { finishClose(); wrapper.unmount(); await flushPromises() }
+    expect(mocks.unlistenClose).toHaveBeenCalledOnce()
+    expect(mocks.busHandlers.size).toBe(0)
+  })
+
+  it('blocks file opening until native close protection is installed, including a failed registration', async () => {
+    let rejectClose!: (error: Error) => void
+    const waiting = new Promise<void>((_resolve, reject) => { rejectClose = reject })
+    void waiting.catch(() => {})
+    mocks.registrationWaits.set('close', waiting)
+    mocks.open.mockResolvedValue('C:/unprotected.bin')
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } })
+    await flushPromises()
+    expect(wrapper.get('[data-action="empty-open"]').attributes('disabled')).toBeDefined()
+    press('o', { ctrlKey: true }); mocks.dropHandler?.({ payload: { paths: ['C:/unprotected.bin'] } })
+    await flushPromises()
+    expect(mocks.backend.openFile).not.toHaveBeenCalled()
+    rejectClose(new Error('Close protection unavailable')); await flushPromises()
+    await wrapper.get('[aria-label="Close dialog"]').trigger('click'); await flushPromises()
+    press('o', { ctrlKey: true }); mocks.dropHandler?.({ payload: { paths: ['C:/unprotected.bin'] } })
+    await flushPromises()
+    expect(mocks.backend.openFile).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-action="empty-open"]').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
   it('routes View minimap controls through the existing command path without adding shortcuts', async () => {
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     const shell = wrapper.findComponent(AppShell)
     expect(shell.props('minimapSettings')).toMatchObject({ enabled: true, mode: 'fit', renderCharacters: true, scale: 1 })
     shell.vm.$emit('command', 'minimap-proportional'); await flushPromises()
@@ -227,7 +400,7 @@ describe('App desktop orchestration', () => {
   })
 
   it('surfaces minimap sampling errors through the existing friendly dialog', async () => {
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     wrapper.findComponent(AppShell).vm.$emit('minimap-error', { code: 'source_changed', message: 'The source file changed externally.' })
     await flushPromises()
     expect(wrapper.get('[role="dialog"]').text()).toContain('The source file changed externally.')
@@ -235,7 +408,7 @@ describe('App desktop orchestration', () => {
   })
 
   it('opens or focuses the one Template Editor window from its retained shortcut', async () => {
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('t', { ctrlKey: true, shiftKey: true }); await flushPromises()
     expect(mocks.windowOpen).toHaveBeenCalledTimes(1)
     press('t', { ctrlKey: true, shiftKey: true }); await flushPromises()
@@ -247,7 +420,7 @@ describe('App desktop orchestration', () => {
   it('marks template edits as modified and clears the marker after Save As succeeds', async () => {
     mocks.save.mockResolvedValue('C:/header.json')
     mocks.backend.saveTemplateAs.mockResolvedValue(undefined)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     expect(wrapper.findComponent(AppShell).props('template')!.fields).toHaveLength(1)
     expect(wrapper.findComponent(AppShell).props('menuState')!.templateActive).toBe(true)
@@ -265,7 +438,7 @@ describe('App desktop orchestration', () => {
 
   it('keeps an Untitled draft unsaved when Save As is cancelled', async () => {
     mocks.save.mockResolvedValue(null)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     await templateMenuSave(wrapper, 'save-template-as')
     expect(mocks.backend.saveTemplateAs).not.toHaveBeenCalled()
@@ -282,7 +455,7 @@ describe('App desktop orchestration', () => {
     mocks.backend.saveTemplateAs.mockRejectedValueOnce({ code: 'destination_exists', message: 'The destination already exists.' })
       .mockRejectedValueOnce({ code: 'destination_exists', message: 'The destination already exists.' }).mockResolvedValue(undefined)
     mocks.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     await templateMenuSave(wrapper, 'save-template-as')
     expect(mocks.confirm).toHaveBeenCalledWith('File already exists. Overwrite?', expect.any(Object))
@@ -301,7 +474,7 @@ describe('App desktop orchestration', () => {
     mocks.backend.saveTemplate.mockRejectedValueOnce({ code: 'external_modification', message: 'Changed.' })
       .mockRejectedValueOnce({ code: 'external_modification', message: 'Changed.' }).mockResolvedValue(undefined)
     mocks.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true, altKey: true }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     await templateMenuSave(wrapper, 'save-template')
@@ -316,7 +489,7 @@ describe('App desktop orchestration', () => {
 
   it('tells the Template Editor a cancelled Save As did not complete', async () => {
     mocks.save.mockResolvedValue(null)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     await sendEditorAction('save-as')
     const reply = mocks.busSent.mock.calls.filter(([event]) => event === 'hexforge:template:reply').at(-1)?.[1]
@@ -330,7 +503,7 @@ describe('App desktop orchestration', () => {
     mocks.backend.loadTemplate.mockResolvedValue({ name: 'Header', defaultEndianness: 'little', fields: [] })
     let completeSave!: () => void
     mocks.backend.saveTemplate.mockImplementation(() => new Promise<void>((resolve) => { completeSave = resolve }))
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true, altKey: true }); await flushPromises()
     await sendEditorDraft({ ...wrapper.findComponent(AppShell).props('template')!, name: 'Saved draft' }, true)
     const saving = sendEditorAction('save')
@@ -350,7 +523,7 @@ describe('App desktop orchestration', () => {
 
   it('restores the pre-editor template on Don\'t Save and retains its earlier modified state', async () => {
     mocks.confirm.mockResolvedValue(false)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     await mocks.busHandlers.get('hexforge:template:closed')?.({ sessionId: 'test-editor' })
     const before = wrapper.findComponent(AppShell).props('template')!
@@ -367,7 +540,7 @@ describe('App desktop orchestration', () => {
 
   it('keeps a dirty template when unload is cancelled and clears it after confirmation', async () => {
     mocks.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     expect(wrapper.findComponent(AppShell).props('template')!.fields).toHaveLength(1)
     press('u', { ctrlKey: true, altKey: true }); await flushPromises()
@@ -384,7 +557,7 @@ describe('App desktop orchestration', () => {
       { name: 'magic', placement: { mode: 'absolute', offset: '0' }, type: 'u8', comment: '' },
     ] })
     mocks.backend.applyTemplate.mockResolvedValue([leafResult('magic')])
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('o', { ctrlKey: true, altKey: true }); await flushPromises()
     press('Enter', { ctrlKey: true }); await flushPromises()
@@ -403,7 +576,7 @@ describe('App desktop orchestration', () => {
     mocks.backend.loadTemplate.mockResolvedValue({ name: 'Internal title', defaultEndianness: 'big', fields: [
       { name: 'magic', placement: { mode: 'absolute', offset: '0' }, type: 'u8', comment: '' },
     ] })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     expect(wrapper.get('[data-testid="results-empty"] p').text()).toBe('No template loaded.')
     expect(wrapper.findAll('.results-content button')).toHaveLength(0)
     press('o', { ctrlKey: true, altKey: true }); await flushPromises()
@@ -424,7 +597,7 @@ describe('App desktop orchestration', () => {
       { name: 'magic', placement: { mode: 'absolute', offset: '0' }, type: 'u8', comment: '' },
     ] })
     mocks.backend.applyTemplate.mockResolvedValue([leafResult('magic')])
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     expect(wrapper.get('[data-testid="results-empty"] p').text()).toBe('No template loaded. Load or create template from Template menu.')
     expect(wrapper.findAll('.results-content button')).toHaveLength(0)
@@ -448,7 +621,7 @@ describe('App desktop orchestration', () => {
   it('applies an unsaved editor draft without saving it to JSON', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
     mocks.backend.applyTemplate.mockResolvedValue([leafResult('magic')])
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     await sendEditorDraft({ name: 'My draft', defaultEndianness: 'little', fields: [
       { name: 'magic', placement: { mode: 'absolute', offset: '0' }, type: 'u8', comment: '' },
@@ -466,7 +639,7 @@ describe('App desktop orchestration', () => {
   it('brings the main window forward for a template picker requested by the editor', async () => {
     mocks.open.mockResolvedValue('C:/header.json')
     mocks.backend.loadTemplate.mockResolvedValue({ name: 'Loaded', defaultEndianness: 'little', fields: [] })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     await sendEditorDraft({ name: 'Untitled', defaultEndianness: 'little', fields: [] }, true)
     await mocks.busHandlers.get('hexforge:template:action')?.({ requestId: 1, command: 'load', draft: mocks.lastDraft })
     await flushPromises()
@@ -480,7 +653,7 @@ describe('App desktop orchestration', () => {
     mocks.open.mockResolvedValue('C:/old.json')
     mocks.confirm.mockResolvedValue(true)
     mocks.backend.loadTemplate.mockRejectedValue({ code: 'invalid_template', message: 'The template JSON is invalid: unknown field `version`.' })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     press('o', { ctrlKey: true, altKey: true }); await flushPromises()
     expect(wrapper.findComponent(AppShell).props('template')!.fields).toHaveLength(1)
@@ -493,7 +666,7 @@ describe('App desktop orchestration', () => {
     mocks.save.mockResolvedValue('C:/header.json')
     mocks.backend.saveTemplateAs.mockRejectedValue({ code: 'disk_full', message: 'Not enough disk space to save this template.' })
     mocks.confirm.mockResolvedValue(false)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     await templateMenuSave(wrapper, 'save-template-as')
     expect(wrapper.get('[role="dialog"]').text()).toContain('Not enough disk space')
@@ -507,7 +680,7 @@ describe('App desktop orchestration', () => {
   })
 
   it('blocks the main-window X when the editor cannot synchronize its draft', async () => {
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     await sendEditorDraft({ name: 'Draft', defaultEndianness: 'little', fields: [] }, true)
     mocks.failFlush = true
     const event = { preventDefault: vi.fn() }
@@ -519,7 +692,7 @@ describe('App desktop orchestration', () => {
 
   it('shows a friendly error when the separate editor window cannot open', async () => {
     mocks.windowOpen.mockRejectedValue(new Error('Template Editor could not be opened.'))
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('t', { ctrlKey: true, shiftKey: true }); await flushPromises()
     expect(wrapper.get('[role="dialog"]').text()).toContain('Template Editor could not be opened.')
     wrapper.unmount()
@@ -527,7 +700,7 @@ describe('App desktop orchestration', () => {
 
   it('opens any selected binary path and renders the returned session', async () => {
     mocks.open.mockResolvedValue('C:/firmware.custom')
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } })
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } })
     await flushPromises(); press('o', { ctrlKey: true }); await flushPromises()
     expect(mocks.backend.openFile).toHaveBeenCalledWith('C:/firmware.custom', false)
     expect(wrapper.text()).toContain('firmware.bin')
@@ -535,7 +708,7 @@ describe('App desktop orchestration', () => {
   })
 
   it('routes exactly one dropped path through open and unregisters native listeners', async () => {
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     mocks.dropHandler?.({ payload: { type: 'drop', paths: ['C:/drop.rom'] } }); await flushPromises()
     expect(mocks.backend.openFile).toHaveBeenCalledWith('C:/drop.rom', false)
     mocks.dropHandler?.({ payload: { type: 'drop', paths: ['a.bin', 'b.bin'] } }); await flushPromises()
@@ -545,7 +718,7 @@ describe('App desktop orchestration', () => {
 
   it('treats native dialog cancellation as a silent no-op', async () => {
     mocks.open.mockResolvedValue(null)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     expect(mocks.backend.openFile).not.toHaveBeenCalled(); expect(mocks.message).not.toHaveBeenCalled()
     wrapper.unmount()
@@ -553,7 +726,7 @@ describe('App desktop orchestration', () => {
 
   it('presents rejected native open dialogs without an unhandled action failure', async () => {
     mocks.open.mockRejectedValue(new Error('Native open failed.'))
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     expect(wrapper.get('[role="dialog"]').text()).toContain('Native open failed.')
     wrapper.unmount()
@@ -561,7 +734,7 @@ describe('App desktop orchestration', () => {
 
   it('presents rejected native save dialogs without an unhandled action failure', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin'); mocks.save.mockRejectedValue(new Error('Native save failed.'))
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('s', { ctrlKey: true, shiftKey: true }); await flushPromises()
     expect(wrapper.get('[role="dialog"]').text()).toContain('Native save failed.')
@@ -569,7 +742,7 @@ describe('App desktop orchestration', () => {
   })
 
   it('leaves the original close request unblocked for a clean session', async () => {
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     const event = { preventDefault: vi.fn() }
     if (mocks.closeHandler) await mocks.closeHandler(event)
     expect(event.preventDefault).not.toHaveBeenCalled()
@@ -577,7 +750,7 @@ describe('App desktop orchestration', () => {
   })
 
   it('shuts down the Template Editor before allowing a clean main-window close', async () => {
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     await sendEditorDraft(wrapper.findComponent(AppShell).props('template')!, true)
     let finishEditorClose!: () => void
     mocks.windowDestroyEditor.mockImplementation(() => new Promise<void>((resolve) => { finishEditorClose = resolve }))
@@ -596,7 +769,7 @@ describe('App desktop orchestration', () => {
 
   it('warns before exit when only a template draft is unsaved', async () => {
     mocks.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     const cancelled = { preventDefault: vi.fn() }
     await mocks.closeHandler?.(cancelled)
@@ -612,7 +785,7 @@ describe('App desktop orchestration', () => {
 
   it('warns before main-window exit when a rejected editor input leaves the valid JSON unchanged', async () => {
     mocks.confirm.mockResolvedValue(false)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     await sendEditorDraft(wrapper.findComponent(AppShell).props('template')!, false)
     const event = { preventDefault: vi.fn() }
     await mocks.closeHandler?.(event)
@@ -626,7 +799,7 @@ describe('App desktop orchestration', () => {
     mocks.open.mockResolvedValue('C:/dirty.bin')
     mocks.backend.openFile.mockResolvedValue({ ...file, dirty: true })
     mocks.backend.getDirtyState.mockResolvedValue({ dirty: true, revision: '1' })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     const event = { preventDefault: vi.fn() }
     const cancelled = mocks.closeHandler?.(event); await flushPromises()
@@ -641,7 +814,7 @@ describe('App desktop orchestration', () => {
   })
 
   it('presents confirm and message failures from void native listener paths', async () => {
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     mocks.confirm.mockRejectedValueOnce(new Error('Confirm failed.'))
     if (mocks.closeHandler) await mocks.closeHandler({ preventDefault: vi.fn() }); await flushPromises()
@@ -660,7 +833,7 @@ describe('App desktop orchestration', () => {
     mocks.backend.editByte.mockReturnValue(edit)
     mocks.backend.getDirtyState.mockResolvedValue({ dirty: true, revision: '2' })
     mocks.confirm.mockResolvedValue(false)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     wrapper.findComponent(AppShell).vm.$emit('select', { start: 0n, end: 0n, count: 1n })
     wrapper.findComponent(AppShell).vm.$emit('edit-request', 0n); await flushPromises()
@@ -681,7 +854,7 @@ describe('App desktop orchestration', () => {
     const edit = new Promise<{ dirty: boolean; revision: string }>((resolve) => { finishEdit = resolve })
     mocks.open.mockResolvedValue('C:/firmware.bin'); mocks.backend.editByte.mockReturnValue(edit)
     mocks.backend.getDirtyState.mockResolvedValue({ dirty: false, revision: '1' })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     wrapper.findComponent(AppShell).vm.$emit('select', { start: 0n, end: 0n, count: 1n })
     wrapper.findComponent(AppShell).vm.$emit('edit-request', 0n); await flushPromises()
@@ -697,7 +870,7 @@ describe('App desktop orchestration', () => {
   it('keeps close prevented and shows a friendly error when authoritative state fails', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
     mocks.backend.getDirtyState.mockRejectedValue({ code: 'operation_failed', message: 'Could not check unsaved changes.' })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     const event = { preventDefault: vi.fn() }
     await mocks.closeHandler?.(event); await flushPromises()
@@ -708,7 +881,7 @@ describe('App desktop orchestration', () => {
 
   it('gates menu template Save without a file path and top Apply while a draft is invalid', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     await sendEditorDraft(wrapper.findComponent(AppShell).props('template')!, false)
@@ -722,7 +895,7 @@ describe('App desktop orchestration', () => {
 
   it('re-enables menu template Save and Apply after removing the invalid field', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin'); mocks.save.mockResolvedValue('C:/template.json'); mocks.backend.saveTemplateAs.mockResolvedValue(undefined); mocks.backend.saveTemplate.mockResolvedValue(undefined)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     await sendEditorDraft(wrapper.findComponent(AppShell).props('template')!, false)
@@ -747,7 +920,7 @@ describe('App desktop orchestration', () => {
 
   it('wires template navigation to both selection and the cyan Canvas range', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     wrapper.findComponent(AppShell).vm.$emit('navigate', { start: 4n, end: 7n }); await flushPromises()
     const shell = wrapper.findComponent(AppShell)
@@ -759,7 +932,7 @@ describe('App desktop orchestration', () => {
   it.each(['Escape', 'ordinary bytes'] as const)('removes the active parsed marker when selecting %s', async (action) => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
     mocks.backend.applyTemplate.mockResolvedValue([leafResult('field1')])
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     press('Enter', { ctrlKey: true }); await flushPromises()
@@ -785,7 +958,7 @@ describe('App desktop orchestration', () => {
   it('shows when parsed results need applying again after a template edit', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
     mocks.backend.applyTemplate.mockResolvedValue([leafResult('magic')])
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     press('Enter', { ctrlKey: true }); await flushPromises()
@@ -802,7 +975,7 @@ describe('App desktop orchestration', () => {
     mocks.backend.readPage.mockResolvedValue({ offset: '0', bytes: [0x42], modifiedOffsets: ['0'], revision: '2' })
     mocks.backend.getDirtyState.mockResolvedValue({ dirty: true, revision: '2' })
     mocks.backend.searchBytes.mockResolvedValue({ matches: ['16'], truncated: false })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     const shell = wrapper.findComponent(AppShell)
     shell.vm.$emit('navigate', { start: 4n, end: 7n }); await flushPromises()
@@ -829,7 +1002,7 @@ describe('App desktop orchestration', () => {
 
   it('preserves the template marker during scrolling, invalid Go To, and a search without matches', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     const shell = wrapper.findComponent(AppShell)
     shell.vm.$emit('navigate', { start: 4n, end: 7n }); await flushPromises()
@@ -847,7 +1020,7 @@ describe('App desktop orchestration', () => {
 
   it('clears a field highlight and its selection when the template draft changes', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     wrapper.findComponent(AppShell).vm.$emit('navigate', { start: 4n, end: 7n }); await flushPromises()
@@ -862,7 +1035,7 @@ describe('App desktop orchestration', () => {
   it('clears the prior field highlight after a replacement template loads', async () => {
     mocks.open.mockResolvedValueOnce('C:/firmware.bin').mockResolvedValueOnce('C:/new.json')
     mocks.backend.loadTemplate.mockResolvedValue({ name: 'New', defaultEndianness: 'little', fields: [] })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     wrapper.findComponent(AppShell).vm.$emit('navigate', { start: 4n, end: 7n }); await flushPromises()
     press('o', { ctrlKey: true, altKey: true }); await flushPromises()
@@ -873,7 +1046,7 @@ describe('App desktop orchestration', () => {
 
   it('keeps exact decimal field offsets when applying the template through the backend boundary', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     const template = wrapper.findComponent(AppShell).props('template')!
@@ -892,7 +1065,7 @@ describe('App desktop orchestration', () => {
       progress({ operationId: '1', phase: 'parse', processed: '128', total: '0' })
       return new Promise(resolve => { resolveParse = resolve })
     })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     press('Enter', { ctrlKey: true }); await flushPromises()
@@ -906,7 +1079,7 @@ describe('App desktop orchestration', () => {
     let resolveSearch!: (value: { matches: string[]; truncated: boolean }) => void
     mocks.open.mockResolvedValue('C:/firmware.bin')
     mocks.backend.searchBytes.mockImplementation(() => new Promise((resolve) => { resolveSearch = resolve }))
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('f', { ctrlKey: true }); await flushPromises()
     await wrapper.get('[data-testid="search-input"]').setValue('41 42')
@@ -924,7 +1097,7 @@ describe('App desktop orchestration', () => {
   it('keeps canvas selection available beside a non-modal search bar and clears search independently', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
     mocks.backend.searchBytes.mockResolvedValue({ matches: ['8'], truncated: false })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('f', { ctrlKey: true }); await flushPromises()
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
@@ -952,7 +1125,7 @@ describe('App desktop orchestration', () => {
   it('steps through full matches with buttons, Enter and F3 without rescanning unchanged bytes', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
     mocks.backend.searchBytes.mockResolvedValue({ matches: ['4', '8', '16'], truncated: false })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('f', { ctrlKey: true }); await flushPromises()
     await wrapper.get('[data-testid="search-input"]').setValue('41 42')
@@ -979,7 +1152,7 @@ describe('App desktop orchestration', () => {
   it('disables match navigation for a changed query and resets it after clearing', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
     mocks.backend.searchBytes.mockResolvedValue({ matches: ['4', '8'], truncated: true })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises(); press('f', { ctrlKey: true }); await flushPromises()
     await wrapper.get('[data-testid="search-input"]').setValue('aa bb')
     await wrapper.get('[data-testid="search-bar"]').trigger('submit'); await flushPromises()
@@ -1004,7 +1177,7 @@ describe('App desktop orchestration', () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
     let finishSearch!: (value: { matches: string[]; truncated: boolean }) => void
     mocks.backend.searchBytes.mockImplementation(() => new Promise(resolve => { finishSearch = resolve }))
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises(); press('f', { ctrlKey: true }); await flushPromises()
     await wrapper.get('[data-testid="search-input"]').setValue('41 42')
     await wrapper.get('[data-testid="search-bar"]').trigger('submit'); await flushPromises()
@@ -1019,7 +1192,7 @@ describe('App desktop orchestration', () => {
 
   it('refocuses an open search bar without discarding an unfinished hex pattern', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
-    const wrapper = mount(App, { attachTo: document.body, global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { attachTo: document.body, global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('f', { ctrlKey: true }); await flushPromises()
     await wrapper.get('[data-testid="search-input"]').setValue('41 42')
@@ -1031,7 +1204,7 @@ describe('App desktop orchestration', () => {
 
   it('opens Go To as a focused non-modal bar and navigates on submit', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
-    const wrapper = mount(App, { attachTo: document.body, global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { attachTo: document.body, global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('g', { ctrlKey: true }); await flushPromises()
 
@@ -1048,7 +1221,7 @@ describe('App desktop orchestration', () => {
 
   it('keeps invalid Go To input in the bar with an inline error', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('g', { ctrlKey: true }); await flushPromises()
     await wrapper.get('[data-testid="goto-input"]').setValue('0xZZ')
@@ -1063,7 +1236,7 @@ describe('App desktop orchestration', () => {
 
   it('switches between Search and Go To without stacking floating bars', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('f', { ctrlKey: true }); await flushPromises()
     expect(wrapper.find('[data-testid="search-bar"]').exists()).toBe(true)
@@ -1085,7 +1258,7 @@ describe('App desktop orchestration', () => {
       file: { name: 'copy.bin', path: 'C:/copy.bin', size: '32', revision: '0', dirty: false } })
     mocks.backend.applyTemplate.mockResolvedValue([leafResult('x')])
     mocks.backend.exportResultsCsv.mockResolvedValue(undefined); mocks.backend.closeFile.mockResolvedValue(undefined)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     await sendDraftWithField(wrapper.findComponent(AppShell).props('template')!)
     press('Enter', { ctrlKey: true }); await flushPromises()
@@ -1103,7 +1276,7 @@ describe('App desktop orchestration', () => {
 
   it('confirms before Close File discards in-memory edits', async () => {
     mocks.open.mockResolvedValue('C:/dirty.bin'); mocks.backend.openFile.mockResolvedValue({ ...file, dirty: true }); mocks.backend.closeFile.mockResolvedValue(undefined)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('w', { ctrlKey: true }); await flushPromises()
     expect(mocks.backend.closeFile).not.toHaveBeenCalled()
@@ -1121,7 +1294,7 @@ describe('App desktop orchestration', () => {
     mocks.save.mockResolvedValue('C:/saved-copy.bin')
     let completeSave!: (value: unknown) => void
     mocks.backend.saveAs.mockImplementation(() => new Promise(resolve => { completeSave = resolve }))
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises(); press('o', { ctrlKey: true }); await flushPromises()
     expect(wrapper.find('[data-action="binary-save-continue"]').exists()).toBe(true)
     await wrapper.get('[data-action="binary-save-continue"]').trigger('click'); await flushPromises()
@@ -1143,7 +1316,7 @@ describe('App desktop orchestration', () => {
     mocks.backend.openFile.mockResolvedValue(original)
     mocks.save.mockResolvedValue(outcome === 'cancelled picker' ? null : 'C:/copy.bin')
     mocks.backend.saveAs.mockRejectedValue({ code: 'permission_denied', message: 'Copy could not be saved.' })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     const shell = wrapper.findComponent(AppShell)
     shell.vm.$emit('request-page', { offset: 0n, length: 32, generation: 1 }); await flushPromises()
@@ -1166,7 +1339,7 @@ describe('App desktop orchestration', () => {
     mocks.save.mockResolvedValue('C:/copy.bin'); mocks.backend.closeFile.mockResolvedValue(undefined)
     mocks.backend.saveAs.mockResolvedValue({ dirty: false, revision: '0', bytesWritten: '32', destination: 'C:/copy.bin',
       file: { ...file, name: 'copy.bin', path: 'C:/copy.bin', revision: '0' } })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises(); press('w', { ctrlKey: true }); await flushPromises()
     expect(wrapper.find('[data-action="binary-save-continue"]').exists()).toBe(true)
     await wrapper.get('[data-action="binary-save-continue"]').trigger('click'); await flushPromises()
@@ -1182,7 +1355,7 @@ describe('App desktop orchestration', () => {
     mocks.save.mockResolvedValue('C:/copy.bin')
     let completeSave!: (value: unknown) => void
     mocks.backend.saveAs.mockImplementation(() => new Promise(resolve => { completeSave = resolve }))
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     const event = { preventDefault: vi.fn() }; let finished = false
     const closing = mocks.closeHandler?.(event).then(() => { finished = true }); await flushPromises()
@@ -1205,7 +1378,7 @@ describe('App desktop orchestration', () => {
     else mocks.save.mockResolvedValue(outcome === 'cancelled picker' ? null : 'C:/copy.bin')
     mocks.backend.saveAs.mockRejectedValue({ code: 'destination_exists', message: 'The copy already exists.' })
     mocks.backend.editByte.mockResolvedValue({ dirty: true, revision: '2' })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     const event = { preventDefault: vi.fn() }; const closing = mocks.closeHandler?.(event); await flushPromises()
     expect(wrapper.find('[data-action="binary-save-continue"]').exists()).toBe(true)
@@ -1224,7 +1397,7 @@ describe('App desktop orchestration', () => {
 
   it('routes Edit shortcuts through edit mode, F2 and the undo stack', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin'); mocks.backend.editByte.mockResolvedValue({ dirty: true, revision: '2' })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     wrapper.findComponent(AppShell).vm.$emit('select', { start: 0n, end: 0n, count: 1n }); await flushPromises()
     press('e', { ctrlKey: true, altKey: true }); await flushPromises()
@@ -1242,7 +1415,7 @@ describe('App desktop orchestration', () => {
     mocks.open.mockResolvedValue('C:/firmware.bin')
     mocks.backend.editByte.mockResolvedValue({ dirty: true, revision: '2' })
     mocks.backend.getModifiedOverview.mockResolvedValue({ binCount: 1024, bins: [512] })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     wrapper.findComponent(AppShell).vm.$emit('select', { start: 0n, end: 0n, count: 1n }); await flushPromises()
     wrapper.findComponent(AppShell).vm.$emit('edit-request', 0n); await flushPromises()
@@ -1255,7 +1428,7 @@ describe('App desktop orchestration', () => {
 
   it('routes Navigate shortcuts to the non-modal Go To and byte-search bars', async () => {
     mocks.open.mockResolvedValue('C:/firmware.bin'); mocks.backend.searchBytes.mockResolvedValue({ matches: ['8'], truncated: false })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('g', { ctrlKey: true }); await flushPromises()
     await wrapper.get('[data-testid="goto-input"]').setValue('0x4'); await wrapper.get('[data-testid="goto-bar"]').trigger('submit'); await flushPromises()
@@ -1270,7 +1443,7 @@ describe('App desktop orchestration', () => {
     mocks.open.mockResolvedValueOnce('C:/firmware.bin').mockResolvedValueOnce('C:/header.json')
     mocks.save.mockResolvedValue('C:/header-copy.json'); mocks.backend.saveTemplateAs.mockResolvedValue(undefined); mocks.backend.saveTemplate.mockResolvedValue(undefined)
     mocks.backend.loadTemplate.mockResolvedValue({ name: 'Loaded', defaultEndianness: 'big', fields: [] })
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('t', { ctrlKey: true, shiftKey: true }); await flushPromises()
     expect(mocks.windowOpen).toHaveBeenCalledOnce()
@@ -1307,7 +1480,7 @@ describe('App desktop orchestration', () => {
     mocks.backend.loadTemplate.mockResolvedValue(template)
     mocks.backend.applyTemplate.mockResolvedValue(tree)
     mocks.backend.exportResultsCsv.mockResolvedValue(undefined)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     press('o', { ctrlKey: true }); await flushPromises()
     press('o', { ctrlKey: true, altKey: true }); await flushPromises()
     expect(mocks.backend.applyTemplate).not.toHaveBeenCalled()
@@ -1323,7 +1496,7 @@ describe('App desktop orchestration', () => {
 
   it('synchronizes the system theme and manual toggle with the hex canvas and editor snapshots', async () => {
     const system = installSystemTheme(false)
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     mocks.open.mockResolvedValue('C:/firmware.bin')
     press('o', { ctrlKey: true }); await flushPromises()
     await mocks.busHandlers.get('hexforge:template:ready')?.({ sessionId: 'theme-editor' })
@@ -1355,7 +1528,7 @@ describe('App desktop orchestration', () => {
   })
 
   it('routes the simplified View shortcuts without binding direct themes or panel visibility', async () => {
-    const wrapper = mount(App, { global: { stubs: { HexCanvas: true } } }); await flushPromises()
+    const wrapper = mount(App, { global: { stubs: { HexCanvas: hexCanvasStub } } }); await flushPromises()
     expect(document.documentElement.dataset.theme).toBe('dark')
     press('t', { ctrlKey: true, altKey: true }); await flushPromises()
     expect(document.documentElement.dataset.theme).toBe('light')

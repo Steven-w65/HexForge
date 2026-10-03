@@ -21,6 +21,13 @@ describe('backend IPC contract', () => {
     expect(invoke).toHaveBeenCalledWith('frontend_ready', {})
   })
 
+  it('sends opt-in phase timings through the same readiness command', async () => {
+    const startupTimings = { phases: [{ name: 'main-mounted', atMs: 120 }] }
+    invoke.mockResolvedValue(undefined)
+    await backend.frontendReady(startupTimings)
+    expect(invoke).toHaveBeenCalledWith('frontend_ready', { startupTimings })
+  })
+
   it('serializes bigint offsets without losing precision', async () => {
     const page = { offset: '9007199254740993', bytes: [1], modifiedOffsets: [], revision: '1' }
     invoke.mockResolvedValue(page)

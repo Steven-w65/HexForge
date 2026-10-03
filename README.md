@@ -94,7 +94,7 @@ The [template-format guide](templates/README.md) explains the one supported JSON
 | Action | Shortcut |
 | --- | --- |
 | Open / close binary | `Ctrl+O` / `Ctrl+W` |
-| Save binary copy / Save binary As (main window) | `Ctrl+S` / `Ctrl+Shift+S` |
+| Save binary As (main window) | `Ctrl+Shift+S` |
 | Go to offset / search bytes | `Ctrl+G` / `Ctrl+F` |
 | Next / previous search match | `F3` / `Shift+F3` |
 | Toggle edit mode / edit selected byte / undo | `Ctrl+Alt+E` / `F2` / `Ctrl+Z` |
@@ -108,7 +108,7 @@ The [template-format guide](templates/README.md) explains the one supported JSON
 | Close a popup or clear selection | `Esc` |
 | Exit | `Alt+F4` |
 
-Save shortcuts follow the focused window: the main hex viewer saves **binary bytes**, while the separate Template Editor saves **template JSON**. Both binary Save shortcuts open the existing Save As picker; neither overwrites the open source binary. With no binary open, the main-window Save shortcuts are disabled rather than saving a background template. Template Save and Save As remain available in the main **Template** menu, without main-window keyboard shortcuts. The former binary `Ctrl+Alt+S` binding is no longer used.
+Save shortcuts follow the focused window: `Ctrl+Shift+S` in the main hex viewer saves **binary bytes** through the Save As picker without overwriting the open source binary. `Ctrl+S` in the main window does nothing and does not open a browser Save Page dialog. In the separate Template Editor, `Ctrl+S` saves **template JSON** in place and `Ctrl+Shift+S` opens Save As. With no binary open, main-window Save As is disabled rather than saving a background template. Template Save and Save As remain available in the main **Template** menu, without main-window keyboard shortcuts. The former binary `Ctrl+Alt+S` binding is no longer used.
 
 </details>
 
@@ -125,3 +125,26 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 On Windows with Microsoft Edge installed, `npm run test:canvas:real` also checks real Canvas rendering and Template Editor dialog styling. The [Windows build workflow](.github/workflows/build.yaml) runs the checks, builds a portable `.exe`, and verifies that its bundled interface starts without a development server.
+
+### Measure startup locally
+
+The main viewer and Template Editor load separate bundles. The hex canvas/minimap module prewarms after first contentful paint, or loads immediately if a file opens sooner. The bundled interface font is preloaded from HTML. Primary controls, shortcuts, drop handling, and close protection remain on the initial path; their independent listeners register concurrently. Workspace sizing uses ResizeObserver measurements without forcing layout during mount.
+
+Run this from the repository root in PowerShell after building:
+
+```powershell
+.\src-tauri\tests\verify_portable_startup.ps1 `
+  -ExecutablePath .\src-tauri\target\release\hexforge.exe -Measure
+```
+
+`-Measure` launches a visible window and verifies browser contentful paint after the real menu, file strip, Open File button, and status controls are rendered. On Windows, it anchors native timing to OS process creation and correlates the browser clock using five post-paint IPC samples. `FirstMeaningfulPaintMs` and `InteractiveMs` use this common timeline. `FrontendReadyMs` is still a coarse external acknowledgment observation, **not paint**.
+
+For opt-in diagnostics, add `-ProfileOutputPath .\src-tauri\target\startup-timings.json`; this explicitly replaces that report with native milestones, browser milestones, asset timings, and clock samples. Raw browser timestamps remain document-relative; never subtract them directly from native timestamps. Missing or invalid paint/calibration is an error, not a zero-millisecond result. Without `-Measure`, the hidden portable smoke probe verifies bundled startup/IPC only and makes no paint claim.
+
+For repeated warm and fresh-profile measurements, use a **new output directory**:
+
+```powershell
+node scripts/startup-benchmark.mjs --runs 20 --output-dir src-tauri/target/startup-local --label current
+```
+
+The probe temporarily sets child-process flags, restores them, and closes only the app it launched. Normal launches collect no phase timings and write no profiling files. Fresh profiles are **profile-cold, not reboot-cold**; normal WebView data is untouched. See [startup performance measurements](STARTUP_PERFORMANCE.md) for hardware, before/after median/p95 results, phase breakdown, and the cold-boot procedure. The measured <100 ms target was **not achieved**; native window/WebView initialization is the limiting phase.

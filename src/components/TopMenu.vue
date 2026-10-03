@@ -2,9 +2,10 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { BytesPerRow } from '../hex/layout'
 import { DEFAULT_MINIMAP_SETTINGS, type MinimapSettings } from '../hex/minimapGeometry'
-import { commandEnabled, commandUnavailableReason, type MenuCommand, type MenuState } from '../menu/commands'
+import { commandEnabled, commandUnavailableReason, menuShortcutLabel, type MenuCommand, type MenuState } from '../menu/commands'
 import type { NavigableParsedLeaf, ParsedResult } from '../types'
 import { flattenResultLeaves } from '../template/model'
+import { isModalOpen } from '../ui/modalFocus'
 
 type MenuId = 'file' | 'edit' | 'navigate' | 'template' | 'view'
 type SubmenuId = 'parsed-results' | 'minimap' | null
@@ -40,14 +41,6 @@ const labels: Record<VisibleMenuCommand, string> = {
   'minimap-characters': 'Characters', 'minimap-blocks': 'Color Blocks',
   'minimap-scale-1': 'Scale 1×', 'minimap-scale-2': 'Scale 2×', 'minimap-scale-3': 'Scale 3×',
 }
-const shortcutLabels: Partial<Record<VisibleMenuCommand, string>> = {
-  open: 'Ctrl+O', 'close-file': 'Ctrl+W', 'save-as': 'Ctrl+Shift+S', export: 'Ctrl+Shift+E', exit: 'Alt+F4',
-  'edit-selected': 'F2', 'toggle-edit': 'Ctrl+Alt+E', undo: 'Ctrl+Z', goto: 'Ctrl+G', search: 'Ctrl+F', 'search-next': 'F3', 'search-previous': 'Shift+F3',
-  'template-editor': 'Ctrl+Shift+T', 'apply-template': 'Ctrl+Enter', 'load-template': 'Ctrl+Alt+O', 'unload-template': 'Ctrl+Alt+U',
-  'theme-toggle': 'Ctrl+Alt+T',
-  'row-16': 'Ctrl+1', 'row-32': 'Ctrl+2',
-}
-
 const fileCommands: VisibleMenuCommand[] = ['open', 'close-file', 'save-as', 'export', 'exit']
 const editCommands: VisibleMenuCommand[] = ['edit-selected', 'toggle-edit', 'undo']
 const navigateCommands: VisibleMenuCommand[] = ['goto', 'search', 'search-next', 'search-previous']
@@ -134,11 +127,16 @@ function moveItemFocus(delta: number): void {
 }
 
 function onWindowKeydown(event: KeyboardEvent): void {
+  // A foreground dialog or IME owns its keys, including menu access keys.
+  if (event.isComposing || isModalOpen()) return
   if (event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey) {
     const menu = accessKeys[event.key.toLowerCase()]
     if (menu) { event.preventDefault(); anchorMenu(menu); openMenu.value = menu; openSubmenu.value = null; focusFirstItem(); return }
   }
   if (!openMenu.value) return
+  // Modified keys remain application shortcuts: Ctrl+Enter must apply the
+  // template, not also click whichever menu item happens to have focus.
+  if (event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return
   if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); closeMenus(); return }
   if (openMenu.value === 'navigate' && !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey) {
     const key = event.key.toLowerCase()
@@ -203,15 +201,15 @@ onBeforeUnmount(() => {
 
     <div v-if="openMenu" class="menu-popup" role="menu" :data-open-menu="openMenu" :style="{ left: `${popupLeft}px` }" @click.stop>
       <template v-if="openMenu === 'file'">
-        <MenuCommandItem v-for="command in fileCommands" :key="command" :command="command" :label="labels[command]" :shortcut="shortcutLabels[command]"
+        <MenuCommandItem v-for="command in fileCommands" :key="command" :command="command" :label="labels[command]" :shortcut="menuShortcutLabel(command)"
           :disabled="!commandEnabled(command, state)" :reason="commandUnavailableReason(command, state)" @invoke="invoke" />
       </template>
       <template v-else-if="openMenu === 'edit'">
-        <MenuCommandItem v-for="command in editCommands" :key="command" :command="command" :label="labels[command]" :shortcut="shortcutLabels[command]"
+        <MenuCommandItem v-for="command in editCommands" :key="command" :command="command" :label="labels[command]" :shortcut="menuShortcutLabel(command)"
           :disabled="!commandEnabled(command, state)" :reason="commandUnavailableReason(command, state)" :checked="checked(command)" @invoke="invoke" />
       </template>
       <template v-else-if="openMenu === 'navigate'">
-        <MenuCommandItem v-for="command in navigateCommands" :key="command" :command="command" :label="labels[command]" :shortcut="shortcutLabels[command]"
+        <MenuCommandItem v-for="command in navigateCommands" :key="command" :command="command" :label="labels[command]" :shortcut="menuShortcutLabel(command)"
           :disabled="!commandEnabled(command, state)" :reason="commandUnavailableReason(command, state)" @invoke="invoke" />
         <div class="separator" />
         <button type="button" role="menuitem" class="menu-item submenu-trigger" data-submenu="parsed-results"
@@ -226,11 +224,11 @@ onBeforeUnmount(() => {
         </div>
       </template>
       <template v-else-if="openMenu === 'template'">
-        <MenuCommandItem v-for="command in templateCommands" :key="command" :command="command" :label="labels[command]" :shortcut="shortcutLabels[command]"
+        <MenuCommandItem v-for="command in templateCommands" :key="command" :command="command" :label="labels[command]" :shortcut="menuShortcutLabel(command)"
           :disabled="!commandEnabled(command, state)" :reason="commandUnavailableReason(command, state)" @invoke="invoke" />
       </template>
       <template v-else>
-        <MenuCommandItem v-for="command in viewCommands" :key="command" :command="command" :label="labels[command]" :shortcut="shortcutLabels[command]"
+        <MenuCommandItem v-for="command in viewCommands" :key="command" :command="command" :label="labels[command]" :shortcut="menuShortcutLabel(command)"
           :disabled="!commandEnabled(command, state)" :checked="checked(command)" @invoke="invoke" />
         <div class="separator" />
         <button type="button" role="menuitem" class="menu-item submenu-trigger" data-submenu="minimap"

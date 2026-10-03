@@ -3,6 +3,7 @@ use crate::export;
 use crate::minimap::{MinimapSampleRowDto, MinimapSamplesResponse};
 use crate::search::{self, SearchResult};
 use crate::session::{FileInfo, FileSession, PageData, OVERVIEW_BIN_COUNT};
+use crate::startup::{StartupClock, StartupDiagnostics, StartupTimings};
 use crate::template::{self, ParsedNode, TemplateDefinition};
 use crate::template_file::TemplateFileSession;
 use serde::Serialize;
@@ -300,8 +301,29 @@ async fn session_operation<T: Send + 'static>(
     blocking(move || with_session_state(&shared, operation)).await
 }
 
-#[tauri::command]
-pub fn frontend_ready(window: tauri::WebviewWindow) -> Result<(), AppError> {
+#[tauri::command(rename_all = "camelCase")]
+pub fn startup_clock(diagnostics: State<'_, StartupDiagnostics>) -> Option<StartupClock> {
+    diagnostics.sample_clock()
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn frontend_ready(
+    window: tauri::WebviewWindow,
+    diagnostics: State<'_, StartupDiagnostics>,
+    startup_timings: Option<StartupTimings>,
+) -> Result<(), AppError> {
+    // A hidden/minimized window cannot qualify as visible meaningful paint.
+    if startup_timings
+        .as_ref()
+        .is_some_and(|timings| timings.main_interface_at_ms.is_some())
+        && (!window.is_visible().unwrap_or(false) || window.is_minimized().unwrap_or(true))
+    {
+        return Err(operation_failed());
+    }
+    // Profiling failure must never prevent the ordinary frontend from starting.
+    if let Err(error) = diagnostics.record(window.label(), startup_timings.as_ref()) {
+        eprintln!("Could not write startup timing report: {error}");
+    }
     if matches!(
         std::env::var("HEXFORGE_PORTABLE_SMOKE_TEST").as_deref(),
         Ok("1")

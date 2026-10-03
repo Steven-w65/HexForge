@@ -11,6 +11,14 @@ export interface HotkeyActions {
 
 export function useHotkeys(actions: HotkeyActions, target: Window = window): () => void {
   const listener = (event: KeyboardEvent): void => {
+    // Composition keys belong to the input method, not application commands.
+    if (event.isComposing) return
+    // Ctrl+S belongs to the separate Template Editor. Consume it here without
+    // dispatching a save so the WebView cannot open its Save Page dialog.
+    if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === 's') {
+      event.preventDefault()
+      return
+    }
     if (isModalOpen()) {
       if (matchMenuShortcut(event)) event.preventDefault()
       return // The top dialog owns Escape; never mutate the background selection/draft.
@@ -23,13 +31,10 @@ export function useHotkeys(actions: HotkeyActions, target: Window = window): () 
     }
     const command = matchMenuShortcut(event)
     if (!command) return
-    // Save keys belong to the binary in this window. Even without a file (or
-    // while busy), never let them fall through to the WebView's Save Page dialog.
-    if (!actions.isEnabled(command)) {
-      if (command === 'save-as') event.preventDefault()
-      return
-    }
+    // Reserved app shortcuts stay inert when disabled. Do not fall through to
+    // browser Open/Find/Save dialogs or Enter activation of a focused button.
     event.preventDefault()
+    if (!actions.isEnabled(command)) return
     actions.invoke(command)
   }
   target.addEventListener('keydown', listener)

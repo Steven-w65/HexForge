@@ -35,9 +35,8 @@ interface Shortcut {
 const shortcuts: Shortcut[] = [
   { command: 'open', key: 'o', ctrl: true },
   { command: 'close-file', key: 'w', ctrl: true },
-  // This map belongs to the main hex window. Both Save keys use its protected
-  // binary-copy workflow; the separate editor owns template Save / Save As.
-  { command: 'save-as', key: 's', ctrl: true },
+  // The main hex window only saves protected binary copies. Ctrl+S is owned
+  // by the separate Template Editor, not an alias for binary Save As.
   { command: 'save-as', key: 's', ctrl: true, shift: true },
   { command: 'export', key: 'e', ctrl: true, shift: true },
   { command: 'exit', key: 'f4', alt: true },
@@ -56,6 +55,18 @@ const shortcuts: Shortcut[] = [
   { command: 'row-16', key: '1', ctrl: true },
   { command: 'row-32', key: '2', ctrl: true },
 ]
+
+/** Menu hints and keyboard dispatch share one main-window binding table. */
+export function menuShortcutLabel(command: MenuCommand): string | undefined {
+  const shortcut = shortcuts.find(candidate => candidate.command === command)
+  if (!shortcut) return undefined
+  return [
+    ...(shortcut.ctrl ? ['Ctrl'] : []),
+    ...(shortcut.alt ? ['Alt'] : []),
+    ...(shortcut.shift ? ['Shift'] : []),
+    shortcut.key === 'enter' ? 'Enter' : shortcut.key.toUpperCase(),
+  ].join('+')
+}
 
 function isEditable(target: EventTarget | null): boolean {
   return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement ||

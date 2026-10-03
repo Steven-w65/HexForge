@@ -19,6 +19,84 @@ function snapshot(): Omit<TemplateSnapshot, 'revision' | 'ackSequence'> {
 }
 
 describe('local template-window bridge', () => {
+  it('starts every independent main listener before any registration resolves', async () => {
+    const underlying = bus()
+    const started: string[] = []
+    const finish: Array<() => void> = []
+    let released = false
+    const transport: LocalBus = {
+      ...underlying,
+      listen: (event, callback) => {
+        started.push(event)
+        if (released) return underlying.listen(event, callback)
+        return new Promise(resolve => { finish.push(() => { void underlying.listen(event, callback).then(resolve) }) })
+      },
+    }
+    const main = createMainBridge(transport, { snapshot, onDraft: vi.fn(), onAction: vi.fn() })
+    const starting = main.start()
+    try {
+      expect(started).toEqual([events.ready, events.draft, events.action, events.flushReply, events.closed])
+    } finally {
+      main.dispose()
+      released = true
+      finish.forEach(resolve => resolve())
+      await starting.catch(() => undefined)
+    }
+  })
+
+  it('shares pending startup and removes registrations that complete after disposal', async () => {
+    const underlying = bus()
+    const finish: Array<() => void> = []
+    let released = false
+    const transport: LocalBus = {
+      ...underlying,
+      listen: (event, callback) => released ? underlying.listen(event, callback) : new Promise(resolve => {
+        finish.push(() => { void underlying.listen(event, callback).then(resolve) })
+      }),
+    }
+    const onReady = vi.fn()
+    const main = createMainBridge(transport, { snapshot, onDraft: vi.fn(), onAction: vi.fn(), onReady })
+    const first = main.start()
+    const second = main.start()
+    let secondDone = false
+    void second.then(() => { secondDone = true }, () => undefined)
+    try {
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(secondDone).toBe(false)
+    } finally {
+      main.dispose()
+      released = true
+      finish.forEach(resolve => resolve())
+      await Promise.allSettled([first, second])
+    }
+    await transport.send('main', events.ready, { sessionId: 'closed-window' })
+    expect(main.isReady()).toBe(false)
+    expect(onReady).not.toHaveBeenCalled()
+  })
+
+  it('cleans successful and late listeners after another registration fails', async () => {
+    const underlying = bus()
+    let finish!: () => void
+    const transport: LocalBus = {
+      ...underlying,
+      listen: (event, callback) => event === events.action ? Promise.reject(new Error('IPC unavailable'))
+        : event === events.closed ? new Promise(resolve => { finish = () => { void underlying.listen(event, callback).then(resolve) } })
+          : underlying.listen(event, callback),
+    }
+    const onReady = vi.fn()
+    const onClosed = vi.fn()
+    const main = createMainBridge(transport, { snapshot, onDraft: vi.fn(), onAction: vi.fn(), onReady, onClosed })
+    await expect(main.start()).rejects.toThrow('IPC unavailable')
+    finish?.()
+    await Promise.resolve(); await Promise.resolve()
+    await transport.send('main', events.ready, { sessionId: 'late' })
+    await transport.send('main', events.closed, { sessionId: 'late' })
+    expect(onReady).not.toHaveBeenCalled()
+    expect(onClosed).not.toHaveBeenCalled()
+    main.dispose()
+  })
+
   it('publishes after ready and acknowledges the latest field edit', async () => {
     const transport = bus(); const accepted = vi.fn(); let state = snapshot()
     const main = createMainBridge(transport, { snapshot: () => state, onDraft: (draft) => { accepted(draft); state = { ...state, template: draft.template } }, onAction: vi.fn() })

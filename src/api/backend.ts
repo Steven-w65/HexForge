@@ -4,6 +4,7 @@ import type {
   SaveResponse, SearchResponse, TemplateDefinition, UndoResponse,
 } from '../types'
 import type { BytesPerRow } from '../hex/layout'
+import type { StartupTimings } from '../startup/timings'
 
 function normalizeError(error: unknown): AppError {
   if (typeof error === 'object' && error !== null &&
@@ -31,7 +32,8 @@ function withProgress<T>(command: string, args: Record<string, unknown>, onProgr
 }
 
 export const backend = {
-  frontendReady: () => call<void>('frontend_ready'),
+  startupClock: () => call<{ atMs: number } | null>('startup_clock'),
+  frontendReady: (startupTimings?: StartupTimings) => call<void>('frontend_ready', startupTimings ? { startupTimings } : {}),
   openFile: (path: string, discardUnsaved = false) => call<FileInfo>('open_file', { path, discardUnsaved }),
   closeFile: (discardUnsaved = false) => call<void>('close_file', { discardUnsaved }),
   getFileInfo: () => call<FileInfo>('get_file_info'),

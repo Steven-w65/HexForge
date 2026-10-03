@@ -1,4 +1,5 @@
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
+import { hexCanvasStub } from '../test/hexCanvasStub'
 import { nextTick } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import tauriConfig from '../../src-tauri/tauri.conf.json'
@@ -10,9 +11,52 @@ function leaf(name: string, offset: string, length: string, value: string, type:
 }
 
 describe('AppShell', () => {
-  afterEach(() => vi.restoreAllMocks())
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); localStorage.clear() })
+
+  it('uses observer measurements without forcing workspace layout during mount', async () => {
+    let callback!: ResizeObserverCallback
+    let observed!: Element
+    const disconnect = vi.fn()
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(handler: ResizeObserverCallback) { callback = handler }
+      observe(element: Element) { observed = element }
+      disconnect = disconnect
+    })
+    const measure = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: hexCanvasStub, ParsedResultsPanel: true } } })
+    expect(observed).toBe(wrapper.get('.workspace').element)
+    expect(measure).not.toHaveBeenCalled()
+    callback([{ target: observed, contentRect: { height: 300 } } as ResizeObserverEntry], {} as ResizeObserver)
+    await nextTick()
+    expect(wrapper.get('[data-testid="app-shell"]').attributes('style')).toContain('--results-pane-height: 136px')
+    expect(measure).not.toHaveBeenCalled()
+    wrapper.unmount()
+    expect(disconnect).toHaveBeenCalledOnce()
+  })
+
+  it('coalesces fallback layout measurements and cancels the pending frame on unmount', async () => {
+    vi.stubGlobal('ResizeObserver', undefined)
+    let measureFrame!: FrameRequestCallback
+    const request = vi.fn((callback: FrameRequestCallback) => { measureFrame = callback; return 27 })
+    const cancel = vi.fn()
+    vi.stubGlobal('requestAnimationFrame', request)
+    vi.stubGlobal('cancelAnimationFrame', cancel)
+    const measure = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ height: 350 } as DOMRect)
+    const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: hexCanvasStub, ParsedResultsPanel: true } } })
+    expect(measure).not.toHaveBeenCalled()
+    window.dispatchEvent(new Event('resize')); window.dispatchEvent(new Event('resize'))
+    expect(request).toHaveBeenCalledOnce()
+    measureFrame(0); await nextTick()
+    expect(measure).toHaveBeenCalledOnce()
+    expect(wrapper.get('[data-testid="app-shell"]').attributes('style')).toContain('--results-pane-height: 186px')
+    window.dispatchEvent(new Event('resize'))
+    wrapper.unmount()
+    expect(cancel).toHaveBeenCalledWith(27)
+    measureFrame(0)
+    expect(measure).toHaveBeenCalledOnce()
+  })
   it('opens from the centered no-file prompt through the shared command route', async () => {
-    const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: true } } })
+    const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: hexCanvasStub } } })
     expect(Array.from(wrapper.get('[data-testid="drop-prompt"]').element.children, child => child.textContent?.trim())).toEqual([
       '＋', 'Drop a binary file', 'Open File',
     ])
@@ -28,7 +72,7 @@ describe('AppShell', () => {
   })
 
   it('disables empty-state Open while busy and enables it again when the operation finishes', async () => {
-    const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: true } } })
+    const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: hexCanvasStub } } })
     const state = wrapper.props('menuState')!
     await wrapper.setProps({ menuState: { ...state, operationBusy: true } })
     const button = wrapper.get('[data-action="empty-open"]')
@@ -46,7 +90,7 @@ describe('AppShell', () => {
   it('does not cover an opened file with the drop prompt when search is closed', () => {
     const wrapper = mount(AppShell, {
       props: { file: { name: 'image.bin', path: 'C:/image.bin', size: '16', revision: '1', dirty: false } },
-      global: { stubs: { HexCanvas: true } },
+      global: { stubs: { HexCanvas: hexCanvasStub } },
     })
 
     expect(wrapper.find('[data-testid="drop-prompt"]').exists()).toBe(false)
@@ -55,13 +99,13 @@ describe('AppShell', () => {
   })
 
   it('keeps the menu row at its compact height', () => {
-    const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: true } } })
+    const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: hexCanvasStub } } })
     const style = wrapper.get('[data-testid="app-shell"]').attributes('style') ?? ''
     expect(style).toContain('--top-menu-height: 34px')
   })
 
   it('suppresses the browser context menu inside the main window', () => {
-    const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: true } } })
+    const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: hexCanvasStub } } })
     const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
     wrapper.get('[data-testid="file-info-bar"]').element.dispatchEvent(event)
     wrapper.unmount()
@@ -85,7 +129,7 @@ describe('AppShell', () => {
       templateSource: 'file', templateApplied: true,
       results: [{ ...leaf('size', '16', '4', '640', 'u32'), endianness: 'big' }],
       templateRange: { start: 16n, end: 19n, count: 4n },
-    }, global: { stubs: { HexCanvas: true } } })
+    }, global: { stubs: { HexCanvas: hexCanvasStub } } })
     expect(wrapper.get('[data-testid="parsed-result"]').classes()).toContain('active')
   })
 
@@ -123,7 +167,7 @@ describe('AppShell', () => {
   it('keeps file details above the hex and results workspace', async () => {
     const wrapper = mount(AppShell, { props: {
       file: { name: 'firmware.bin', path: 'C:/firmware.bin', size: '32', revision: '1', dirty: false },
-    }, global: { stubs: { HexCanvas: true } } })
+    }, global: { stubs: { HexCanvas: hexCanvasStub } } })
     await wrapper.get('[data-action="toggle-file-details"]').trigger('click')
     expect(wrapper.find('[data-testid="file-details"]').exists()).toBe(true)
     expect(wrapper.get('.workspace').find('[data-testid="template-editor-panel"]').exists()).toBe(false)
@@ -134,13 +178,13 @@ describe('AppShell', () => {
       file: { name: 'firmware.bin', path: 'C:/firmware.bin', size: '4096', revision: '1', dirty: false },
       page: { offset: '0', bytes: [0x41], modifiedOffsets: [], revision: '1', generation: 1 },
       selection: { start: 100n, end: 100n, count: 1n },
-    }, global: { stubs: { HexCanvas: true } } })
+    }, global: { stubs: { HexCanvas: hexCanvasStub } } })
     expect(wrapper.get('.status-bar').text()).toContain('Offset 0x64')
     expect(wrapper.get('.status-bar').text()).toContain('Byte —')
   })
 
   it('replaces the Open prompt with an empty-file message even for a zero-byte file', async () => {
-    const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: true } } })
+    const wrapper = mount(AppShell, { global: { stubs: { HexCanvas: hexCanvasStub } } })
     expect(wrapper.find('[data-action="empty-open"]').exists()).toBe(true)
     await wrapper.setProps({ file: { name: 'empty.bin', path: 'C:/empty.bin', size: '0', revision: '1', dirty: false } })
     expect(wrapper.find('[data-action="empty-open"]').exists()).toBe(false)
@@ -155,7 +199,7 @@ describe('AppShell', () => {
         results: [leaf('x', '4', '2', '123', 'u16')],
         menuState: { hasFile: true, hasBytes: true, singleByteSelected: false, editMode: false, canUndo: false, templateValid: true, templateActive: true, templateHasPath: true, templateHasFields: true, hasParsedResults: true, operationBusy: false },
       },
-      global: { stubs: { HexCanvas: true } },
+      global: { stubs: { HexCanvas: hexCanvasStub } },
     })
     await wrapper.get('[data-menu="template"]').trigger('click')
     await wrapper.get('[data-menu-command="load-template"]').trigger('click')
@@ -170,7 +214,7 @@ describe('AppShell', () => {
     const template = { name: 'T', defaultEndianness: 'little' as const, fields: [{ name: 'x', placement: { mode: 'absolute' as const, offset: '0' }, type: 'u8' as const, endianness: 'little' as const, comment: '' }] }
     const wrapper = mount(AppShell, { props: { file: { name: 'x', path: 'x', size: '1', revision: '1', dirty: false }, template,
       templateValid: false, menuState: { hasFile: true, hasBytes: true, singleByteSelected: false, editMode: false, canUndo: false, templateValid: false, templateActive: true, templateHasPath: true, templateHasFields: true, hasParsedResults: false, operationBusy: false },
-    }, global: { stubs: { HexCanvas: true } } })
+    }, global: { stubs: { HexCanvas: hexCanvasStub } } })
     await wrapper.get('[data-menu="template"]').trigger('click')
     expect(wrapper.get('[data-menu-command="apply-template"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-menu-command="save-template"]').attributes('disabled')).toBeDefined()
@@ -184,7 +228,7 @@ describe('AppShell', () => {
     const wrapper = mount(AppShell, { props: {
       file: { name: 'x.bin', path: 'C:/x.bin', size: '1', revision: '1', dirty: false }, template,
       menuState: { hasFile: true, hasBytes: true, singleByteSelected: false, editMode: false, canUndo: false, templateValid: true, templateActive: true, templateHasPath: true, templateHasFields: true, hasParsedResults: false, operationBusy: false },
-    }, global: { stubs: { HexCanvas: true } } })
+    }, global: { stubs: { HexCanvas: hexCanvasStub } } })
     expect(wrapper.find('[data-testid="template-modified"]').exists()).toBe(false)
     await wrapper.get('[data-menu="template"]').trigger('click')
     await wrapper.get('[data-menu-command="apply-template"]').trigger('click')
@@ -197,7 +241,7 @@ describe('AppShell', () => {
       file: { name: 'x.bin', path: 'C:/x.bin', size: '1', revision: '1', dirty: false }, template,
       templateSource: 'file', templateDisplayName: 'header.json', templateApplied: false,
       menuState: { hasFile: true, hasBytes: true, singleByteSelected: false, editMode: false, canUndo: false, templateValid: true, templateActive: true, templateHasPath: true, templateHasFields: true, hasParsedResults: false, operationBusy: false },
-    }, global: { stubs: { HexCanvas: true } } })
+    }, global: { stubs: { HexCanvas: hexCanvasStub } } })
     expect(wrapper.get('[data-testid="results-empty"] p').text()).toBe('Template: "header.json" loaded, pending apply.')
     await wrapper.get('[data-action="results-apply-template"]').trigger('click')
     expect(wrapper.emitted('command')).toEqual([['apply-template']])
@@ -209,7 +253,7 @@ describe('AppShell', () => {
   it('passes orchestration navigation targets into the Canvas viewport', () => {
     const wrapper = mount(AppShell, {
       props: { file: { name: 'firmware.bin', path: 'C:/firmware.bin', size: '4096', revision: '1', dirty: false }, sourceIdentity: 9, navigationOffset: 160n },
-      global: { stubs: { HexCanvas: true } },
+      global: { stubs: { HexCanvas: hexCanvasStub } },
     })
     expect(wrapper.findComponent({ name: 'HexCanvas' }).props('navigateOffset')).toBe(160n)
     expect(wrapper.findComponent({ name: 'HexCanvas' }).props('sourceKey')).toBe('C:/firmware.bin')
@@ -223,7 +267,7 @@ describe('AppShell', () => {
     const wrapper = mount(AppShell, {
       props: { file: { name: 'image.bin', path: 'C:/image.bin', size: '4096', revision: '2', dirty: true },
         results: [field, leaf('size', '36', '4', '640', 'u32')], modifiedOverview: overview, matches: [128n] },
-      global: { stubs: { HexCanvas: true } },
+      global: { stubs: { HexCanvas: hexCanvasStub } },
     })
 
     const canvas = wrapper.findComponent({ name: 'HexCanvas' })
@@ -246,7 +290,7 @@ describe('AppShell', () => {
     const wrapper = mount(AppShell, {
       props: { file: { name: 'large.bin', path: 'C:/large.bin', size: '9007199254741001', revision: '1', dirty: false }, results: [header],
         templateRange: { start: 9007199254740993n, end: 9007199254741000n, count: 8n } },
-      global: { stubs: { HexCanvas: true } },
+      global: { stubs: { HexCanvas: hexCanvasStub } },
     })
     expect(wrapper.findComponent({ name: 'HexCanvas' }).props('templateFields')).toEqual([
       { name: 'id', path: 'header.id', offset: '9007199254740993', length: 8, type: 'u64', value: '18446744073709551615' },
@@ -279,7 +323,8 @@ describe('AppShell', () => {
     const windowWidth = tauriConfig.app.windows[0]!.width
     expect(windowWidth).toBe(1280)
     const wrapper = mount(AppShell, { props: { file: { name: 'firmware.bin', path: 'C:/firmware.bin', size: '4096', revision: '1', dirty: false }, bytesPerRow: 16 } })
-    await nextTick(); await nextTick()
+    await flushPromises(); await nextTick()
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="hex-canvas"]').exists()).toBe(true))
     // ResizeObserver now observes the dedicated editor column, excluding the
     // 84px minimap and 12px overview ruler siblings.
     const editorWidth = windowWidth - 96
@@ -302,7 +347,7 @@ describe('AppShell', () => {
     const wrapper = mount(AppShell, { props: {
       file: { name: 'firmware.bin', path: 'C:/firmware.bin', size: '4096', revision: '2', dirty: true },
       minimapSettings: settings, editDelta: delta,
-    }, global: { stubs: { HexCanvas: true } } })
+    }, global: { stubs: { HexCanvas: hexCanvasStub } } })
     const canvas = wrapper.findComponent({ name: 'HexCanvas' })
     expect(canvas.props('minimapSettings')).toEqual(settings)
     expect(canvas.props('editDelta')).toEqual(delta)

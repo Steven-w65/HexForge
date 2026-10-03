@@ -29,7 +29,7 @@ describe('useHotkeys', () => {
 
   it.each([
     ['o', { ctrlKey: true }, 'open'], ['w', { ctrlKey: true }, 'close-file'],
-    ['s', { ctrlKey: true }, 'save-as'], ['s', { ctrlKey: true, shiftKey: true }, 'save-as'], ['e', { ctrlKey: true, shiftKey: true }, 'export'],
+    ['s', { ctrlKey: true, shiftKey: true }, 'save-as'], ['e', { ctrlKey: true, shiftKey: true }, 'export'],
     ['F4', { altKey: true }, 'exit'], ['F2', {}, 'edit-selected'],
     ['e', { ctrlKey: true, altKey: true }, 'toggle-edit'], ['z', { ctrlKey: true }, 'undo'],
     ['g', { ctrlKey: true }, 'goto'], ['f', { ctrlKey: true }, 'search'],
@@ -52,13 +52,29 @@ describe('useHotkeys', () => {
     input.remove()
   })
 
-  it('does not invoke or consume a disabled command', () => {
+  it('consumes a disabled app shortcut without invoking it', () => {
     const target = actions(); vi.mocked(target.isEnabled).mockReturnValue(false); cleanups.push(useHotkeys(target))
     const event = keydown('g', { ctrlKey: true })
-    expect(target.invoke).not.toHaveBeenCalled(); expect(event.defaultPrevented).toBe(false)
+    expect(target.invoke).not.toHaveBeenCalled(); expect(event.defaultPrevented).toBe(true)
   })
 
-  it('does not open the browser save dialog when binary Save Copy is disabled', () => {
+  it.each([
+    ['o', { ctrlKey: true }], ['w', { ctrlKey: true }], ['f', { ctrlKey: true }],
+    ['Enter', { ctrlKey: true }], ['F3', {}], ['F3', { shiftKey: true }],
+  ] satisfies Array<[string, KeyboardEventInit]>)('does not let disabled %s fall through to native browser or focused-button actions', (key, options) => {
+    const target = actions(); vi.mocked(target.isEnabled).mockReturnValue(false); cleanups.push(useHotkeys(target))
+    expect(keydown(key, options).defaultPrevented).toBe(true)
+    expect(target.invoke).not.toHaveBeenCalled()
+  })
+
+  it('consumes reserved Ctrl+S without saving a binary even when Save As is enabled', () => {
+    const target = actions(); cleanups.push(useHotkeys(target))
+    const event = keydown('s', { ctrlKey: true })
+    expect(target.invoke).not.toHaveBeenCalled()
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('does not open the browser save dialog when reserved Ctrl+S is pressed', () => {
     const target = actions(); vi.mocked(target.isEnabled).mockReturnValue(false); cleanups.push(useHotkeys(target))
     const event = keydown('s', { ctrlKey: true })
     expect(target.invoke).not.toHaveBeenCalled()
@@ -88,6 +104,16 @@ describe('useHotkeys', () => {
   it('clears selection with Escape when no popup is open', () => {
     const target = actions(); cleanups.push(useHotkeys(target)); keydown('Escape')
     expect(target.clearSelection).toHaveBeenCalledOnce()
+  })
+
+  it('leaves composing Escape and command keys to the active input', () => {
+    const target = actions(); cleanups.push(useHotkeys(target))
+    const escape = keydown('Escape', { isComposing: true })
+    const open = keydown('o', { ctrlKey: true, isComposing: true })
+    expect(escape.defaultPrevented).toBe(false)
+    expect(open.defaultPrevented).toBe(false)
+    expect(target.clearSelection).not.toHaveBeenCalled()
+    expect(target.invoke).not.toHaveBeenCalled()
   })
 
   it('does not run background commands or clear selection through a modal', () => {

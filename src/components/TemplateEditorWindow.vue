@@ -115,6 +115,10 @@ async function resolveClose(choice: 'save' | 'save-as' | 'discard' | 'cancel'): 
 }
 
 function onKeydown(event: KeyboardEvent): void {
+  if (event.isComposing) return
+  // Reserve both template Save keys even while a reply/dialog blocks actions.
+  // Repeated presses must not fall through to the WebView's Save Page dialog.
+  if (event.ctrlKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === 's') event.preventDefault()
   if (event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && event.key.toLowerCase() === 'w') {
     // Keep the close shortcut local to this window and reuse native-close draft
     // protection. Consume it through dialogs/in-flight actions without closing.

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { BytesPerRow } from '../hex/layout'
 import { DEFAULT_MINIMAP_SETTINGS, type MinimapSettings } from '../hex/minimapGeometry'
 import type { ByteSelection } from '../hex/selection'
@@ -9,7 +9,8 @@ import { flattenResultLeaves, hasResultDiagnostics } from '../template/model'
 import { commandEnabled, commandUnavailableReason, type MenuCommand, type MenuState } from '../menu/commands'
 import AppDialog from './AppDialog.vue'
 import FileInfoBar from './FileInfoBar.vue'
-import HexCanvas from './HexCanvas.vue'
+import { afterFirstPaint } from '../startup/afterPaint'
+import { loadHexCanvas } from '../startup/hexCanvasLoader'
 import ParsedResultsPanel from './ParsedResultsPanel.vue'
 import StatusBar from './StatusBar.vue'
 import TopMenu from './TopMenu.vue'
@@ -55,6 +56,22 @@ const emit = defineEmits<{
 }>()
 
 const searchInput = ref<HTMLInputElement | null>(null)
+const canvasLoadError = ref(false)
+let retryCanvasLoad: (() => void) | undefined
+const HexCanvas = defineAsyncComponent({
+  loader: loadHexCanvas,
+  onError(error, retry) {
+    canvasLoadError.value = true
+    retryCanvasLoad = retry
+    emit('minimap-error', error)
+  },
+})
+function retryCanvas(): void {
+  canvasLoadError.value = false
+  retryCanvasLoad?.()
+  retryCanvasLoad = undefined
+}
+let cancelCanvasPrewarm: (() => void) | undefined
 const workspace = ref<HTMLElement | null>(null)
 const PANEL_HEIGHT_KEY = 'hexforge.resultsPaneHeight'
 function readPanelHeight(): number {
@@ -67,18 +84,47 @@ const panelMaximum = computed(() => Math.max(28, Math.floor(workspaceHeight.valu
 const panelMinimum = computed(() => Math.min(84, panelMaximum.value))
 const panelHeight = computed(() => Math.min(panelMaximum.value, Math.max(panelMinimum.value, preferredPanelHeight.value)))
 let workspaceObserver: ResizeObserver | undefined
+let workspaceFrame: number | null = null
+let workspaceDisposed = false
 function measureWorkspace(): void {
   const height = workspace.value?.getBoundingClientRect().height
   workspaceHeight.value = height && height > 0 ? height : Math.max(28, window.innerHeight - 90)
+}
+function scheduleWorkspaceMeasurement(): void {
+  if (workspaceDisposed || workspaceFrame !== null) return
+  workspaceFrame = requestAnimationFrame(() => {
+    workspaceFrame = null
+    if (!workspaceDisposed) measureWorkspace()
+  })
 }
 function storePanelHeight(): void {
   try { localStorage.setItem(PANEL_HEIGHT_KEY, String(panelHeight.value)) } catch { /* Optional preference, never required for resizing. */ }
 }
 onMounted(() => {
-  measureWorkspace(); window.addEventListener('resize', measureWorkspace)
-  if (typeof ResizeObserver !== 'undefined' && workspace.value) { workspaceObserver = new ResizeObserver(measureWorkspace); workspaceObserver.observe(workspace.value) }
+  // This code is not needed to paint the no-file interface. Opening a file
+  // before prewarm loads it immediately through the same async component.
+  cancelCanvasPrewarm = afterFirstPaint(() => { void loadHexCanvas().catch(() => {}) })
+  if (typeof ResizeObserver !== 'undefined' && workspace.value) {
+    // The browser already measured this box. Reading its rect here would force
+    // a second synchronous layout during initial Vue mounting and each resize.
+    workspaceObserver = new ResizeObserver(entries => {
+      if (workspaceDisposed) return
+      const height = entries[0]?.contentRect.height
+      if (height && height > 0) workspaceHeight.value = height
+    })
+    workspaceObserver.observe(workspace.value)
+  } else {
+    scheduleWorkspaceMeasurement()
+    window.addEventListener('resize', scheduleWorkspaceMeasurement)
+  }
 })
-onBeforeUnmount(() => { workspaceObserver?.disconnect(); window.removeEventListener('resize', measureWorkspace) })
+onBeforeUnmount(() => {
+  cancelCanvasPrewarm?.()
+  workspaceDisposed = true
+  workspaceObserver?.disconnect()
+  if (workspaceFrame !== null) cancelAnimationFrame(workspaceFrame)
+  window.removeEventListener('resize', scheduleWorkspaceMeasurement)
+})
 const gotoInput = ref<HTMLInputElement | null>(null)
 function onSearchEnter(event: KeyboardEvent): void {
   if (event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return
@@ -135,6 +181,9 @@ const selectedByte = computed(() => {
     <FileInfoBar :file="file" />
     <div ref="workspace" class="workspace">
       <section class="hex-stage">
+        <div v-if="file && canvasLoadError" class="canvas-load-error" role="alert">
+          Could not load the hex viewer. <button type="button" @click="retryCanvas">Retry</button>
+        </div>
         <HexCanvas v-if="file" :file-size="fileSize" :source-identity="sourceIdentity" :source-key="file.path" :source-revision="file.revision" :page="page" :bytes-per-row="bytesPerRow" :selection="selection" :matches="matches" :modified-overview="modifiedOverview" :template-fields="minimapFields" :match-length="matchLength"
           :template-range="templateRange" :edit-mode="editMode" :theme="theme" :navigate-offset="navigationOffset" :minimap-settings="minimapSettings" :edit-delta="editDelta" @request-page="emit('request-page', $event)"
           @select="emit('select', $event)" @edit-request="emit('edit-request', $event)" @viewport-offset="emit('viewport-offset', $event)" @minimap-error="emit('minimap-error', $event)" />
@@ -194,6 +243,7 @@ const selectedByte = computed(() => {
 .workspace { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 4px var(--results-pane-height); min-width: 0; min-height: 0; }
 .app-shell.results-collapsed .workspace { grid-template-rows: minmax(0, 1fr) 28px; }
 .hex-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+.canvas-load-error { padding: 16px; color: var(--modified); }
 .search-notice { position: absolute; z-index: 2; top: 10px; left: 12px; padding: 5px 8px; color: var(--modified); background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--border); border-radius: 4px; font-size: var(--font-support); pointer-events: none; }
 .drop-prompt { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 7px; color: var(--muted); }
 .drop-prompt span { display: grid; place-items: center; width: 42px; height: 42px; color: var(--address); border: 1px dashed var(--border-strong); border-radius: 8px; font-size: 22px; }

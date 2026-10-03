@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (payload: unknown) => void | Promise<void>>(),
   sent: vi.fn(), destroy: vi.fn(), closeHandler: null as null | ((event: { preventDefault(): void }) => void),
   failAction: false, cancelAction: false, discardReplacesWorkspace: false, saveSnapshot: null as TemplateSnapshot | null,
+  holdActionReply: null as Promise<void> | null,
 }))
 
 const initial: TemplateSnapshot = {
@@ -23,6 +24,7 @@ vi.mock('../templateWindow/tauriBus', () => ({ tauriBus: {
     mocks.sent(target, event, payload)
     if (event === 'hexforge:template:ready') await mocks.handlers.get('hexforge:template:snapshot')?.(initial)
     if (event === 'hexforge:template:action') {
+      await mocks.holdActionReply
       const action = payload as { requestId: number; command: string }
       const restored = (action.command === 'save' || action.command === 'save-as') && mocks.saveSnapshot ? mocks.saveSnapshot
         : action.command === 'discard' && mocks.discardReplacesWorkspace
@@ -45,6 +47,7 @@ describe('TemplateEditorWindow', () => {
     mocks.handlers.clear(); mocks.sent.mockReset(); mocks.destroy.mockReset(); mocks.destroy.mockResolvedValue(undefined)
     mocks.closeHandler = null; mocks.failAction = false; mocks.cancelAction = false; mocks.discardReplacesWorkspace = false
     mocks.saveSnapshot = null
+    mocks.holdActionReply = null
     initial.canApply = true; initial.active = true; initial.templateFilePath = 'C:/header.json'; initial.dirty = false; initial.persistenceRevision = 1; initial.workspaceRevision = 0
     initial.template = { name: 'Header', defaultEndianness: 'little', fields: [] }
     initial.checkpointTemplate = { ...initial.template }
@@ -144,6 +147,31 @@ describe('TemplateEditorWindow', () => {
     expect(event.defaultPrevented).toBe(true)
     expect(mocks.sent).toHaveBeenCalledWith('main', 'hexforge:template:action', expect.objectContaining({ command: shiftKey ? 'save-as' : 'save' }))
     expect(mocks.destroy).not.toHaveBeenCalled()
+  })
+
+  it('consumes repeated Save and Save As keys while the first editor save awaits acknowledgement', async () => {
+    const wrapper = mount(TemplateEditorWindow); await flushPromises()
+    let finish!: () => void
+    mocks.holdActionReply = new Promise<void>(resolve => { finish = resolve })
+    try {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true, cancelable: true }))
+      await flushPromises()
+      for (const shiftKey of [false, true]) {
+        const event = new KeyboardEvent('keydown', { key: 's', ctrlKey: true, shiftKey, bubbles: true, cancelable: true })
+        window.dispatchEvent(event); await flushPromises()
+        expect(event.defaultPrevented).toBe(true)
+      }
+      expect(mocks.sent.mock.calls.filter(([, event]) => event === 'hexforge:template:action')).toHaveLength(1)
+    } finally { finish(); await flushPromises(); wrapper.unmount() }
+  })
+
+  it.each(['s', 'w'])('does not save or close the editor with composing Ctrl+%s', async (key) => {
+    const wrapper = mount(TemplateEditorWindow); await flushPromises()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key, ctrlKey: true, isComposing: true, bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(mocks.sent.mock.calls.filter(([, event]) => event === 'hexforge:template:action')).toHaveLength(0)
+    expect(mocks.destroy).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('suppresses the browser context menu inside the Template Editor', async () => {

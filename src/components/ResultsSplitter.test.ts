@@ -3,11 +3,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import AppShell from './AppShell.vue'
 
 describe('bottom results resizing', () => {
-  afterEach(() => { vi.restoreAllMocks(); localStorage.clear() })
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); localStorage.clear() })
   function mountShell(collapsed = false) {
+    let measured!: ResizeObserverCallback
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: ResizeObserverCallback) { measured = callback }
+      observe() {}; disconnect() {}
+    })
     const wrapper = mount(AppShell, { props: { rightCollapsed: collapsed }, global: { stubs: { HexCanvas: true } } })
-    vi.spyOn(wrapper.get('.workspace').element, 'getBoundingClientRect').mockReturnValue({ top: 60, bottom: 660, height: 600 } as DOMRect)
-    window.dispatchEvent(new Event('resize'))
+    // Deliver the browser's completed layout instead of forcing synchronous
+    // measurement from a resize event. The resulting geometry is unchanged.
+    measured([{ contentRect: { height: 600 } } as ResizeObserverEntry], {} as ResizeObserver)
     return wrapper
   }
   it('resizes with keyboard, clamps to preserve the canvas, and restores the preferred size', async () => {

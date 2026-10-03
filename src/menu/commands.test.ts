@@ -23,7 +23,6 @@ describe('menu commands', () => {
   it.each([
     ['o', { ctrlKey: true }, 'open'],
     ['w', { ctrlKey: true }, 'close-file'],
-    ['s', { ctrlKey: true }, 'save-as'],
     ['s', { ctrlKey: true, shiftKey: true }, 'save-as'],
     ['e', { ctrlKey: true, shiftKey: true }, 'export'],
     ['F4', { altKey: true }, 'exit'],
@@ -46,6 +45,7 @@ describe('menu commands', () => {
   })
 
   it('does not treat shifted or extra-modifier variants as another command', () => {
+    expect(matchMenuShortcut(shortcut('s', { ctrlKey: true }))).toBeNull()
     expect(matchMenuShortcut(shortcut('o', { ctrlKey: true, shiftKey: true }))).toBeNull()
     expect(matchMenuShortcut(shortcut('b', { ctrlKey: true, shiftKey: true }))).toBeNull()
     expect(matchMenuShortcut(shortcut('F2', { altKey: true }))).toBeNull()
@@ -72,7 +72,8 @@ describe('menu commands', () => {
     const input = document.createElement('input')
     expect(matchMenuShortcut(shortcut('z', { ctrlKey: true }), input)).toBeNull()
     expect(matchMenuShortcut(shortcut('F2'), input)).toBeNull()
-    expect(matchMenuShortcut(shortcut('s', { ctrlKey: true }), input)).toBe('save-as')
+    expect(matchMenuShortcut(shortcut('s', { ctrlKey: true }), input)).toBeNull()
+    expect(matchMenuShortcut(shortcut('s', { ctrlKey: true, shiftKey: true }), input)).toBe('save-as')
   })
 
   it('disables file-dependent commands without a file while leaving template and view commands available', () => {
