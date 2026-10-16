@@ -622,12 +622,27 @@ fn native_binary_save_shortcut_cancel_and_failure_preserve_edits_and_coalesce_th
 
 #[test]
 fn main_binary_copy_shortcut_keeps_an_invalid_template_independent_and_never_applies_it() {
+    check_main_binary_copy_shortcut(false);
+}
+
+#[test]
+fn main_binary_copy_shortcut_accepts_a_noncanonical_picker_destination() {
+    check_main_binary_copy_shortcut(true);
+}
+
+fn check_main_binary_copy_shortcut(noncanonical_destination: bool) {
     use hexforge_controller::dialog::PickerPurpose;
     use hexforge_controller::{action::Action, command::Command};
     use std::time::{Duration, Instant};
     let (source, mut app, ctx) = opened_native();
     let copies = tempfile::tempdir().unwrap();
-    let destination = copies.path().join("copy.bin");
+    let destination = if noncanonical_destination {
+        let picker_directory = copies.path().join("picker-directory");
+        std::fs::create_dir(&picker_directory).unwrap();
+        picker_directory.join("..").join("copy.bin")
+    } else {
+        copies.path().join("copy.bin")
+    };
     app.gesture(Action::Select { start: 4, end: 4 });
     app.invoke(Command::ToggleEdit, Default::default());
     app.gesture(Action::EditSelectedByte("FF".into()));
@@ -676,12 +691,14 @@ fn main_binary_copy_shortcut_keeps_an_invalid_template_independent_and_never_app
     }
     let after = app.main_snapshot();
     assert!(after.error.is_none());
-    assert!(after
-        .file
-        .as_ref()
-        .unwrap()
-        .path
-        .ends_with(destination.to_string_lossy().as_ref()));
+    // FileSession stores a canonical path, so compare the full canonical
+    // destination rather than its raw picker spelling (case, .., short names).
+    assert_eq!(
+        after.file.as_ref().unwrap().path,
+        std::fs::canonicalize(&destination)
+            .unwrap()
+            .to_string_lossy()
+    );
     assert!(!after.file.as_ref().unwrap().dirty);
     assert_eq!(after.selection, before.selection);
     assert_eq!(
