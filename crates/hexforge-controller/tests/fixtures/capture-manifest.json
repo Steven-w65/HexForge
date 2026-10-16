@@ -1,0 +1,181 @@
+{
+  "referenceDirectory": "docs/native-parity/2026-10-04/reference",
+  "captures": [
+    {
+      "file": "01-main-empty-dark.jpg",
+      "state": "01-main-empty-dark",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "02-file-menu-disabled-dark.jpg",
+      "state": "02-file-menu-disabled-dark",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "03-template-menu-disabled-dark.jpg",
+      "state": "03-template-menu-disabled-dark",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "04-template-menu-disabled-light.jpg",
+      "state": "04-template-menu-disabled-light",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "05-main-empty-light.jpg",
+      "state": "05-main-empty-light",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "06-main-png-light.jpg",
+      "state": "06-main-png-light",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "07-search-light.jpg",
+      "state": "07-search-light",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "08-go-to-light.jpg",
+      "state": "08-go-to-light",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "09-template-pending-light.jpg",
+      "state": "09-template-pending-light",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "10-results-tree-light.jpg",
+      "state": "10-results-tree-light",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "11-result-selection-light.jpg",
+      "state": "11-result-selection-light",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "12-result-selection-dark.jpg",
+      "state": "12-result-selection-dark",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "13-editor-clean-dark.jpg",
+      "state": "13-editor-clean-dark",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "14-editor-advanced-dark.jpg",
+      "state": "14-editor-advanced-dark",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "15-editor-advanced-light.jpg",
+      "state": "15-editor-advanced-light",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "16-editor-unsaved-close-light.jpg",
+      "state": "16-editor-unsaved-close-light",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "17-main-long-file-32-fit-light.jpg",
+      "state": "17-main-long-file-32-fit-light",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "18-view-menu-light.jpg",
+      "state": "18-view-menu-light",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "19-minimap-menu-light.jpg",
+      "state": "19-minimap-menu-light",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "20-main-long-file-proportional-light.jpg",
+      "state": "20-main-long-file-proportional-light",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "21-proportional-bottom-light.jpg",
+      "state": "21-proportional-bottom-light",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    },
+    {
+      "file": "22-proportional-bottom-dark.jpg",
+      "state": "22-proportional-bottom-dark",
+      "dpi": null,
+      "evidence": "jpeg",
+      "verified": false,
+      "reason": "DPI not recorded at capture; retained layout reference only"
+    }
+  ]
+}

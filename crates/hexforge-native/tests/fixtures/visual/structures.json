@@ -1,0 +1,27 @@
+{
+  "name": "Structured preview",
+  "defaultEndianness": "little",
+  "fields": [
+    {
+      "name": "header", "type": "struct",
+      "fields": [
+        { "name": "signature", "type": "bytes", "length": 4,
+          "expect": { "kind": "equals", "value": { "type": "bytes", "value": "00 01 02 03" } } },
+        { "name": "entryCount", "type": "u8" },
+        { "name": "flags", "type": "u8", "enumLabels": { "5": "Enabled" },
+          "bitFlags": [ { "bit": 0, "name": "Read" }, { "bit": 2, "name": "Execute" } ] },
+        { "name": "revision", "type": "u16" }
+      ]
+    },
+    {
+      "name": "entries", "type": "array", "count": { "ref": "header.entryCount" },
+      "element": { "type": "struct", "fields": [
+        { "name": "id", "type": "u64", "comment": "Exact 64-bit identifier" },
+        { "name": "tag", "type": "bytes", "length": 4 }
+      ] }
+    },
+    { "name": "footer", "type": "string", "encoding": "ascii", "length": 16,
+      "placement": { "mode": "absolute", "offset": "64" }, "align": 8,
+      "condition": { "ref": "header.entryCount", "op": "gt", "value": { "type": "unsigned", "value": "0" } } }
+  ]
+}

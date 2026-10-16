@@ -1,0 +1,2264 @@
+{
+  "sourceTests": [
+    {
+      "id": "src/App.test.ts#App desktop orchestration opens a binary from the empty-state button and replaces the prompt with the file view#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration opens a binary from the empty-state button and replaces the prompt with the file view",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration retains the empty-state Open button when the file picker is cancelled#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration retains the empty-state Open button when the file picker is cancelled",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration saves binary bytes rather than the background template with Ctrl+Shift+S#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration saves binary bytes rather than the background template with Ctrl+Shift+S",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration keeps Ctrl+S inert with an open binary (dirty=false) and an unsaved template#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration keeps Ctrl+S inert with an open binary (dirty=false) and an unsaved template",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration keeps Ctrl+S inert with an open binary (dirty=true) and an unsaved template#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration keeps Ctrl+S inert with an open binary (dirty=true) and an unsaved template",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration consumes main-window Save keys without saving an open template when no binary is open#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration consumes main-window Save keys without saving an open template when no binary is open",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration applies only the template when Ctrl+Enter is pressed over a focused File-menu item#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration applies only the template when Ctrl+Enter is pressed over a focused File-menu item",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration keeps disabled Ctrl+Enter inert over a focused File-menu item instead of permitting its default click#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration keeps disabled Ctrl+Enter inert over a focused File-menu item instead of permitting its default click",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration preserves dirty bytes and selection when Ctrl+Shift+S ends in cancel#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration preserves dirty bytes and selection when Ctrl+Shift+S ends in cancel",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration preserves dirty bytes and selection when Ctrl+Shift+S ends in failure#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration preserves dirty bytes and selection when Ctrl+Shift+S ends in failure",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration coalesces main-window Save keys while the binary picker is pending and unlocks after cancel#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration coalesces main-window Save keys while the binary picker is pending and unlocks after cancel",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration reports a successful template save without applying and distinguishes modified results needing reapply#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration reports a successful template save without applying and distinguishes modified results needing reapply",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration does not announce success after a cancelled or failed Save As#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration does not announce success after a cancelled or failed Save As",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration signals frontend readiness only after the desktop listeners are registered#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration signals frontend readiness only after the desktop listeners are registered",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration recognizes the real visible main interface despite fallthrough attributes and rejects hidden controls#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration recognizes the real visible main interface despite fallthrough attributes and rejects hidden controls",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration registers only the native drop event and retains single-file and multiple-file behavior#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration registers only the native drop event and retains single-file and multiple-file behavior",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration includes phase timings only when the native startup profiler is enabled#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration includes phase timings only when the native startup profiler is enabled",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration starts native listeners alongside bridge listeners but waits for all before readiness#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration starts native listeners alongside bridge listeners but waits for all before readiness",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration cleans late registrations without reporting readiness or installing hotkeys after unmount#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration cleans late registrations without reporting readiness or installing hotkeys after unmount",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration retains the close guard after an unrelated registration fails without claiming full readiness#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration retains the close guard after an unrelated registration fails without claiming full readiness",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration blocks file opening until native close protection is installed, including a failed registration#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration blocks file opening until native close protection is installed, including a failed registration",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration routes View minimap controls through the existing command path without adding shortcuts#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration routes View minimap controls through the existing command path without adding shortcuts",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration surfaces minimap sampling errors through the existing friendly dialog#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration surfaces minimap sampling errors through the existing friendly dialog",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration opens or focuses the one Template Editor window from its retained shortcut#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration opens or focuses the one Template Editor window from its retained shortcut",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration marks template edits as modified and clears the marker after Save As succeeds#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration marks template edits as modified and clears the marker after Save As succeeds",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration keeps an Untitled draft unsaved when Save As is cancelled#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration keeps an Untitled draft unsaved when Save As is cancelled",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration prompts before Save As replaces an existing template and binds the path only after success#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration prompts before Save As replaces an existing template and binds the path only after success",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration prompts before overwriting an externally changed template and leaves edits dirty on cancel#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration prompts before overwriting an externally changed template and leaves edits dirty on cancel",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration tells the Template Editor a cancelled Save As did not complete#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration tells the Template Editor a cancelled Save As did not complete",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration keeps edits made during Save newer than the saved editor checkpoint#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration keeps edits made during Save newer than the saved editor checkpoint",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration restores the pre-editor template on Don't Save and retains its earlier modified state#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration restores the pre-editor template on Don't Save and retains its earlier modified state",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration keeps a dirty template when unload is cancelled and clears it after confirmation#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration keeps a dirty template when unload is cancelled and clears it after confirmation",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration unloads parsed results and the cyan range without closing the binary#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration unloads parsed results and the cyan range without closing the binary",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration loads a template from the top menu without auto-opening the editor or binary file#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration loads a template from the top menu without auto-opening the editor or binary file",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration transitions from open binary without template to pending, applied, pending, and unloaded#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration transitions from open binary without template to pending, applied, pending, and unloaded",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration applies an unsaved editor draft without saving it to JSON#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration applies an unsaved editor draft without saving it to JSON",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration brings the main window forward for a template picker requested by the editor#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration brings the main window forward for a template picker requested by the editor",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration preserves a dirty template when loading a JSON file with a legacy format key fails#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration preserves a dirty template when loading a JSON file with a legacy format key fails",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration keeps the template draft dirty when Save Template As runs out of disk space#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration keeps the template draft dirty when Save Template As runs out of disk space",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration blocks the main-window X when the editor cannot synchronize its draft#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration blocks the main-window X when the editor cannot synchronize its draft",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration shows a friendly error when the separate editor window cannot open#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration shows a friendly error when the separate editor window cannot open",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration opens any selected binary path and renders the returned session#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration opens any selected binary path and renders the returned session",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration routes exactly one dropped path through open and unregisters native listeners#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration routes exactly one dropped path through open and unregisters native listeners",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration treats native dialog cancellation as a silent no-op#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration treats native dialog cancellation as a silent no-op",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration presents rejected native open dialogs without an unhandled action failure#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration presents rejected native open dialogs without an unhandled action failure",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration presents rejected native save dialogs without an unhandled action failure#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration presents rejected native save dialogs without an unhandled action failure",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration leaves the original close request unblocked for a clean session#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration leaves the original close request unblocked for a clean session",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration shuts down the Template Editor before allowing a clean main-window close#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration shuts down the Template Editor before allowing a clean main-window close",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration warns before exit when only a template draft is unsaved#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration warns before exit when only a template draft is unsaved",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration warns before main-window exit when a rejected editor input leaves the valid JSON unchanged#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration warns before main-window exit when a rejected editor input leaves the valid JSON unchanged",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration prevents a dirty close until discard is explicitly selected#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration prevents a dirty close until discard is explicitly selected",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration presents confirm and message failures from void native listener paths#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration presents confirm and message failures from void native listener paths",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration holds close until an in-flight edit is reflected by authoritative dirty state#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration holds close until an in-flight edit is reflected by authoritative dirty state",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration closes without confirmation after a pending no-op edit resolves clean#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration closes without confirmation after a pending no-op edit resolves clean",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration keeps close prevented and shows a friendly error when authoritative state fails#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration keeps close prevented and shows a friendly error when authoritative state fails",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration gates menu template Save without a file path and top Apply while a draft is invalid#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration gates menu template Save without a file path and top Apply while a draft is invalid",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration re-enables menu template Save and Apply after removing the invalid field#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration re-enables menu template Save and Apply after removing the invalid field",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration wires template navigation to both selection and the cyan Canvas range#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration wires template navigation to both selection and the cyan Canvas range",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration removes the active parsed marker when selecting Escape#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration removes the active parsed marker when selecting Escape",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration removes the active parsed marker when selecting ordinary bytes#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration removes the active parsed marker when selecting ordinary bytes",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration shows when parsed results need applying again after a template edit#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration shows when parsed results need applying again after a template edit",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration clears only the template marker after a successful Go To#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration clears only the template marker after a successful Go To",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration clears only the template marker after a successful search jump#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration clears only the template marker after a successful search jump",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration preserves the template marker during scrolling, invalid Go To, and a search without matches#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration preserves the template marker during scrolling, invalid Go To, and a search without matches",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration clears a field highlight and its selection when the template draft changes#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration clears a field highlight and its selection when the template draft changes",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration clears the prior field highlight after a replacement template loads#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration clears the prior field highlight after a replacement template loads",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration keeps exact decimal field offsets when applying the template through the backend boundary#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration keeps exact decimal field offsets when applying the template through the backend boundary",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration shows nested parse work without a misleading top-level denominator#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration shows nested parse work without a misleading top-level denominator",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration shows live search activity and reports a truncated backend result#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration shows live search activity and reports a truncated backend result",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration keeps canvas selection available beside a non-modal search bar and clears search independently#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration keeps canvas selection available beside a non-modal search bar and clears search independently",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration steps through full matches with buttons, Enter and F3 without rescanning unchanged bytes#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration steps through full matches with buttons, Enter and F3 without rescanning unchanged bytes",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration disables match navigation for a changed query and resets it after clearing#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration disables match navigation for a changed query and resets it after clearing",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration does not start overlapping scans from Enter while a search is running#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration does not start overlapping scans from Enter while a search is running",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration refocuses an open search bar without discarding an unfinished hex pattern#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration refocuses an open search bar without discarding an unfinished hex pattern",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration opens Go To as a focused non-modal bar and navigates on submit#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration opens Go To as a focused non-modal bar and navigates on submit",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration keeps invalid Go To input in the bar with an inline error#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration keeps invalid Go To input in the bar with an inline error",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration switches between Search and Go To without stacking floating bars#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration switches between Search and Go To without stacking floating bars",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration routes File shortcuts to Open, Save As, Export, Close and Exit#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration routes File shortcuts to Open, Save As, Export, Close and Exit",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration confirms before Close File discards in-memory edits#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration confirms before Close File discards in-memory edits",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration saves a copy before opening a replacement binary and ignores concurrent open requests#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration saves a copy before opening a replacement binary and ignores concurrent open requests",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration keeps the binary and edited-byte markers on cancelled picker before replacement#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration keeps the binary and edited-byte markers on cancelled picker before replacement",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration keeps the binary and edited-byte markers on failed save before replacement#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration keeps the binary and edited-byte markers on failed save before replacement",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration saves successfully before Close File removes the current binary#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration saves successfully before Close File removes the current binary",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration holds main-window exit until a save copy finishes, then closes the companion#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration holds main-window exit until a save copy finishes, then closes the companion",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration cancels main-window exit on cancelled picker and permits subsequent byte edits#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration cancels main-window exit on cancelled picker and permits subsequent byte edits",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration cancels main-window exit on failed save and permits subsequent byte edits#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration cancels main-window exit on failed save and permits subsequent byte edits",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration cancels main-window exit on picker error and permits subsequent byte edits#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration cancels main-window exit on picker error and permits subsequent byte edits",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration routes Edit shortcuts through edit mode, F2 and the undo stack#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration routes Edit shortcuts through edit mode, F2 and the undo stack",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration passes edited byte markers from the session into the minimap#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration passes edited byte markers from the session into the minimap",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration routes Navigate shortcuts to the non-modal Go To and byte-search bars#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration routes Navigate shortcuts to the non-modal Go To and byte-search bars",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration routes Template shortcuts and menu saves without a main-window Add Field shortcut#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration routes Template shortcuts and menu saves without a main-window Add Field shortcut",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration loads a structured template without applying, then navigates an exact leaf and exports the tree#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration loads a structured template without applying, then navigates an exact leaf and exports the tree",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration synchronizes the system theme and manual toggle with the hex canvas and editor snapshots#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration synchronizes the system theme and manual toggle with the hex canvas and editor snapshots",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/App.test.ts#App desktop orchestration routes the simplified View shortcuts without binding direct themes or panel visibility#1",
+      "source": {
+        "path": "src/App.test.ts",
+        "name": "App desktop orchestration routes the simplified View shortcuts without binding direct themes or panel visibility",
+        "hash": "bee3f97feb4b3819b303c747e53ed70509d253b2e1471367adef07a252946cb2",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppDialog.test.ts#AppDialog focuses the requested control whenever the dialog opens#1",
+      "source": {
+        "path": "src/components/AppDialog.test.ts",
+        "name": "AppDialog focuses the requested control whenever the dialog opens",
+        "hash": "dfc920c670654889656a417bf85add9611266be417c75165eb59b0342d2b63fd",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppDialog.test.ts#AppDialog exposes one consistent close control and closes on the backdrop#1",
+      "source": {
+        "path": "src/components/AppDialog.test.ts",
+        "name": "AppDialog exposes one consistent close control and closes on the backdrop",
+        "hash": "dfc920c670654889656a417bf85add9611266be417c75165eb59b0342d2b63fd",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppDialog.test.ts#AppDialog traps forward and backward tab focus and restores the invoking control#1",
+      "source": {
+        "path": "src/components/AppDialog.test.ts",
+        "name": "AppDialog traps forward and backward tab focus and restores the invoking control",
+        "hash": "dfc920c670654889656a417bf85add9611266be417c75165eb59b0342d2b63fd",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppDialog.test.ts#AppDialog makes content outside the dialog inert and respects a nested dialog#1",
+      "source": {
+        "path": "src/components/AppDialog.test.ts",
+        "name": "AppDialog makes content outside the dialog inert and respects a nested dialog",
+        "hash": "dfc920c670654889656a417bf85add9611266be417c75165eb59b0342d2b63fd",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell uses observer measurements without forcing workspace layout during mount#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell uses observer measurements without forcing workspace layout during mount",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell coalesces fallback layout measurements and cancels the pending frame on unmount#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell coalesces fallback layout measurements and cancels the pending frame on unmount",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell opens from the centered no-file prompt through the shared command route#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell opens from the centered no-file prompt through the shared command route",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell disables empty-state Open while busy and enables it again when the operation finishes#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell disables empty-state Open while busy and enables it again when the operation finishes",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell does not cover an opened file with the drop prompt when search is closed#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell does not cover an opened file with the drop prompt when search is closed",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell keeps the menu row at its compact height#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell keeps the menu row at its compact height",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell suppresses the browser context menu inside the main window#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell suppresses the browser context menu inside the main window",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell requests the bottom results-pane toggle and row-width changes#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell requests the bottom results-pane toggle and row-width changes",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell passes the canvas template highlight to the matching parsed result row#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell passes the canvas template highlight to the matching parsed result row",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell replaces shortcut buttons with collapsible file information in the second row#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell replaces shortcut buttons with collapsible file information in the second row",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell keeps file information out of the workspace and reserves its bottom row for results#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell keeps file information out of the workspace and reserves its bottom row for results",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell keeps file details above the hex and results workspace#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell keeps file details above the hex and results workspace",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell keeps the selected offset visible when its byte is outside the current page#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell keeps the selected offset visible when its byte is outside the current page",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell replaces the Open prompt with an empty-file message even for a zero-byte file#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell replaces the Open prompt with an empty-file message even for a zero-byte file",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell forwards menu commands and dynamic navigation ranges#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell forwards menu commands and dynamic navigation ranges",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell blocks Apply and Save consistently when the editor reports invalid input#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell blocks Apply and Save consistently when the editor reports invalid input",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell routes Apply from the Template menu without mounting the editor#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell routes Apply from the Template menu without mounting the editor",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell forwards a pending loaded-template action from the bottom panel through the existing command route#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell forwards a pending loaded-template action from the bottom panel through the existing command route",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell passes orchestration navigation targets into the Canvas viewport#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell passes orchestration navigation targets into the Canvas viewport",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell marks only the active parsed range in the minimap and preserves edit markers#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell marks only the active parsed range in the minimap and preserves edit markers",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell matches nested parsed ranges exactly above the JavaScript safe-integer limit#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell matches nested parsed ranges exactly above the JavaScript safe-integer limit",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell renders operation progress in the status bar and a truncated-search notice#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell renders operation progress in the status bar and a truncated-search notice",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell fits 16-byte rows beside the minimap and scrolls 32-byte rows when needed#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell fits 16-byte rows beside the minimap and scrolls 32-byte rows when needed",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/AppShell.test.ts#AppShell passes minimap settings and edit deltas to Canvas and forwards nonfatal errors#1",
+      "source": {
+        "path": "src/components/AppShell.test.ts",
+        "name": "AppShell passes minimap settings and edit deltas to Canvas and forwards nonfatal errors",
+        "hash": "6063ee4b5bc9890dd9cb4c95aee21018a7ef8302e1026e160aaf0f50a380aeaf",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow uses only the native title-bar close control#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow uses only the native title-bar close control",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow closes a clean editor with Ctrl+W through its acknowledged close workflow#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow closes a clean editor with Ctrl+W through its acknowledged close workflow",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow lets Ctrl+W Cancel preserve the draft and Don't Save close after discard acknowledgement#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow lets Ctrl+W Cancel preserve the draft and Don't Save close after discard acknowledgement",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow allows a Ctrl+W close only after save saves the current draft#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow allows a Ctrl+W close only after save saves the current draft",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow allows a Ctrl+W close only after save-as saves the current draft#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow allows a Ctrl+W close only after save-as saves the current draft",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow keeps Ctrl+W from closing through a field-removal confirmation#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow keeps Ctrl+W from closing through a field-removal confirmation",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow does not duplicate a close when Ctrl+W repeats before the first acknowledgement#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow does not duplicate a close when Ctrl+W repeats before the first acknowledgement",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow does not close for Ctrl+W with extra modifiers { altKey: true }#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow does not close for Ctrl+W with extra modifiers { altKey: true }",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow does not close for Ctrl+W with extra modifiers { shiftKey: true }#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow does not close for Ctrl+W with extra modifiers { shiftKey: true }",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow does not close for Ctrl+W with extra modifiers { metaKey: true }#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow does not close for Ctrl+W with extra modifiers { metaKey: true }",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow keeps Ctrl+S (shift=false) bound to template persistence inside editor inputs#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow keeps Ctrl+S (shift=false) bound to template persistence inside editor inputs",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow keeps Ctrl+S (shift=true) bound to template persistence inside editor inputs#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow keeps Ctrl+S (shift=true) bound to template persistence inside editor inputs",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow consumes repeated Save and Save As keys while the first editor save awaits acknowledgement#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow consumes repeated Save and Save As keys while the first editor save awaits acknowledgement",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow does not save or close the editor with composing Ctrl+s#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow does not save or close the editor with composing Ctrl+s",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow does not save or close the editor with composing Ctrl+w#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow does not save or close the editor with composing Ctrl+w",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow suppresses the browser context menu inside the Template Editor#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow suppresses the browser context menu inside the Template Editor",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow renders the existing field editor with context and sends edits and actions to main#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow renders the existing field editor with context and sends edits and actions to main",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow keeps the separate window and bridge while editing a structured template#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow keeps the separate window and bridge while editing a structured template",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow accepts authoritative theme updates without replacing an unacknowledged editor draft#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow accepts authoritative theme updates without replacing an unacknowledged editor draft",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow shows one editor without a format badge or selector#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow shows one editor without a format badge or selector",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow keeps a draft and shows an error after a failed action, then asks before closing#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow keeps a draft and shows an error after a failed action, then asks before closing",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow disables Save without a path but routes Ctrl+Shift+S to Save As#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow disables Save without a path but routes Ctrl+Shift+S to Save As",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow uses validation for Save shortcuts and close-prompt buttons, not only the footer#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow uses validation for Save shortcuts and close-prompt buttons, not only the footer",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow disables conflicting editor actions when the authoritative main window is busy#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow disables conflicting editor actions when the authoritative main window is busy",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow protects a rejected name edit on close and keeps both Save shortcuts disabled#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow protects a rejected name edit on close and keeps both Save shortcuts disabled",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow does not save or load through a field-removal confirmation#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow does not save or load through a field-removal confirmation",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow clears rejected UI inputs when a load replaces the workspace with identical JSON#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow clears rejected UI inputs when a load replaces the workspace with identical JSON",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow keeps the editor open if Save As is cancelled during the Ctrl+W close prompt#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow keeps the editor open if Save As is cancelled during the Ctrl+W close prompt",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow retains the draft and Ctrl+W close prompt after a failed Save#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow retains the draft and Ctrl+W close prompt after a failed Save",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow does not close after Ctrl+W Save if its reply contains a newer unsaved edit#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow does not close after Ctrl+W Save if its reply contains a newer unsaved edit",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow closes after a successful close-prompt Save acknowledges the current draft#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow closes after a successful close-prompt Save acknowledges the current draft",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow closes a view-only editor without changing an already modified template#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow closes a view-only editor without changing an already modified template",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow prompts on close when a newer edit remains after a Save completes#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow prompts on close when a newer edit remains after a Save completes",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow does not invoke disabled Apply or Unload keyboard actions#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow does not invoke disabled Apply or Unload keyboard actions",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/components/TemplateEditorWindow.test.ts#TemplateEditorWindow adds fields through the editor button but not the removed Add Field shortcut#1",
+      "source": {
+        "path": "src/components/TemplateEditorWindow.test.ts",
+        "name": "TemplateEditorWindow adds fields through the editor button but not the removed Add Field shortcut",
+        "hash": "c350376160a464fafb2404d0522405fbe63343297a71c780c8b1b5284df4718f",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession keeps the file-wide modified markers in sync with edit, undo and Save As#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession keeps the file-wide modified markers in sync with edit, undo and Save As",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession exposes only successful edit and Undo offsets for targeted minimap invalidation#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession exposes only successful edit and Undo offsets for targeted minimap invalidation",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession does not emit an edit delta for a no-op revision#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession does not emit an edit delta for a no-op revision",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession ignores a stale Undo delta after a replacement file opens#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession ignores a stale Undo delta after a replacement file opens",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession advances source identity on every successful open even when metadata is unchanged#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession advances source identity on every successful open even when metadata is unchanged",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession ignores a page response older than the newest generation#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession ignores a page response older than the newest generation",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession does not let a stale page failure replace the newest successful state#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession does not let a stale page failure replace the newest successful state",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession does not let an edit refresh overwrite a newer viewport page#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession does not let an edit refresh overwrite a newer viewport page",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession does not start an edit refresh after a newer viewport intent already exists#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession does not start an edit refresh after a newer viewport intent already exists",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession keeps overlapping search busy and ignores stale results, progress and failures#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession keeps overlapping search busy and ignores stale results, progress and failures",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession clears completed search state without clearing a byte selection#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession clears completed search state without clearing a byte selection",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession navigates full search matches in both directions and wraps without another scan#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession navigates full search matches in both directions and wraps without another scan",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession navigates from a manual selection and does not confuse scrolling with a match change#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession navigates from a manual selection and does not confuse scrolling with a match change",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession keeps match navigation exact above Number.MAX_SAFE_INTEGER#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession keeps match navigation exact above Number.MAX_SAFE_INTEGER",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession does not replace a byte selection made while a non-modal search runs#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession does not replace a byte selection made while a non-modal search runs",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession keeps only the newest overlapping template load#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession keeps only the newest overlapping template load",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession unloads the template and ignores a parse completed afterward#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession unloads the template and ignores a parse completed afterward",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession does not publish parse results or progress after the template changes#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession does not publish parse results or progress after the template changes",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession does not publish search matches, progress or errors after bytes mutate#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession does not publish search matches, progress or errors after bytes mutate",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession suppresses a search failure racing the completion of a byte mutation#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession suppresses a search failure racing the completion of a byte mutation",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession serializes overlapping opens so backend and UI end on the latest requested file#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession serializes overlapping opens so backend and UI end on the latest requested file",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession reflects the last successful backend open when the newest queued open fails#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession reflects the last successful backend open when the newest queued open fails",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession invalidates a pending search when an older edit succeeds and a newer edit fails#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession invalidates a pending search when an older edit succeeds and a newer edit fails",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession invalidates pending parse results when an older edit succeeds and newer undo is a no-op#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession invalidates pending parse results when an older edit succeeds and newer undo is a no-op",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession ignores an edit result from file A after file B replaces the session#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession ignores an edit result from file A after file B replaces the session",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession ignores an undo result from file A after file B replaces the session#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession ignores an undo result from file A after file B replaces the session",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession ignores a Save As result from file A after file B replaces the session#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession ignores a Save As result from file A after file B replaces the session",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession applies an edit result to file A when a replacement open fails#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession applies an edit result to file A when a replacement open fails",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession applies an undo result to file A when a replacement open fails#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession applies an undo result to file A when a replacement open fails",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession applies a Save As result to file A when a replacement open fails#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession applies a Save As result to file A when a replacement open fails",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession validates edit text before invoking Rust and refreshes the current page#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession validates edit text before invoking Rust and refreshes the current page",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession opens metadata without preloading a page, resets view state, and always releases busy flags#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession opens metadata without preloading a page, resets view state, and always releases busy flags",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession validates navigation and search locally and navigates the first match#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession validates navigation and search locally and navigates the first match",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession keeps dirty state backend-owned across undo and save#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession keeps dirty state backend-owned across undo and save",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession invalidates the old page and derived state after Save As changes the active source#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession invalidates the old page and derived state after Save As changes the active source",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession keeps the viewport and selection while switching to the saved copy#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession keeps the viewport and selection while switching to the saved copy",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession keeps the visible activity label and progress owned by the same newest operation#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession keeps the visible activity label and progress owned by the same newest operation",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession restores an older activity after a newer concurrent operation fails#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession restores an older activity after a newer concurrent operation fails",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession passes exact decimal template placement offsets to backend calls#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession passes exact decimal template placement offsets to backend calls",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession records the byte width and truncation status of the current search#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession records the byte width and truncation status of the current search",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession loads, saves, applies and exports the active structured template#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession loads, saves, applies and exports the active structured template",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession keeps template file actions separate from binary dirty state and parsing#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession keeps template file actions separate from binary dirty state and parsing",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession records a successful empty parse as applied and invalidates it when the template changes#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession records a successful empty parse as applied and invalidates it when the template changes",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession invalidates applied status when file bytes or identity change, but not when parsing fails#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession invalidates applied status when file bytes or identity change, but not when parsing fails",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession marks parsed results as needing reapplication after a template change#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession marks parsed results as needing reapplication after a template change",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession resets the reapply state when a different template is loaded#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession resets the reapply state when a different template is loaded",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession barriers close behind an already-started edit before querying authoritative dirty state#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession barriers close behind an already-started edit before querying authoritative dirty state",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession releases the close mutation barrier after cancellation or query failure#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession releases the close mutation barrier after cancellation or query failure",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession keeps new mutations blocked after a clean query until close is released#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession keeps new mutations blocked after a clean query until close is released",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession allows only the approved close save through the mutation barrier#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession allows only the approved close save through the mutation barrier",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession tracks whether the in-memory edit history can be undone and clears it after Save As#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession tracks whether the in-memory edit history can be undone and clears it after Save As",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/composables/useHexSession.test.ts#useHexSession closes the backend file and clears file-specific frontend state#1",
+      "source": {
+        "path": "src/composables/useHexSession.test.ts",
+        "name": "useHexSession closes the backend file and clears file-specific frontend state",
+        "hash": "87ae7819a6c1b7bc4fbb017593eb3aa247622f37112fc3f85d934f95ffdb4a8e",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/templateWindow/bridge.test.ts#local template-window bridge starts every independent main listener before any registration resolves#1",
+      "source": {
+        "path": "src/templateWindow/bridge.test.ts",
+        "name": "local template-window bridge starts every independent main listener before any registration resolves",
+        "hash": "08d1b91ce5309bf340dadd02433d2e7021c6e56c857b22c57e614ec903ee5bab",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/templateWindow/bridge.test.ts#local template-window bridge shares pending startup and removes registrations that complete after disposal#1",
+      "source": {
+        "path": "src/templateWindow/bridge.test.ts",
+        "name": "local template-window bridge shares pending startup and removes registrations that complete after disposal",
+        "hash": "08d1b91ce5309bf340dadd02433d2e7021c6e56c857b22c57e614ec903ee5bab",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/templateWindow/bridge.test.ts#local template-window bridge cleans successful and late listeners after another registration fails#1",
+      "source": {
+        "path": "src/templateWindow/bridge.test.ts",
+        "name": "local template-window bridge cleans successful and late listeners after another registration fails",
+        "hash": "08d1b91ce5309bf340dadd02433d2e7021c6e56c857b22c57e614ec903ee5bab",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/templateWindow/bridge.test.ts#local template-window bridge publishes after ready and acknowledges the latest field edit#1",
+      "source": {
+        "path": "src/templateWindow/bridge.test.ts",
+        "name": "local template-window bridge publishes after ready and acknowledges the latest field edit",
+        "hash": "08d1b91ce5309bf340dadd02433d2e7021c6e56c857b22c57e614ec903ee5bab",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/templateWindow/bridge.test.ts#local template-window bridge does not replace an unacknowledged draft with an older snapshot#1",
+      "source": {
+        "path": "src/templateWindow/bridge.test.ts",
+        "name": "local template-window bridge does not replace an unacknowledged draft with an older snapshot",
+        "hash": "08d1b91ce5309bf340dadd02433d2e7021c6e56c857b22c57e614ec903ee5bab",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/templateWindow/bridge.test.ts#local template-window bridge retains the local draft when its event send fails#1",
+      "source": {
+        "path": "src/templateWindow/bridge.test.ts",
+        "name": "local template-window bridge retains the local draft when its event send fails",
+        "hash": "08d1b91ce5309bf340dadd02433d2e7021c6e56c857b22c57e614ec903ee5bab",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/templateWindow/bridge.test.ts#local template-window bridge reports a cancelled Save As action so the editor stays open#1",
+      "source": {
+        "path": "src/templateWindow/bridge.test.ts",
+        "name": "local template-window bridge reports a cancelled Save As action so the editor stays open",
+        "hash": "08d1b91ce5309bf340dadd02433d2e7021c6e56c857b22c57e614ec903ee5bab",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/templateWindow/bridge.test.ts#local template-window bridge waits beyond five seconds while a native Save As picker is still open#1",
+      "source": {
+        "path": "src/templateWindow/bridge.test.ts",
+        "name": "local template-window bridge waits beyond five seconds while a native Save As picker is still open",
+        "hash": "08d1b91ce5309bf340dadd02433d2e7021c6e56c857b22c57e614ec903ee5bab",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/templateWindow/bridge.test.ts#local template-window bridge replaces an unacknowledged old draft on a workspace replacement and ignores late snapshots and acknowledgements#1",
+      "source": {
+        "path": "src/templateWindow/bridge.test.ts",
+        "name": "local template-window bridge replaces an unacknowledged old draft on a workspace replacement and ignores late snapshots and acknowledgements",
+        "hash": "08d1b91ce5309bf340dadd02433d2e7021c6e56c857b22c57e614ec903ee5bab",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/templateWindow/bridge.test.ts#local template-window bridge does not accept late draft or action messages from a discarded workspace#1",
+      "source": {
+        "path": "src/templateWindow/bridge.test.ts",
+        "name": "local template-window bridge does not accept late draft or action messages from a discarded workspace",
+        "hash": "08d1b91ce5309bf340dadd02433d2e7021c6e56c857b22c57e614ec903ee5bab",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/templateWindow/bridge.test.ts#local template-window bridge completes a confirmed discard even though restoring the draft replaces the workspace#1",
+      "source": {
+        "path": "src/templateWindow/bridge.test.ts",
+        "name": "local template-window bridge completes a confirmed discard even though restoring the draft replaces the workspace",
+        "hash": "08d1b91ce5309bf340dadd02433d2e7021c6e56c857b22c57e614ec903ee5bab",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/templateWindow/bridge.test.ts#local template-window bridge does not complete an old action from a late reply after the workspace changed#1",
+      "source": {
+        "path": "src/templateWindow/bridge.test.ts",
+        "name": "local template-window bridge does not complete an old action from a late reply after the workspace changed",
+        "hash": "08d1b91ce5309bf340dadd02433d2e7021c6e56c857b22c57e614ec903ee5bab",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/templateWindow/bridge.test.ts#local template-window bridge keeps a late discard reply from closing an editor that has moved to another workspace#1",
+      "source": {
+        "path": "src/templateWindow/bridge.test.ts",
+        "name": "local template-window bridge keeps a late discard reply from closing an editor that has moved to another workspace",
+        "hash": "08d1b91ce5309bf340dadd02433d2e7021c6e56c857b22c57e614ec903ee5bab",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/templateWindow/windowManager.test.ts#Template Editor window manager creates only one window for rapid opens and focuses it afterward#1",
+      "source": {
+        "path": "src/templateWindow/windowManager.test.ts",
+        "name": "Template Editor window manager creates only one window for rapid opens and focuses it afterward",
+        "hash": "b51f66d402f425e7806b4eae616449e31948481e3ec4dec7f7a81df83fa703b9",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/templateWindow/windowManager.test.ts#Template Editor window manager allows a retry after window creation fails#1",
+      "source": {
+        "path": "src/templateWindow/windowManager.test.ts",
+        "name": "Template Editor window manager allows a retry after window creation fails",
+        "hash": "b51f66d402f425e7806b4eae616449e31948481e3ec4dec7f7a81df83fa703b9",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/templateWindow/windowManager.test.ts#Template Editor window manager recreates the editor after it has closed#1",
+      "source": {
+        "path": "src/templateWindow/windowManager.test.ts",
+        "name": "Template Editor window manager recreates the editor after it has closed",
+        "hash": "b51f66d402f425e7806b4eae616449e31948481e3ec4dec7f7a81df83fa703b9",
+        "result": "passed"
+      },
+      "status": "pending"
+    },
+    {
+      "id": "src/templateWindow/windowManager.test.ts#Template Editor window manager force-destroys the editor after the main window has approved exit#1",
+      "source": {
+        "path": "src/templateWindow/windowManager.test.ts",
+        "name": "Template Editor window manager force-destroys the editor after the main window has approved exit",
+        "hash": "b51f66d402f425e7806b4eae616449e31948481e3ec4dec7f7a81df83fa703b9",
+        "result": "passed"
+      },
+      "status": "pending"
+    }
+  ]
+}

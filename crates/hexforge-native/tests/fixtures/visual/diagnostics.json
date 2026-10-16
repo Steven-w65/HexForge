@@ -1,0 +1,13 @@
+{
+  "name": "Diagnostic preview",
+  "defaultEndianness": "little",
+  "fields": [
+    { "name": "header", "type": "struct", "fields": [
+      { "name": "signature", "type": "bytes", "length": 4,
+        "expect": { "kind": "equals", "value": { "type": "bytes", "value": "FF FE FD FC" } } },
+      { "name": "entryCount", "type": "u8", "placement": { "mode": "relative", "offset": "4" } }
+    ] },
+    { "name": "footer", "type": "string", "encoding": "ascii", "length": 16,
+      "placement": { "mode": "absolute", "offset": "64" } }
+  ]
+}

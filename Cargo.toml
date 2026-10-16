@@ -1,0 +1,12 @@
+[workspace]
+members = ["crates/hexforge-core", "crates/hexforge-controller", "crates/hexforge-native"]
+exclude = ["vendor/eframe"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+
+# Pinned eframe integration: child AccessKit registration and swap-before-reveal.
+[patch.crates-io]
+eframe = { path = "vendor/eframe" }

@@ -139,20 +139,26 @@ These templates do not automatically detect file formats. PNG/IHDR, classic PCM 
 
 The tiny fixtures can be regenerated from the repository root:
 
-```sh
-node templates/generate-fixtures.mjs
-```
-
-Pass one or more template stems to regenerate only selected fixtures:
+The native Rust workspace now provides a byte-identical generator for all 14
+bundled binaries. First check it without writing files:
 
 ```sh
-node templates/generate-fixtures.mjs bmp-header sqlite-header
+cargo test --offline -p hexforge-core --test fixture_generation fixture_regeneration_is_byte_identical
 ```
+
+To explicitly rewrite those bundled `.bin` fixtures with the same bytes:
+
+```sh
+cargo test --offline -p hexforge-core --test fixture_generation regenerate_bundled_fixtures -- --ignored --exact
+```
+
+The regeneration test is ignored in ordinary test runs. It never edits JSON
+templates or user-saved files. No Node.js installation is required.
 
 Rust integration tests load the new templates through the application's template-file loader and verify decoded values, exact offsets, conditional DIB/DX10 headers, and bounded ICO expansion:
 
 ```sh
-cargo test --manifest-path src-tauri/Cargo.toml --test bundled_templates
+cargo test --offline -p hexforge-core --test bundled_templates
 ```
 
 ### Format references

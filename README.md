@@ -16,11 +16,11 @@
   <img src=".github/assets/readme-hero.svg" width="100%" alt="Illustration of HexForge with offset, hex, and ASCII columns, a blue selection, and an orange edited byte" />
 </p>
 
-<p align="center"><sub>Illustrated interface preview · Built with Tauri 2, Vue 3, TypeScript, Rust, and Canvas</sub></p>
+<p align="center"><sub>Illustrated interface preview · Native Rust interface powered by egui / eframe</sub></p>
 
 ## What you can do
 
-- 🔬 **Inspect without loading everything.** Open any local binary file. Rust reads bounded pages around the viewport, so even multi-gigabyte files stay practical to explore. The Canvas view keeps offsets, hex bytes, and ASCII side by side; non-printable characters appear as `.`.
+- 🔬 **Inspect without loading everything.** Open any local binary file. Rust reads bounded pages around the viewport, so even multi-gigabyte files stay practical to explore. The native view keeps offsets, hex bytes, and ASCII side by side; non-printable characters appear as `.`.
 - 🧭 **Get to the right bytes quickly.** Jump to decimal or `0x` offsets, search hex sequences such as `41 42 43`, select byte ranges, and switch between 16 and 32 bytes per row. A minimap helps you keep your place in the file.
 - ✏️ **Experiment without touching the source.** Edit a selected byte in memory, see changes highlighted in orange, and undo an edit. **Save As** writes a new binary; the original is never overwritten.
 - 🧩 **Make structure visible.** Apply a local JSON template to decode fields, jump from a parsed result to its bytes, and export results as CSV.
@@ -37,24 +37,23 @@ Everything stays local: HexForge never uploads your files, bytes, paths, templat
 2. Download and extract the **`HexForge-windows-x64-portable`** artifact.
 3. Launch `hexforge.exe`, then use **File → Open File…** or drag a binary into the window.
 
-There is no HexForge installer or development server to run. Windows needs the WebView2 runtime used by Tauri.
+There is no HexForge installer, development server, WebView runtime, or external UI asset folder. The portable folder needs only `hexforge.exe` and a working Windows graphics driver.
 
 ### Run from source
 
-Install Node.js compatible with [`package.json`](package.json) (`^20.19.0` or `>=22.12.0`), npm, stable Rust, and the [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/). On Windows, this includes Microsoft C++ Build Tools and WebView2.
+Install stable Rust and Microsoft C++ Build Tools with the Windows SDK. Node.js, npm, and browser tooling are not needed to build or run HexForge.
 
 ```sh
-npm ci
-npm run tauri -- dev
+cargo run -p hexforge-native --bin hexforge
 ```
 
 To create the portable executable locally:
 
 ```sh
-npm run tauri -- build --no-bundle
+cargo build --release -p hexforge-native --bin hexforge
 ```
 
-The output is `src-tauri/target/release/hexforge.exe`.
+The output is `target/release/hexforge.exe`.
 
 ## Your original file stays original
 
@@ -114,37 +113,19 @@ Save shortcuts follow the focused window: `Ctrl+Shift+S` in the main hex viewer 
 
 ## Build and verify
 
-Vue and TypeScript handle the interface and layered Canvas rendering. Tauri commands connect it to Rust's paginated I/O, search, template parser, CSV export, and sparse in-memory edit buffer. HexForge does not use a third-party hex-view component.
+The workspace separates bounded file/parser operations (`hexforge-core`), authoritative state and command policy (`hexforge-controller`), and the styled native interface (`hexforge-native`). The main window and separate Template Editor share the controller without inter-window IPC. Fonts, icons, and default keybindings are embedded. HexForge does not use a third-party hex-view component.
 
 ```sh
-npm ci
-npm test
-npm run typecheck
-npm run build
-cargo test --manifest-path src-tauri/Cargo.toml
+cargo fmt --all --check
+cargo check --workspace
+cargo test --workspace
+cargo build --release -p hexforge-native --bin hexforge
 ```
 
-On Windows with Microsoft Edge installed, `npm run test:canvas:real` also checks real Canvas rendering and Template Editor dialog styling. The [Windows build workflow](.github/workflows/build.yaml) runs the checks, builds a portable `.exe`, and verifies that its bundled interface starts without a development server.
+The [Windows build workflow](.github/workflows/build.yaml) runs the native tests, checks formatting and compilation, builds the GUI-only executable, and verifies its EXE-only packaging. Tests cover command availability, real widget input/paint, save and close protection, exact offsets, both minimap modes, template parsing/editing, and byte-identical bundled fixtures.
 
 ### Measure startup locally
 
-The main viewer and Template Editor load separate bundles. The hex canvas/minimap module prewarms after first contentful paint, or loads immediately if a file opens sooner. The bundled interface font is preloaded from HTML. Primary controls, shortcuts, drop handling, and close protection remain on the initial path; their independent listeners register concurrently. Workspace sizing uses ResizeObserver measurements without forcing layout during mount.
+Startup diagnostics are opt-in. The development-only `hexforge_startup_probe` example observes actual desktop pixels and correlates process creation with Windows QPC; a title, constructed scene, queued frame, or blank window cannot count as meaningful paint. It requires a reviewed calibration for the exact executable, viewport, DPI, and theme. Reports are written outside the portable folder, never as runtime sidecars.
 
-Run this from the repository root in PowerShell after building:
-
-```powershell
-.\src-tauri\tests\verify_portable_startup.ps1 `
-  -ExecutablePath .\src-tauri\target\release\hexforge.exe -Measure
-```
-
-`-Measure` launches a visible window and verifies browser contentful paint after the real menu, file strip, Open File button, and status controls are rendered. On Windows, it anchors native timing to OS process creation and correlates the browser clock using five post-paint IPC samples. `FirstMeaningfulPaintMs` and `InteractiveMs` use this common timeline. `FrontendReadyMs` is still a coarse external acknowledgment observation, **not paint**.
-
-For opt-in diagnostics, add `-ProfileOutputPath .\src-tauri\target\startup-timings.json`; this explicitly replaces that report with native milestones, browser milestones, asset timings, and clock samples. Raw browser timestamps remain document-relative; never subtract them directly from native timestamps. Missing or invalid paint/calibration is an error, not a zero-millisecond result. Without `-Measure`, the hidden portable smoke probe verifies bundled startup/IPC only and makes no paint claim.
-
-For repeated warm and fresh-profile measurements, use a **new output directory**:
-
-```powershell
-node scripts/startup-benchmark.mjs --runs 20 --output-dir src-tauri/target/startup-local --label current
-```
-
-The probe temporarily sets child-process flags, restores them, and closes only the app it launched. Normal launches collect no phase timings and write no profiling files. Fresh profiles are **profile-cold, not reboot-cold**; normal WebView data is untouched. See [startup performance measurements](STARTUP_PERFORMANCE.md) for hardware, before/after median/p95 results, phase breakdown, and the cold-boot procedure. The measured <100 ms target was **not achieved**; native window/WebView initialization is the limiting phase.
+See [startup performance measurements](STARTUP_PERFORMANCE.md) for the method, observed intervals, current phase breakdown, and limitations. **The under-100 ms target was not achieved.** The full repeated benchmark was deferred at the user's request; no before/after median, p95, or early interaction-time claim is made for the native replacement.

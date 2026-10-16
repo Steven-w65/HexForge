@@ -1,106 +1,101 @@
-# Startup performance
+# Native startup performance
 
-Measured 2026-10-03. **The <100 ms process-to-main-interface-paint target is not met.** The optimization reduces optional JavaScript loading and font discovery latency; it does not eliminate the native WebView startup cost.
+Updated 2026-10-16. **The under-100 ms process-to-real-interface target was not achieved.** The native release no longer uses a WebView, a development server, or JavaScript bundles. Removing those dependencies does not make native window, graphics-driver, or compositor initialization instantaneous.
+
+The user chose to finish with the verified samples and defer the full 20-pair warm/fresh-profile benchmark. Consequently, no native before/after median, p95, profile-cold distribution, or earliest-interaction claim is made. Older browser timing results use a different observer and must not be compared directly with these results.
 
 ## Reference machine
 
-- Lenovo 83DE; Intel Core i9-14900HX (24 cores, 32 logical processors), 32 GB RAM.
-- Samsung MZVL21T0HCLR-00BL2 NVMe SSD.
-- Windows 11 Home Chinese, build 26200; installed WebView2 154.0.4258.53.
-- Release executable built with `npm run tauri -- build --no-bundle`; all frontend assets remain embedded. No dev server, sidecar, resident preloader, security-option changes, or process-priority changes.
-- Normal desktop applications remained running. No reboot or system cache clearing was performed.
+- Lenovo 83DE; Intel Core i9-14900HX, 24 cores / 32 logical processors, approximately 32 GB RAM.
+- Windows 11 Home Chinese, build 26200.
+- NVIDIA RTX 4090 Laptop GPU, driver 32.0.16.1074; AskLink virtual display driver 18.36.3.757.
+- Observed client: 2240 × 1400 physical pixels, 168 DPI / 175% scaling, dark application theme.
+- Final release SHA-256: `CD4BCB0FE60B2E7F63FA6BD0110CD6EBA2D4E6ED571DFDB60F49222E9B19E2E2`, 10,876,928 bytes.
+- Other desktop applications remained running. No reboot, cache flush, security change, priority change, resident preloader, or system animation change was used.
 
-## What is measured
+## What qualifies as meaningful paint
 
-The main interface is the actual File/Edit/Navigate/Template/View menu, file strip, centered Open File control, and status/16–32 row controls, in the real application shell. The HTML body initially contains only an empty mount target. There is no splash or replacement interface. A DOM-only presence check precedes paint; geometry/style/visibility checks follow the browser paint notification to avoid injecting a forced prepaint layout.
+The real main interface must actually be presented with its navigation menus, Open File action, hex viewport, parsed-results panel, and status bar. A title change, blank window, placeholder, constructed scene, queued frame, or application-owned framebuffer cannot qualify.
 
-First meaningful paint is the browser's `first-contentful-paint` timestamp after those controls have mounted and are visible. Prefer its presentation timestamp when the engine exposes one; otherwise use the Paint Timing start timestamp. This is a browser paint/presentation measurement, **not a camera measurement of physical panel photons** or independent proof against another window occluding the app. Chromium timestamp quantization and compositor reporting add uncertainty beyond IPC calibration; displayed numbers are rounded, not claims of submillisecond display accuracy.
+The opt-in development probe captures the Windows desktop client pixels independently and matches five reviewed, hash-bound regions. It rejects obscured, hidden, minimized, wrong-build, wrong-DPI, and unreviewed frames. OS process creation is correlated to QPC using a bracketed precise FILETIME sample. Capture brackets use that same QPC domain; no uncorrelated browser and Rust timestamps are combined.
 
-The process origin uses Windows [GetProcessTimes](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocesstimes). [GetSystemTimePreciseAsFileTime](https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getsystemtimepreciseasfiletime) is sampled once against a monotonic Rust `Instant` to anchor that origin. All subsequent native intervals are monotonic. Five IPC samples taken **after measured paint** correlate `performance.now()` with native elapsed time. The minimum-round-trip sample provides the offset; its half-round-trip is reported as calibration uncertainty (median 0.30 ms in the final paired warm series). Raw native and document timestamps are never subtracted without this offset. See [W3C Paint Timing](https://w3c.github.io/paint-timing/) for the browser metric's semantics.
+Each result is an interval from the last negative capture to the first qualifying capture. The upper bound is conservative. The capture interval and the separate process-origin calibration uncertainty are retained. Failed runs remain failures, not zero-millisecond results or silently discarded outliers.
 
-Interaction readiness is reported separately: the later of verified paint and completion of required native bridge, close, and drop listeners; keyboard handlers and command handlers are already installed. All measured samples had those listeners ready before paint, so interaction and paint numbers coincide. This measures readiness of the real controls, not completion of every optional module. Functional suites check the actions separately.
+## Verified native observations
 
-The title acknowledgment is only the smoke-test completion signal. Its externally polled time is not the paint metric. A blank window, Vue mount, missing paint, stale report, calibration failure, or minimized/hidden window cannot satisfy the paint probe.
+The final release was independently observed on Oct16 with diagnostics off:
+**511.5068–555.7582 ms**, with a 44.2514 ms capture bracket and process-origin
+uncertainty of 4 ticks at 10 MHz. This is one warm launch, not a distribution.
+It used an external Computer Use launch with no post-launch activation/input;
+the observer matched all five real primary-control regions in actual presented
+desktop pixels. Its exact-hash baseline was inspected independently before the
+launch. Evidence: `oct16-final-native-warm-01.json` in the parity workspace.
+The final EXE also opened its real main and separate editor controls from an
+EXE-only folder outside the repository. Earliest interaction was not measured.
 
-## Before and after
+The following earlier observations bind the preceding release
+`23AB07B1ED043D78D78639FBCCD13542C1F6D97E0841CCB7A718696059324A40`
+(10,871,296 bytes). They are retained verified samples, **not final-build
+statistics or a before/after speedup**.
 
-The pre-optimization executable includes the exact same paint instrumentation as the candidate. Twenty launches per executable per category were tested in a paired comparison, alternating baseline/candidate order each iteration. One predefined warmup per executable is excluded; **no measured outliers are removed**. p95 is nearest rank (`ceil(0.95 × n)`).
+| Observation | Launch / diagnostics | Presented interval | Capture interval |
+| --- | --- | ---: | ---: |
+| Oct13 warm02 | External app launch, diagnostics off | 466.5451–514.4752 ms | 47.9301 ms |
+| Oct13 warm03 | External app launch, diagnostics off | 492.6285–531.8296 ms | 39.2011 ms |
+| Oct13 paired warm01 native retry | External app launch, diagnostics off | 491.1940–532.8128 ms | 41.6188 ms |
+| Oct13 paired warm02 native | External app launch, diagnostics off | 523.0838–578.4040 ms | 55.3202 ms |
+| Oct15 diagnostic01 | External app launch, diagnostics off | 492.6627–531.5290 ms | 38.8663 ms |
+| Oct15 final phased01 | Passive observer child launch, diagnostics on | 538.4201–581.6619 ms | 43.2418 ms |
 
-| Category | Before paint median / p95 | After paint median / p95 | After interaction median / p95 | After fastest |
-| --- | ---: | ---: | ---: | ---: |
-| Warm OS and reused private WebView profile | 416.0 / 442.1 ms | 407.1 / 438.5 ms | 407.1 / 438.5 ms | 397.1 ms |
-| Fresh private WebView profile; OS cache warm | 411.2 / 443.8 ms | 406.1 / 433.6 ms | 406.1 / 433.6 ms | 393.6 ms |
+These earlier samples all bind the preceding release hash above. The fastest qualifying upper bound in that set is **514.4752 ms**. Sparse samples with differing diagnostic settings are not the deferred repeated comparison. Process-origin uncertainty is 2–5 ticks at 10 MHz, much smaller than the capture brackets but not concealed.
 
-Warm median improved 8.9 ms (2.1%); profile-cold median improved 5.1 ms (1.2%). p95 improved 3.6 ms warm and 10.2 ms profile-cold in this final series. This is a modest, noisy gain, not a 100 ms launch claim or a guarantee of tail improvement under all loads. The fastest verified final-executable sample is **393.6 ms**. All final results include the close-protection failure-path hardening found during review.
+## Preceding-release phase sample
 
-Before editing product code, an initial sequential baseline produced warm 385.7 ms median / 410.6 ms p95 and profile-cold 387.5 / 393.9 ms. Its fastest sample was 374.9 ms. A later renderer-split-only candidate series measured 422.9 / 449.3 ms warm and 409.9 / 464.4 ms profile-cold. The first paired comparison (before the review safety fix) measured warm 450.9 / 478.0 → 435.3 / 468.0 ms, and profile-cold 453.3 / 464.3 → 446.8 / 467.6 ms; that series' profile-cold p95 worsened slightly. Because timings drifted across successive series, the final alternating comparison above is the primary evidence; comparing its candidate directly to the earlier 385.7 ms baseline would be misleading. The renderer split alone did **not** prove a startup gain. An earlier exploratory measurement forced layout before paint and is excluded from the reported comparison.
+The Oct15 phased sample of the preceding release records the following milestones relative to its own correlated OS process origin. The final Oct16 release has a new real presentation sample but was not separately phase-profiled; do not silently transfer this breakdown to its new hash.
 
-Raw reports remain in the ignored local build directory `src-tauri/target/startup-benchmark-2026-10-03/` (`clean-probe` for initial series, `paired` for the first comparison, `final-paired` for the final executable comparison). They contain native/browser phases, resource requests, clock samples, and full-precision summary values. These are opt-in benchmark artifacts, not distribution files.
+| Milestone | Elapsed |
+| --- | ---: |
+| First Rust diagnostic mark | 49.4938 ms |
+| System theme selected | 49.7953 ms |
+| Native window / renderer available | 251.1919 / 251.1920 ms |
+| Controller / preferences ready | 251.2233 / 251.2839 ms |
+| Embedded font assets installed | 267.4309 ms |
+| Real main scene constructed | 270.6135 ms |
+| First actual Glow draw callback | 274.0142 ms |
+| Independently observed presentation | 538.4201–581.6619 ms |
 
-## Critical-path evidence
+The theme-to-window/renderer interval is about **201.4 ms**, already longer than the target. This is a combined framework/native-window/graphics initialization region, not a measurement of each internal driver step. The later gap between draw submission and desktop presentation also includes reveal/compositor/scheduling effects; its cause has not been isolated. Scene construction and draw submission are not presentation.
 
-Median phase durations from the paired warm series (individual medians do not necessarily sum to the median total):
+A real Ctrl+Alt+T command was accepted and the light interface was observed. Its diagnostic mark was approximately 60.07 seconds after launch because the verification input was sent much later. This demonstrates eventual interaction only, **not earliest time to interaction**. No early interaction measurement is invented.
 
-| Phase | Before | After |
-| --- | ---: | ---: |
-| Process creation → Rust run entry | 44.5 ms | 43.8 ms |
-| Generate native context | 0.5 ms | 0.5 ms |
-| Build app/configuration | 3.2 ms | 3.1 ms |
-| Native window and WebView creation | 241.9 ms | 240.6 ms |
-| Window/WebView created → JavaScript entry | 16.3 ms | 17.2 ms |
-| Main root asset load and evaluation | 6.0 ms | 4.6 ms |
-| Root available → Vue root mounted | 9.3 ms | 9.7 ms |
-| Root mounted → reported contentful paint | 92.4 ms | 86.1 ms |
-| Concurrent required-listener registration (overlaps painting) | 5.6 ms | 6.0 ms |
+## Reproduce without changing packaging
 
-The largest measured interval is **native window/WebView creation**, already about 241 ms before frontend optimization can help. This probe measures that interval as a combined phase, not separate internal WebView browser/GPU/native-window subphases. The post-mount paint gap includes browser layout/raster/compositor presentation and scheduling; it must not be attributed entirely to JavaScript.
-
-Asset resource timings show that the font request moves from median document time **93.2 ms to 16.9 ms**, with median load duration 4.1 → 3.4 ms. The main App JavaScript chunk shrinks roughly **112 KB → 77 KB**; the 37 KB hex renderer/minimap chunk is requested after paint (or immediately on file opening). All backing canvases and renderer behavior are unchanged. The empty shell's layout is already final, so prewarm introduces no layout jump. Failed optional prewarm stays silent and retryable; an actual viewer-load failure reports an error and offers Retry.
-
-## Reproduce
-
-Build from the repository root:
+Build the app and the development-only probe separately:
 
 ```powershell
-npm run tauri -- build --no-bundle
-powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/tests/verify_portable_startup.ps1 `
-  -ExecutablePath src-tauri/target/release/hexforge.exe -Measure
-node scripts/startup-benchmark.mjs --runs 20 --label current `
-  --output-dir src-tauri/target/startup-new-measurement
+cargo build --release -p hexforge-native --bin hexforge
+cargo build --release -p hexforge-native --example hexforge_startup_probe
 ```
 
-For a controlled before/after comparison, preserve a baseline executable **built with the same measurement instrumentation**, then use:
+The probe supports:
 
-```powershell
-node scripts/startup-benchmark.mjs --runs 20 --label comparison `
-  --baseline-exe path/to/baseline.exe --exe src-tauri/target/release/hexforge.exe `
-  --output-dir src-tauri/target/startup-new-comparison
+```text
+hexforge_startup_probe baseline EXE PID HWND OUT.json
+hexforge_startup_probe watch EXE CALIBRATION.json OUT.json native
+hexforge_startup_probe observe EXE CALIBRATION.json OUT.json native
 ```
 
-Use a new output directory/label each time. The benchmark rejects reused fresh-profile directories rather than mislabeling them cold. The reused warm profile is private to the benchmark; normal preferences and user files are untouched. The probe restores child environment flags and closes only its own application. Normal launches have no profiling report, clock sampling, or profiling file writes. A paint observer is used for optional-work scheduling; it is not a readiness assertion or diagnostic logger.
+Use explicit absolute paths and new output names outside the EXE-only folder. A baseline must be independently inspected and reviewed for the exact build, real controls, client dimensions, DPI, and theme before it can measure a launch. The default automatic rectangles apply only to 1280 × 800 at 96 DPI; other viewports require their own reviewed regions, not screenshot scaling or relaxed thresholds.
 
-### True OS-cold procedure (not run here)
+`watch` passively waits for an externally launched matching executable. It does not activate windows or send input. `observe` launches a clean test child with native phase diagnostics; it never closes the app automatically. Close only that clean test instance through its normal UI. The probe executable and its reports are development artifacts and are not distributed alongside HexForge.
 
-1. Build and save the release executable before testing. Record Windows/WebView2 versions, power mode, hardware, and background application conditions.
-2. Reboot manually; allow the same predefined desktop idle interval each time. Do not launch HexForge or its benchmark warmup before the measured run.
-3. Run the single-launch `-Measure` probe once with a new `-WebViewProfilePath` and `-ProfileOutputPath` in an existing dedicated report directory.
-4. Repeat across at least 20 reboots and compute median/p95 from the valid first-launch reports. Keep failed measurements visible; do not turn them into zero or silently discard slow runs.
-5. Label these reboot-cold results separately. Warm and fresh-profile results above are not a substitute.
+For phase-only diagnostics, set `HEXFORGE_STARTUP_PROFILE` for the child process to a new absolute report filename outside the app folder. Normal launches do no diagnostic clock/report work. Reports are published on clean shutdown and never replace earlier files.
 
-## Verification
+## Explicitly deferred or skipped
 
-Frontend: 606 tests; TypeScript typecheck; production frontend/portable build. Rust: `cargo fmt --check`, `cargo check`, 130 tests. Real Edge Canvas/editor styling regression and portable startup smoke also run. No commit is created by this work.
+- The full paired warm/fresh-state benchmark and early interaction measurement are deferred by user direction. Native fresh state must never be called WebView-profile-cold or OS-cold.
+- Physical drag-and-drop was manually verified by the user.
+- Live Windows system-theme and per-monitor-DPI transition checks were skipped at the user's request. Automated theme/DPI/layout tests remain enabled; skipped checks are not counted as passes.
+- A qualifying final frame does not prove there was no earlier white flash. The root is kept hidden until a successful real buffer swap, but complete independent white-flash coverage remains a stated measurement limitation.
 
-Final review also identified a safety issue in the earlier concurrent-listener work: a drop/bridge failure could roll back a successful close guard while leaving editing available. Main-window safety listeners now remain owned until teardown; file opening/edit commands are gated until close protection is installed. Atomic editor-bridge registration/cleanup remains unchanged. Regression tests reproduce failed and delayed registration, guarded dirty close, and late cleanup.
-
-### Files updated for this task
-
-- Initial loading: `index.html`, `src/main.ts`, `src/App.vue`, `src/components/AppShell.vue`, `src/startup/afterPaint.ts`, `src/startup/hexCanvasLoader.ts`.
-- Profiling and native hooks: `src/startup/timings.ts`, `src/startup/listenerScope.ts`, `src/api/backend.ts`, `src-tauri/src/startup.rs`, `src-tauri/src/commands.rs`, `src-tauri/src/lib.rs`.
-- Probes: `src-tauri/tests/verify_portable_startup.ps1`, `scripts/startup-benchmark.mjs`.
-- Tests: `src/startup/timings.test.ts`, `src/startup/afterPaint.test.ts`, `src/startup/canvasLoading.test.ts`, `src/App.test.ts`, `src/components/AppShell.test.ts`, `src/test/hexCanvasStub.ts`, `scripts/startup-assets.test.mjs`, `scripts/startup-benchmark.test.mjs`, `src-tauri/tests/startup_timings.rs`.
-- Documentation: `README.md`, `STARTUP_PERFORMANCE.md`; a local ignored plan/ledger records implementation and review.
-
-Other existing uncommitted work, including the shortcut changes and Template Editor behavior, is preserved. The release executable matches the final benchmark executable byte-for-byte (SHA-256 `D78019BCD31C94F6CD899E063D53AC1262A8207E533125BA3888FBEE14A9F298`).
-
-Remaining limitation: achieving <100 ms would require addressing the measured native WebView/compositor startup cost. That has not been achieved or hidden by changing the endpoint, adding a splash, keeping a background helper alive, or changing the single-executable distribution.
+For a future true OS-cold series, build before rebooting, use a predefined idle interval, perform no warmup, capture the first launch, and repeat across separately labeled reboots. Do not clear global caches or alter Windows settings automatically.
