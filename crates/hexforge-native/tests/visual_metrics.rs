@@ -1,5 +1,6 @@
 //! Numeric layout observations from the actual 1280x800/DPR1 source capture,
 //! not egui defaults. Font rasterization does not excuse missing CSS spacing.
+//! Intrinsic OS-font advances can differ; CSS padding and gaps must not.
 #[path = "support/capture_scene.rs"]
 mod capture_scene;
 #[path = "support/capture_spec.rs"]
@@ -15,12 +16,30 @@ fn file_menu_frame() -> support::ui_harness::CapturedFrame {
     file_menu_frame_with_prior_keyboard(false)
 }
 fn file_menu_frame_with_prior_keyboard(prior_keyboard: bool) -> support::ui_harness::CapturedFrame {
+    file_menu_frame_with_fonts(prior_keyboard, false)
+}
+
+fn file_menu_frame_with_fonts(
+    prior_keyboard: bool,
+    embedded_shortcuts: bool,
+) -> support::ui_harness::CapturedFrame {
     let h = NativeUiHarness::new();
     let mut app = NativeApp::new(
         InitialState::default(),
         std::sync::Arc::new(hexforge_core::operations::CoreService::default()),
     );
     app.attach(&h.context);
+    if embedded_shortcuts {
+        // Exercise real text layout with a different installed/fallback metric,
+        // without changing production font selection or requiring OS changes.
+        h.frame(Default::default(), |_| {});
+        let mut definitions = h.context.fonts(|fonts| fonts.definitions().clone());
+        definitions.families.insert(
+            egui::FontFamily::Name("HexForge OS Monospace".into()),
+            vec!["HexForge Regular".into()],
+        );
+        h.context.set_fonts(definitions);
+    }
     for (time, events) in [
         (
             0.0,
@@ -81,18 +100,55 @@ fn file_menu_frame_with_prior_keyboard(prior_keyboard: bool) -> support::ui_harn
 #[test]
 fn menu_has_source_grid_width_and_shortcut_spacing() {
     let frame = file_menu_frame();
+    assert_menu_grid_width_and_shortcut_spacing(&frame);
+}
+
+#[test]
+fn menu_grid_preserves_css_spacing_with_different_shortcut_font_metrics() {
+    let frame = file_menu_frame_with_fonts(false, true);
+    assert_menu_grid_width_and_shortcut_spacing(&frame);
+}
+
+fn assert_menu_grid_width_and_shortcut_spacing(frame: &support::ui_harness::CapturedFrame) {
     let open = frame
         .widgets
         .iter()
         .find(|w| w.label == "Open File…")
         .expect("Actual menu item");
+    let text = |name: &str| {
+        frame
+            .output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text() == name => Some(text),
+                _ => None,
+            })
+            .expect("Actual painted menu text")
+    };
+    // Export is the widest File-menu label and has the same-length shortcut
+    // as Save As. Measure the painted, unrounded advances independently of
+    // menu_width; do not pin the installed NSimSun version's glyph widths.
+    let label = text("Export Parsed Results as CSV…");
+    let shortcut = text("Ctrl+Shift+E");
+    let label_width = label.galley.rows[0].size.x;
+    let shortcut_width = shortcut.galley.rows[0].size.x;
+    assert!(label_width > 120.0);
+    assert_eq!(label.galley.job.sections[0].format.font_id.size, 12.0);
+    assert_eq!(shortcut.galley.job.sections[0].format.font_id.size, 12.0);
+    // Original CSS: two 9px paddings, 14px check column, two 7px gaps.
+    let intrinsic_width = label_width + shortcut_width + 18.0 + 14.0 + 14.0;
     assert!(
-        (open.rect.width() - 319.703125).abs() < 0.5,
-        "CSS intrinsic grid width, not extra generic menu padding: {:?}",
+        (open.rect.width() - intrinsic_width).abs() < 0.5,
+        "CSS grid must contain text advances + 46px, not generic menu padding: label={label_width}, shortcut={shortcut_width}, row={:?}",
         open.rect
     );
+    assert!((label.pos.x - open.rect.left() - 30.0).abs() < 0.01);
+    assert!((open.rect.right() - shortcut.pos.x - shortcut.galley.size().x - 9.0).abs() < 0.01);
+    assert!((shortcut.pos.x - label.pos.x - label_width - 7.0).abs() < 0.5);
     assert!((open.rect.left() - 134.0).abs() < 0.6);
     assert_eq!(open.rect.top(), 38.0);
+    assert_eq!(open.rect.height(), 33.0);
 }
 
 #[test]
