@@ -1,131 +1,214 @@
-<h1 align="center">HexForge</h1>
+<div align="center">
 
-<p align="center"><strong>Inspect bytes. Understand structure. Keep the original intact.</strong></p>
+<h1>HexForge</h1>
 
-<p align="center">A fast, fully offline hex viewer and binary analysis tool for Windows.</p>
+<p><strong>Every byte. In plain sight.</strong></p>
 
-<p align="center">
-  <a href="https://github.com/Steven-w65/HexForge/actions/workflows/build.yaml">⬇️ Get the portable EXE</a>
-  &nbsp;·&nbsp;
-  <a href="#start-here">🚀 Get started</a>
-  &nbsp;·&nbsp;
-  <a href="#templates">🧩 Explore templates</a>
+<p>A native Windows hex viewer and binary analysis workbench.<br />Inspect raw bytes, decode file structures, and experiment while keeping your original intact.</p>
+
+<p>
+  <a href="https://github.com/Steven-w65/HexForge/actions/workflows/build.yaml"><img src="https://github.com/Steven-w65/HexForge/actions/workflows/build.yaml/badge.svg" alt="Windows build status" /></a>
+  <img src="https://img.shields.io/badge/Windows-x64-1F6FEB?style=flat-square" alt="Platform: Windows x64" />
+  <img src="https://img.shields.io/badge/Built_with-Rust-F0883E?style=flat-square" alt="Built with Rust" />
+  <img src="https://img.shields.io/badge/Works-fully_offline-3FBF9B?style=flat-square" alt="Works fully offline" />
 </p>
 
-<p align="center">
-  <img src=".github/assets/readme-hero.svg" width="100%" alt="Illustration of HexForge with offset, hex, and ASCII columns, a blue selection, and an orange edited byte" />
+<p>
+  <a href="https://github.com/Steven-w65/HexForge/actions/workflows/build.yaml"><strong>Download Windows build</strong></a>
+  &nbsp; · &nbsp;
+  <a href="#quick-start">Quick start</a>
+  &nbsp; · &nbsp;
+  <a href="#templates">Templates</a>
+  &nbsp; · &nbsp;
+  <a href="#keyboard-shortcuts">Shortcuts</a>
+  &nbsp; · &nbsp;
+  <a href="#development">Development</a>
 </p>
 
-<p align="center"><sub>Illustrated interface preview · Native Rust interface powered by egui / eframe</sub></p>
+</div>
 
-## What you can do
+<p align="center">
+  <img src=".github/assets/readme-hero.svg" width="100%" alt="HexForge concept illustration: a dark binary workbench with a PNG byte grid, a blue selection, an amber edit, and decoded width and height fields" />
+</p>
 
-- 🔬 **Inspect without loading everything.** Open any local binary file. Rust reads bounded pages around the viewport, so even multi-gigabyte files stay practical to explore. The native view keeps offsets, hex bytes, and ASCII side by side; non-printable characters appear as `.`.
-- 🧭 **Get to the right bytes quickly.** Jump to decimal or `0x` offsets, search hex sequences such as `41 42 43`, select byte ranges, and switch between 16 and 32 bytes per row. A minimap helps you keep your place in the file.
-- ✏️ **Experiment without touching the source.** Edit a selected byte in memory, see changes highlighted in orange, and undo an edit. **Save As** writes a new binary; the original is never overwritten.
-- 🧩 **Make structure visible.** Apply a local JSON template to decode fields, jump from a parsed result to its bytes, and export results as CSV.
+<p align="center"><sub>Concept illustration · Blue selects bytes. Amber marks an in-memory edit.</sub></p>
 
-The interface follows your system's light or dark theme automatically and bundles JetBrains Mono locally. Toggle Theme (`Ctrl+Alt+T`) keeps a manual choice until the next system-theme change or app restart. Search, parsing, and export keep the interface responsive.
+## Built for a closer look
 
-Everything stays local: HexForge never uploads your files, bytes, paths, templates, or parsed results. There are no cloud accounts, telemetry, or auto-updates.
+Follow an unfamiliar file from raw bytes to named fields. HexForge puts offsets, hexadecimal values, ASCII, and parsed results in one native workspace, with a separate editor for your templates.
 
-## Start here
+| Capability | What you can do |
+| :--- | :--- |
+| **Inspect at scale** | Explore large binaries through bounded, paged reads around the viewport. Keep offsets, hex, and ASCII side by side, with 16 or 32 bytes per row. |
+| **Find your place** | Jump to decimal or `0x` offsets, search hexadecimal byte sequences, step through matches, and navigate with a fit or proportional minimap. |
+| **Reveal structure** | Decode integers, floats, strings, flags, arrays, and nested structures with local JSON templates. Click a parsed field to highlight its bytes. |
+| **Try an edit** | Change a selected byte in memory, see edits in amber, undo changes, and save the result as a separate binary. |
+| **Take results with you** | Export parsed results as CSV for further inspection. Parsing reads your effective bytes, including unsaved edits. |
+| **Make yourself at home** | Follow the system's light or dark theme, switch themes manually, and work with locally bundled JetBrains Mono and keyboard shortcuts. |
 
-### Use the portable Windows build
+**Your files stay on your machine.** HexForge runs fully offline, with no cloud account, telemetry, file uploads, or auto-updates. Its interface is built in Rust with egui / eframe; fonts, icons, and default keybindings are embedded in the executable.
 
-1. Open the [Build Portable Windows EXE workflow](https://github.com/Steven-w65/HexForge/actions/workflows/build.yaml) and choose a successful run.
+## Quick start
+
+### Download and open
+
+1. Open the [Windows build workflow](https://github.com/Steven-w65/HexForge/actions/workflows/build.yaml) and select a successful run.
 2. Download and extract the **`HexForge-windows-x64-portable`** artifact.
-3. Launch `hexforge.exe`, then use **File → Open File…** or drag a binary into the window.
+3. Launch **`hexforge.exe`**.
+4. Drag a binary into the window, or choose **File → Open File…** (`Ctrl+O`).
 
-There is no HexForge installer, development server, WebView runtime, or external UI asset folder. The portable folder needs only `hexforge.exe` and a working Windows graphics driver.
+The portable app needs only `hexforge.exe` and a working Windows graphics driver. No installer, WebView runtime, or external UI asset folder is required.
 
-### Run from source
+> [!TIP]
+> Try a complete example: open [`templates/png-ihdr.bin`](templates/png-ihdr.bin), load [`templates/png-ihdr.json`](templates/png-ihdr.json) through **Template → Load Template…**, then choose **Apply Template** (`Ctrl+Enter`). Click a decoded field to see exactly where it lives in the file.
 
-Install stable Rust and Microsoft C++ Build Tools with the Windows SDK. Node.js, npm, and browser tooling are not needed to build or run HexForge.
+### Build from source
 
-```sh
-cargo run -p hexforge-native --bin hexforge
-```
-
-To create the portable executable locally:
+On Windows, install **stable Rust** and **Microsoft C++ Build Tools with the Windows SDK**, then run:
 
 ```sh
-cargo build --release -p hexforge-native --bin hexforge
+git clone https://github.com/Steven-w65/HexForge.git
+cd HexForge
+cargo run --locked -p hexforge-native --bin hexforge
 ```
 
-The output is `target/release/hexforge.exe`.
+Create the portable executable with:
 
-## Your original file stays original
+```sh
+cargo build --locked --release -p hexforge-native --bin hexforge
+```
+
+The output is `target/release/hexforge.exe`. Node.js, npm, and browser tooling are not required to build or run the app.
+
+## Explore with confidence
 
 > [!IMPORTANT]
-> HexForge opens the source binary read-only. Edits live in an in-memory buffer. **Save As is the only way to write binary changes**, and it refuses both the source path and an existing destination.
+> **The source binary is opened read-only.** Edits live in memory. **Save As** writes a new copy and refuses both the source path and an existing destination.
 
-After Save As, HexForge opens the new copy so the bytes you just saved remain visible. Before replacing or closing a modified binary, or exiting, choose **Save Copy and Continue**, **Discard**, or **Cancel**. A cancelled picker or failed save stops the action and preserves your unsaved bytes. Template changes have their own exit confirmation. The status bar keeps the selected offset and byte, selection length, row width, edit mode, and parse endianness in view.
+After saving, HexForge opens the new copy. Before closing or replacing a modified binary, or exiting, it offers **Save Copy and Continue**, **Discard**, or **Cancel**. Cancelling the file picker or encountering a save error preserves your unsaved bytes and stops the pending action.
 
-There is **Undo**, but no Redo or in-place Save overwrite.
+<details>
+<summary><strong>Editing and navigation details</strong></summary>
 
-### Move through search matches
+- Enable edit mode with `Ctrl+Alt+E`, select a byte, and press `F2` to change it. Modified bytes appear in amber; `Ctrl+Z` undoes an edit. There is no Redo or in-place Save.
+- The status bar shows the selected offset and byte, selection length, row width, edit mode, and parse endianness.
+- Use `Ctrl+G` to jump to a decimal or hexadecimal offset. Non-printable ASCII bytes appear as `.`.
+- Use `Ctrl+Alt+T` to switch themes. A manual choice lasts until the next system-theme change or app restart.
 
-Open Search with `Ctrl+F`, enter hexadecimal bytes, and press Enter to scan. The arrows or `F3` / `Shift+F3` move to the next / previous match, selecting the entire pattern and wrapping through the returned matches. The counter shows your position, such as **3 of 18**. For an unchanged pattern, Enter / Shift+Enter also move through matches without rescanning; the **Search** button explicitly runs a fresh scan. Changing the pattern disables match navigation until you search again. A **limited** result set means only the returned matches can be navigated—refine the pattern to find a smaller set.
+</details>
+
+<details>
+<summary><strong>Searching and stepping through matches</strong></summary>
+
+Open Search with `Ctrl+F`, enter a hexadecimal sequence such as `41 42 43`, and press Enter. The arrows, `F3`, and `Shift+F3` move through the returned matches, select the full pattern, and wrap at either end. A counter shows your position, such as **3 of 18**.
+
+For an unchanged pattern, Enter / Shift+Enter also navigate without rescanning. The **Search** button explicitly runs a fresh scan. Changing the pattern disables match navigation until you search again. If results are marked **limited**, navigation covers only the returned matches; refine the pattern to narrow the search.
+
+</details>
 
 ## Templates
 
-A template is an independent local JSON file. **Loading a template is not the same as opening a binary, and neither action applies the template automatically.**
+Give a binary a vocabulary. A template is a local JSON file that describes named fields, their types, and how to read them. Create one in the separate **Template Editor** or start with a bundled example.
 
-1. Open a binary file.
-2. Choose **Template → Load Template…**, or open **Template Editor…** to create an Untitled template.
-3. Add fields in the separate editor and choose **Apply Template**. You can preview an unsaved draft without first saving its JSON.
-4. Read the parsed results below the hex view. Click a row to jump to and highlight its byte range.
+**Open a binary → Load or create a template → Apply → Inspect → Export CSV**
 
-- **Types:** signed and unsigned 8/16/32/64-bit integers, `f32`, `f64`, `bool`, encoded `string`, and `bytes`.
-- **Structure:** ordered fields, nested structures, arrays, typed conditions, enum labels, bit flags, and exact decimal offsets. Numeric fields support little- or big-endian decoding.
-- **Safety:** bounded reads and expansion, with diagnostics beside affected fields. Parsing uses the current in-memory bytes, including unsaved edits.
+Loading a binary or template never applies a template automatically. You can apply an unsaved editor draft, inspect results below the hex view, and click a successful result to highlight its exact byte range.
 
-**Save Template** updates an already path-backed JSON file; **Save Template As…** chooses a path. Saving never auto-applies. You can unload a template, and the editor protects unsaved drafts when it closes.
+| Start with | Example template | What it decodes |
+| :--- | :--- | :--- |
+| **An image header** | [PNG / IHDR](templates/png-ihdr.json) | Signature, dimensions, color type, and the first IHDR chunk. |
+| **An audio sample** | [RIFF/WAV](templates/riff-wav.json) | PCM format metadata, the data header, and the first stereo sample frame. |
+| **An executable header** | [ELF64](templates/elf64-header.json) | The 64-byte little-endian ELF64 file header. |
+| **More formats** | [Full template catalog](templates/README.md#bundled-examples) | BMP, GIF, ICO, DDS, ZIP, GZIP, SQLite, PCAP, GLB, and UF2 examples, with matching binary fixtures. |
 
-Start with the [PNG / IHDR](templates/png-ihdr.json), [RIFF/WAV](templates/riff-wav.json), or [ELF64](templates/elf64-header.json) examples and their matching fixtures. The [bundled template catalog](templates/README.md#bundled-examples) also covers BMP, GIF, ICO, DDS, ZIP, GZIP, SQLite, PCAP in both byte orders, GLB, and UF2, with each template's coverage and limitations documented.
-
-The [template-format guide](templates/README.md) explains the one supported JSON format and its limits. Old JSON files with a top-level `version` property are unsupported; recreate them manually in the Template Editor. HexForge never converts them automatically.
+These examples decode specific portions of each format. The [catalog](templates/README.md#bundled-examples) documents their coverage and limitations.
 
 <details>
-<summary><strong>⌨️ Keyboard shortcuts</strong></summary>
+<summary><strong>A small template, from bytes to fields</strong></summary>
+
+This example reads the beginning of a PNG file through its width and height:
+
+```json
+{
+  "name": "PNG dimensions",
+  "defaultEndianness": "big",
+  "fields": [
+    { "name": "signature", "type": "bytes", "length": 8 },
+    { "name": "chunkLength", "type": "u32" },
+    { "name": "chunkType", "type": "string", "encoding": "ascii", "length": 4 },
+    { "name": "width", "type": "u32" },
+    { "name": "height", "type": "u32" }
+  ]
+}
+```
+
+Templates support signed and unsigned 8/16/32/64-bit integers, `f32`, `f64`, `bool`, encoded strings, and raw bytes. Build larger layouts with nested structures, arrays, typed conditions, enum labels, bit flags, expected-value checks, and exact decimal offsets. Numeric fields can use little- or big-endian decoding.
+
+Reads and expansion are bounded. Invalid templates and truncated data produce diagnostics beside affected fields. See the [template-format guide](templates/README.md) for the schema, encodings, reference rules, and parser limits.
+
+</details>
+
+<details>
+<summary><strong>Saving templates and using existing JSON</strong></summary>
+
+**Save Template** updates a template that already has a file path; **Save Template As…** chooses a path. Saving template JSON never applies it to the binary. You can unload a template, and the editor protects unsaved drafts when it closes. Template changes also have their own exit confirmation.
+
+HexForge supports one unversioned JSON format. Files with a top-level `version` property are rejected and must be recreated manually in the Template Editor; they are never converted automatically. The [format guide](templates/README.md) describes the supported shape.
+
+</details>
+
+## Keyboard shortcuts
 
 | Action | Shortcut |
-| --- | --- |
+| :--- | :--- |
 | Open / close binary | `Ctrl+O` / `Ctrl+W` |
-| Save binary As (main window) | `Ctrl+Shift+S` |
+| Save binary as a new copy | `Ctrl+Shift+S` |
 | Go to offset / search bytes | `Ctrl+G` / `Ctrl+F` |
 | Next / previous search match | `F3` / `Shift+F3` |
-| Toggle edit mode / edit selected byte / undo | `Ctrl+Alt+E` / `F2` / `Ctrl+Z` |
+| Toggle edit mode / edit selected byte | `Ctrl+Alt+E` / `F2` |
+| Undo an edit | `Ctrl+Z` |
 | Open Template Editor / apply template | `Ctrl+Shift+T` / `Ctrl+Enter` |
 | Load / unload template | `Ctrl+Alt+O` / `Ctrl+Alt+U` |
-| Save template / Save Template As (Template Editor) | `Ctrl+S` / `Ctrl+Shift+S` |
-| Close Template Editor, with unsaved-draft protection | `Ctrl+W` |
 | Export parsed results as CSV | `Ctrl+Shift+E` |
 | Toggle dark / light theme | `Ctrl+Alt+T` |
 | Use 16 / 32 bytes per row | `Ctrl+1` / `Ctrl+2` |
 | Close a popup or clear selection | `Esc` |
 | Exit | `Alt+F4` |
 
-Save shortcuts follow the focused window: `Ctrl+Shift+S` in the main hex viewer saves **binary bytes** through the Save As picker without overwriting the open source binary. `Ctrl+S` in the main window does nothing and does not open a browser Save Page dialog. In the separate Template Editor, `Ctrl+S` saves **template JSON** in place and `Ctrl+Shift+S` opens Save As. With no binary open, main-window Save As is disabled rather than saving a background template. Template Save and Save As remain available in the main **Template** menu, without main-window keyboard shortcuts. The former binary `Ctrl+Alt+S` binding is no longer used.
+**In the Template Editor:** `Ctrl+S` saves template JSON, `Ctrl+Shift+S` opens Template Save As, and `Ctrl+W` closes the editor with unsaved-draft protection.
 
-</details>
+Save shortcuts follow the focused window. In the main viewer, `Ctrl+Shift+S` saves **binary bytes**, is disabled without an open binary, and `Ctrl+S` does nothing. Template Save and Save As are also available from the main **Template** menu. The former binary `Ctrl+Alt+S` binding is no longer used.
 
-## Build and verify
+## Development
 
-The workspace separates bounded file/parser operations (`hexforge-core`), authoritative state and command policy (`hexforge-controller`), and the styled native interface (`hexforge-native`). The main window and separate Template Editor share the controller without inter-window IPC. Fonts, icons, and default keybindings are embedded. HexForge does not use a third-party hex-view component.
+The Rust workspace keeps file operations, application policy, and the native interface in three focused crates:
+
+| Crate | Responsibility |
+| :--- | :--- |
+| [`hexforge-core`](crates/hexforge-core) | Bounded file reads, search, in-memory edits, template parsing, and export. |
+| [`hexforge-controller`](crates/hexforge-controller) | Authoritative application state, command availability, and binary/template workflows. |
+| [`hexforge-native`](crates/hexforge-native) | The egui / eframe interface, custom hex view, native windows, and platform integration. |
+
+The main viewer and Template Editor share the controller without inter-window IPC. The hex view is implemented by HexForge.
 
 ```sh
 cargo fmt --all --check
-cargo check --workspace
-cargo test --workspace
-cargo build --release -p hexforge-native --bin hexforge
+cargo check --locked --workspace
+cargo test --locked --workspace
+cargo build --locked --release -p hexforge-native --bin hexforge
 ```
 
-The [Windows build workflow](.github/workflows/build.yaml) runs the native tests, checks formatting and compilation, builds the GUI-only executable, and verifies its EXE-only packaging. Tests cover command availability, real widget input/paint, save and close protection, exact offsets, both minimap modes, template parsing/editing, and byte-identical bundled fixtures.
+The [Windows workflow](.github/workflows/build.yaml) checks formatting and compilation, runs the workspace and preference-import tests, builds the GUI executable, and verifies EXE-only portable packaging. Tests cover widget input and painting, command policy, save/close protection, offsets, minimap modes, templates, and byte-identical bundled fixtures.
 
-### Measure startup locally
+<details>
+<summary><strong>Startup measurements</strong></summary>
 
-Startup diagnostics are opt-in. The development-only `hexforge_startup_probe` example observes actual desktop pixels and correlates process creation with Windows QPC; a title, constructed scene, queued frame, or blank window cannot count as meaningful paint. It requires a reviewed calibration for the exact executable, viewport, DPI, and theme. Reports are written outside the portable folder, never as runtime sidecars.
+Startup diagnostics are opt-in. The development-only `hexforge_startup_probe` example observes actual desktop pixels and correlates process creation with Windows QPC. A title, constructed scene, queued frame, or blank window does not count as meaningful paint. Calibration must be reviewed for the exact executable, viewport, DPI, and theme; reports stay outside the portable folder.
 
-See [startup performance measurements](STARTUP_PERFORMANCE.md) for the method, observed intervals, current phase breakdown, and limitations. **The under-100 ms target was not achieved.** The full repeated benchmark was deferred at the user's request; no before/after median, p95, or early interaction-time claim is made for the native replacement.
+See [startup performance measurements](STARTUP_PERFORMANCE.md) for the method, observed intervals, phase breakdown, and limitations. **The under-100 ms target was not achieved.** The full repeated benchmark was deferred at the user's request; no before/after median, p95, or early interaction-time claim is made for the native replacement.
+
+</details>
+
+---
+
+<p align="center"><strong>Inspect bytes. Understand structure. Keep the original intact.</strong></p>
